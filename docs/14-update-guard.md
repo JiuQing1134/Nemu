@@ -1,11 +1,11 @@
 # 14 凪（Nagi）
 
 独立应用：`D:\win_root\nemu-update-guard`，applicationId `com.nemu.windstop`
-（源码命名空间 `com.nemu.updateguard`），显示名 **凪**，版本 `1.3.8` / `versionCode 34`。
+（源码命名空间 `com.nemu.updateguard`），显示名 **凪**，版本 `1.3.8` / `versionCode 35`。
 
 Release APK：`app\build\outputs\apk\release\app-release.apk`
-（2,156,026 字节，SHA-256
-`d806f6c8da29922cf118157b8fab6455aa14e90d46ad05f4c703d2f29e2d96bd`）。
+（2,161,898 字节，SHA-256
+`cbacd197801032093ba953fc33c06484438c65bb3e38b034504d4cc44b89d181`）。
 
 ## 1. 目标
 
@@ -48,6 +48,9 @@ XposedHelpers.findAndHookMethod(
 - Nagi 每次进入前台/点刷新会发请求广播，OUC 主进程的 hook 收到后立即重报；
 - App 给这次请求 2 秒窗口；没有新报告就显示“当前软件更新进程未上报（上次 hook 已生效）”，
   不再把上次开机的旧报告当成当前激活；
+- 报告附带 OUC 进程的 PID 和一个 Binder token；OUC 进程死亡时，Nagi 里的 Binder death
+  会立即把 `processGone` 置 true 并刷新界面——即使凪一直停在前台，也不需要轮询；
+  新进程的新报告会清除这个状态；
 - 如果 `Application.onCreate` 的激活 hook 失败，第一次 `result.d()` 调用会用
   `AndroidAppHelper.currentApplication()` 兜底注册请求接收器并上报。
 
@@ -63,7 +66,8 @@ App 每次进入前台（启动/从后台切回）时探测一次，点“刷新
 1. `su -c "stat ..."` 记录源 DB/WAL 的 size+mtime；
 2. `cat` 复制主数据库和 `-wal`（不复制 `-shm`，让 SQLite 从 WAL 重建索引）；
 3. 复制后再 stat 一次；前后不一致说明复制期间 LSPosed 写入/checkpoint 了，重试一次，
-   仍不稳定就返回 null（未知），不信任撕裂快照；
+   仍不稳定就返回 null（未知），不信任撕裂快照；`stat` 本身失败（`DB_ERROR`/`WAL_ERROR`）
+   也返回 null，不会把“stat 失败”当成“WAL 不存在”；
 4. WAL 不存在或 size=0 时跳过 WAL 复制；WAL 有数据但复制失败也返回 null，不回退到旧主库；
 5. 在 App 缓存目录打开 SQLite，查询：
    `SELECT enabled FROM modules_state WHERE module_pkg_name='com.nemu.windstop' AND user_id=0`；
@@ -72,8 +76,9 @@ App 每次进入前台（启动/从后台切回）时探测一次，点“刷新
    `SELECT 1 FROM scope WHERE module_pkg_name='com.nemu.windstop' AND app_pkg_name='com.hihonor.ouc' AND user_id=0`。
 
 结果只用于补充管理器开关提示，不改变 hook 的激活判定。读取失败（无 Root、
-授权弹窗超时、数据库查询失败）时显示“管理器状态读取失败，点刷新重试”，
-不再把旧的管理器状态静默当成当前状态；不反复提示 Root。
+授权弹窗超时、数据库查询失败）时显示“管理器状态读取失败，点刷新重试”；
+如果之前有已知管理器状态，会静默重试一次，仍失败才提示，避免连续触发 Root 弹窗。
+不会把旧的管理器状态静默当成当前状态，也不会反复提示 Root。
 
 **已知修复（2026-11-22）**：旧实现直接在探测线程读取 `su` 的 stdout。首次 Root
 授权弹窗未处理时 `read()` 会永久阻塞，`lsposedProbeRunning` 不再复位，之后所有探测
@@ -88,7 +93,7 @@ App 每次进入前台（启动/从后台切回）时探测一次，点“刷新
 | fresh hook 成功，管理器关 | 已激活（管理器已关闭，新进程不再生效） | LSPosed · 已激活（管理器已关） |
 | fresh hook 成功，作用域取消 | 已激活（作用域已取消，新进程不再生效） | LSPosed · 已激活（作用域已取消） |
 | fresh hook 失败 | 已注入，hook 未生效 | LSPosed · 已注入，hook 未生效 |
-| 2 秒内没有 fresh hook 报告 | 已启用，当前软件更新进程未上报（上次 hook 已生效） | LSPosed · 已启用，当前进程未上报 |
+| 2 秒内没有 fresh hook 报告，或 OUC 进程退出 | 已启用，当前软件更新进程未上报（上次 hook 已生效） | LSPosed · 已启用，当前进程未上报 |
 | 管理器关，无 fresh 报告 | 已在管理器中关闭 | LSPosed · 已在管理器中关闭 |
 | 管理器开，作用域未勾选 | 已启用，但作用域未勾选软件更新 | LSPosed · 作用域未勾选软件更新 |
 | 管理器开，未注入 | 已启用，重启软件更新后生效 | LSPosed · 已启用，重启软件更新后生效 |
@@ -106,7 +111,8 @@ cd D:\win_root\nemu-update-guard
 .\gradlew.bat :app:assembleRelease
 ```
 
-- `testDebugUnitTest` 覆盖 `ProbeStat` 的 WAL stat 解析；CI 工作流同时跑测试、lint、release 构建；
+- `testDebugUnitTest` 9 项（`ProbeStatTest` 5 + `StatusModelTest` 4）；
+  `lintRelease` 0 errors / 0 warnings；CI 工作流同时跑测试、lint、release 构建；
 - `compileOnly` Xposed API 82：`app/libs/api-82.jar`；
 - 入口：`assets/xposed_init` → `com.nemu.updateguard.UpdateHook`；
 - 没有 `keystore.properties` 时 release 复用 debug 签名（会打印警告，仅适合本机覆盖安装）；
@@ -115,9 +121,9 @@ cd D:\win_root\nemu-update-guard
   换签名必须卸载旧版；密码在 `keystore.properties`，丢失后只能卸载重装；
 - 版本名固定 `1.3.8`，内部 `versionCode` 递增。
 
-## 6. 当前实测（2026-11-23，v34）
+## 6. 当前实测（2026-11-23，v35）
 
-- 安装：已卸载旧 debug 签名版，安装私有签名 v34（UID 10309，证书
+- 安装：已卸载旧 debug 签名版，安装私有签名 v35（UID 10309，证书
   `1F:45:7A:B9:…:61:BB`）；卸载后 FinaSU allowlist 条目被删，已在 App Profile
   重新授权“超级用户”；重启 OUC 后 hook 正常加载；
 - 管理器开关/作用域：LSPosed `modules_state` 中 `com.nemu.windstop` 当前
@@ -128,6 +134,9 @@ cd D:\win_root\nemu-update-guard
 - fresh 超时：force-stop OUC 后打开凪，2 秒后日志 `hook report timeout`，
   界面显示“已启用，当前软件更新进程未上报（上次 hook 已生效）”，不再显示“已激活”；
   重启 OUC 后再次进入前台，收到新报告并恢复“已激活”；
+- Binder death：凪保持前台时 force-stop OUC，日志立即出现
+  `OUC reporting process gone`，界面马上变为“当前进程未上报”，不需要等下一次前台/刷新；
+  重启 OUC 后新 pid 的报告（日志带 `pid=`）恢复“已激活”；
 - 界面：fresh hook 成功，管理器开启 → “已激活，软件更新已返回最新”，底部
   “LSPosed · 已激活”，芯片带 ✓；点芯片会直接打开 LSPosed 管理器，底部状态不被覆盖；
 - 首次探测完成前显示“正在检查 LSPosed 状态…”，不会先闪“状态未知”；
@@ -135,7 +144,7 @@ cd D:\win_root\nemu-update-guard
 - 管理器关闭/作用域取消时，只有 fresh 报告成功才显示“已激活”并补充说明；
   没有 fresh 报告只显示“当前进程未上报”；
 - 关机兜底 hook 已删除，模块只 hook `com.hihonor.ouc`，作用域不再需要 `system`；
-- `testDebugUnitTest` 4 项通过；`lintRelease` 0 errors、26 warnings（主要是中文硬编码 SetTextI18n）；
+- `testDebugUnitTest` 9 项通过；`lintRelease` 0 errors / 0 warnings（有意项已在 lint.xml/manifest 注明）；
 - Release 未配置私有 keystore 时仍用 debug 签名，Gradle 会打印警告；该 APK 不应公开分发；
 - 120 Hz：打开 App 后 `dumpsys display` 为 `mActiveModeId=3`、`renderFrameRate 120.00001`；
 - OUC 未被冻结：`suspended=false`。
