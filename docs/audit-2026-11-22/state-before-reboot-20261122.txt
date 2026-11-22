@@ -1,0 +1,10 @@
+    User 0: ceDataInode=8510 deDataInode=3506 installed=true hidden=false suspended=true suspendedByPrivacy=false distractionFlags=0 stopped=true lastStoppedCaller=1000 iAwareStopped=false notLaunched=false enabled=1 instant=false virtual=false quarantined=false
+      disabledComponents:
+        com.hihonor.lcagent.service.LogCollectService
+        com.hihonor.configupdate.CloudConfigUpdateReceiver
+        com.hihonor.mcs.system.diagnosis.service.DiagKitService
+        com.hihonor.ncdft.NcDftService
+
+Queries:
+1
+38

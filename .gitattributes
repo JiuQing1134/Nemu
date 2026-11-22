@@ -1,0 +1,2 @@
+tools/nemu-boot-autostart/*.sh text eol=lf
+tools/nemu-boot-autostart/module.prop text eol=lf

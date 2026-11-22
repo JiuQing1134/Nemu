@@ -1,0 +1,245 @@
+=== UI ===
+## currentStructure
+【入口与导航】D:/win_root/nemu/app/src/main/java/com/nemu/hibernate/ui/DashboardScreen.kt 的 DashboardScreen() 是唯一页面容器：Scaffold + TopAppBar（NemuMark、标题 Nemu、副标题只显示开机冻结开关和 boot 号、右侧后端 StatusChip）+ 4 项 NavigationBar（DashboardTab：概览/冻结/检测/设置；选中索引按 ordinal 存 rememberSaveable）。detectionContent/settingsContent/logsContent/cloudContent/antiFraudContent/cotaContent 是可选槽位，生产只接入 detectionContent（完整 DetectionScreen），其余走内置内容。【状态聚合】DashboardState 把核心 Targets.all（5 个：com.hihonor.ouc、com.honor.yoyoappsug、com.honor.yoyocards、com.hihonor.suggestion、com.hihonor.sceneservice）、AI AiTargets.all（6 个：aipluginengine/assistant/magicvoice/voiceengine/brain/mageruntime）、云控 CloudTargets.all（7 个：运营商 DM 3 个 disable-user + hiview 3 个 suspend + cipservice 仅观察）、反诈 AntiFraudConfig/results（numberidentity、securityserver、awareness、securitypluginbase）、COTA 文件/备份、日志、检测摘要、boot 守卫/救援状态、targetActual（仅核心+AI 的实际 suspend/enabled/stopped/process）塞进一个对象。【功能关系与开启方式】核心由 Settings.target_<pkg> 控制；AI 由 BootFreezeSettings.ai_deep_freeze_enabled + ai_target_<pkg> 两级控制；云控由 CloudSettings 每包控制；反诈由 AntiFraudSettings 保存 AntiFraudConfig；COTA 由 Settings.cota_enabled 控制。实际执行入口分散：核心+AI 在概览页“立即冻结”（FreezeController + AiFreezeController）；云控在云控卡“立即应用云控”（CloudController）；反诈在反诈卡“应用反诈设置”（AntiFraudController）；自动冻结由 BootFreezeWorker 开机延迟执行；关机/开机安全解冻由 SafetyService/SafetyUnfreezer 对 SafetyTargets.suspendPackageNames 执行；批量解冻由 SelectedRestorePlan 路由到 core/AI/cloud 并同时关闭对应策略。【OverviewPage】Hero 卡（后端/开机冻结 chip、立即冻结、全部恢复+确认、Dry run 警告、打开启动管理）、可选救援模式卡、开机自动冻结卡（开关+上次结果/跳过原因/时间+守卫说明）、上次安全解冻卡（关机前/开机后结果）。【FreezePage】标题“冻结管理”+5 个横向 FilterChip（核心/AI 服务/云控遥测/反诈/COTA，带已启用数；反诈和 COTA 显示“只读”）+选中后出现的批量条（已选 N、清除、解冻所选）+分类内容：核心 CoreTargetCard（策略 Switch+解冻 Checkbox+实际状态 chip）、AI AiFreezeCard（总开关+每行 Switch/Checkbox+红色目标确认）、云控 CloudSection（说明卡、立即应用/恢复全部/刷新、每行 Switch/Checkbox、disable-user 确认）、反诈 AntiFraudSection（草稿配置、号码识别三选、securityserver/awareness 限制开关、应用/恢复）、COTA CotaSection（模块开关、文件多选、备份/删除/恢复）。【DetectionPage】生产通过槽位整体嵌入 DetectionScreen（自己的 LazyColumn），分类冻结/云控遥测/系统/启动安全，只读；DetectionUiState 摘要只在无槽位时使用，实际是死代码。【SettingsPage】偏好设置/运行日志两个子 chip，Dry run、后端/Shizuku、日志开关/抓取/清空。【Theme 与组件】theme/NemuTheme.kt 提供冷色 light/dark colorScheme、8–24dp 圆角和自定义 Typography；SectionCard/SectionHeader/StatusChip/RiskChip 是通用件；Theme.kt 只是 NemuAppTheme 的兼容包装。【清单与命名】目标清单是硬编码静态列表，没有从 PackageManager 生成完整清单或自定义包入口；app_name 仍是 Nemu（霜冻），除它之外的业务文案几乎全部硬编码在 Kotlin 中。
+## problems
+- 4 Tab 没有“解冻”目的地：DashboardTab 只有 OVERVIEW/FREEZE/DETECTION/SETTINGS；解冻动作散落在 Overview 的“全部恢复”、FreezePage 的“解冻所选”、CloudSection 的“恢复全部云控”、AntiFraudSection 的“恢复反诈设置”、CotaSection 的备份“恢复”里，用户无法建立“解冻在哪”的心智模型。
+- FreezePage 没有冻结动作：标题是“冻结管理”，但页内只有策略开关和批量解冻；真正的“立即冻结”在 Overview 的 Hero 卡，且只应用核心+AI；云控/反诈还要分别去各自卡片点“立即应用云控”/“应用反诈设置”。
+- 同一行并排两个语义不同的控件：Switch=是否纳入冻结策略，Checkbox=是否选中以便解冻；Checkbox 无文字标签，只在选中后出现批量条时才有意义。CoreTargetCard、AiTargetRow、CloudSection 三处都是这个模式。
+- 批量选择是跨分类共享的单一 restoreSelection：切换 FilterChip 后，其他分类的选中项不可见但仍保留；此时点“解冻所选”会作用到屏幕外目标。选中状态还用 remember 而非 rememberSaveable，切 Tab 后丢失，行为前后不一致。
+- “解冻所选”的文案严重弱化实际后果：onRestoreTargets 不只 unsuspend，还会关闭被选中的 core/AI/cloud 策略（settings.setEnabled(false)、setAiTargetEnabled(false)、cloudSettings.setEnabled(false)），并写 bootFreezeSkippedBootCount 跳过本次开机自动冻结；UI 没有确认框，也没说明这是永久改策略。
+- “全部恢复”（onRestore）和“恢复全部云控”（onCloudRestoreAll）范围不同却都叫“全部”：前者只对 SafetyTargets.suspendPackageNames 做 pm unsuspend，不 pm enable 运营商 DM 的 disable-user 包，也不恢复 securityserver/awareness 的 AppOps/standby；后者才会 enable。用户点“全部恢复”后 regservice/UEInfoCheck/AutoRegSms 仍是停用状态。
+- 策略开关与执行脱节且没有 pending 状态：开关只写 SharedPreferences，不会执行命令；执行分散在 Overview/Cloud/AntiFraud。页面不显示“策略已开但尚未应用”（云端只在文字里提，核心/AI 没有），用户会以为拨动开关即冻结。
+- 分类计数误导：云控 chip 分母是 state.cloud.targets.size（7，含只能观察的 cipservice），分子最多 6；反诈和 COTA 在 chip 上显示“只读”，但 AntiFraudSection 有应用/恢复写操作、CotaSection 有备份/删除/恢复写操作，“只读”与事实不符。
+- COTA 与冻结/解冻没有关系：它管理 /data/cota/para 文件的备份、删除、恢复，既不是 suspend/unsuspend，也不参与 SafetyTargets/SelectedRestorePlan；把它放在“冻结”Tab 且使用第二套 Checkbox 选择，是当前最严重的概念混杂。
+- 反诈是第四种冻结机制（AppOps+standby），却被埋在 FreezePage 的“只读”分类；numberidentity 还有 OFF/SUSPEND/DISABLE_USER 三态，和简单 Switch 模型不一致；Unfreeze 侧也没有对应的实际状态读取与恢复入口。
+- 同一目标有多套实际状态来源：核心/AI 用 targetActual: Map<String, TargetActualUiState>，云控用独立 CloudStatus，反诈只有 AntiFraudResult（执行结果，不是当前状态），COTA 用 CotaState；页面没有统一快照，也没有“当前到底冻了几个”的总数。
+- Overview 与 FreezePage 重复/割裂：后端状态在 TopAppBar 和 Hero 卡各显示一次；开机冻结开关在 Overview，但它属于冻结策略；“打开应用启动管理”在 Hero 卡，却服务于开机自动冻结；状态、开关、动作的归属不一致。
+- 红色 AI 目标只在把 Switch 打开时弹确认；批量“解冻所选”、关闭总开关、关闭单个目标都没有风险提示。AI 总开关关闭时每行仍可切换（enabled=!busy），但不会生效，也没有视觉禁用或说明。
+- “受保护”只有结果没有解释：核心卡对 DenyList 包禁用 Checkbox/Switch 并显示“受保护”，但不说明名单来源；同时多数 AI 目标也在 DenyList，却能通过 AiFreezeController 单独操作，用户会困惑为什么有的“受保护”可操作、有的不可操作。
+- 空状态缺失且不一致：核心为空有 EmptySlotCard，AI 为空只有一行文字，云控/反诈/COTA 没有空状态；批量条在选中数为 0 时直接消失。Unfreeze 侧完全没有“当前没有冻结目标”的空状态。
+- 危险操作确认不一致：全部恢复有 AlertDialog；解冻所选没有；云控 disable-user 有；反诈应用有（含命令列表和 enable 确认）；COTA 删除有风险勾选；救援清除有。没有统一的危险操作模式，确认强度参差不齐。
+- 组件与视觉重复：DetectionScreen.kt 内定义了私有 StatusChip(text, warning)，与 ui/StatusChip.kt 的 StatusChip(text, tone) 同包重载、视觉语义不同；formatBytes 在 DashboardScreen/CotaSection/DetectionScreen 各有一份实现；ui/Theme.kt 只是包装。新页面直接复用会继承这些分叉。
+- 状态保存/导航细节：Tab 索引和 FreezeCategory 都用 ordinal 保存，新增 Unfreeze Tab 或重排分类会让升级后的 rememberSaveable 指向错误页面；FreezePage 的 restoreSelection、AntiFraudSection 的 draft、AiFreezeCard 的 pendingRedTarget 都是页面内 remember，切 Tab 即丢失/重置（反诈草稿会静默丢失）。
+- 全局 busy 只把所有控件一起禁用，没有当前操作名/进度；后端不可用或 dry-run 时开关仍可改，用户只能在日志里看到失败。页面级缺少“不可执行”横幅；手动冻结与开机冻结命令集不同（核心手动会 pm clear --cache-only，开机冻结 copy(clearCache=false) 只做 suspend+force-stop），UI 从未展示这个差异。
+- 目标清单是硬编码的 5/6/7/4 个包：UI 没有从 PackageManager 生成完整清单，也没有添加自定义包的入口；用户要求的“所有云控/温控/AI/系统更新”无法在界面上确认覆盖，新增包必须改代码。温控服务 powergenie/iaware 按项目约束永远只读、不可冻结，但 FreezePage 没有任何提示，用户会把“冻结所有”误解为包含温控。
+## freezePageProposal
+- 导航：底部导航改为 5 个一级目的地：Home / Freeze / Unfreeze / Detect / Settings（Material3 NavigationBar 支持 3–5）。Freeze 与 Unfreeze 各自独立滚动、独立动作栏；如果 5 个底部项在小屏拥挤，可保留 4 个一级 Tab，把 Freeze/Unfreeze 做成同一入口内的两个顶部 SegmentedButton，但不要再把二者混在同一列表。
+- Freeze 页只回答两个问题：“哪些目标应该被冻结（policy）”和“按这个策略执行一次（apply）”。页内不出现解冻 Checkbox、不出现 COTA 文件操作、不出现日志/设置。
+- 顶部 FreezeSummaryCard：后端（Root/Shizuku/不可用）、Dry run、已选策略数、实际已冻结数、待应用数、最近一次冻结结果和时间；无后端时显示只读/不可执行横幅；救援模式时显示红色横幅并禁用 Apply。
+- 分组直接映射现有数据源：A 系统与更新 Targets.all（OUC 软件更新、App 建议、YOYO 建议卡片集、智能提醒、智慧空间基础服务）；B AI 服务 AiTargets.all（6 个）；C 云控与遥测 CloudTargets.carrierDm+telemetry（6 个可操作 + cipservice 仅观察只读行）；D 安全与反诈限制 AntiFraudTargets（numberidentity 三态、securityserver、awareness、securitypluginbase 只观察）；E 自动化（独立卡片：开机自动冻结+延迟+上次结果+守卫状态）。COTA 移到 Settings 的 Advanced 入口。
+- 分组形态：每组一个 TargetGroupCard，header 有组名、说明、N/M selected 计数、风险摘要和组级三态 master switch（全开/全关/部分）；组内用 LazyColumn items + stable package key，不再把整个 section 塞进单个 item；组可折叠，折叠状态按组名 rememberSaveable。
+- 行组件 FreezeTargetRow：标题+RiskChip、包名等宽小字、MechanismChip（Suspend / Suspend+force-stop / Disable-user / AppOps+standby / Observe-only）、ActualStateChip（Frozen / Not frozen / Disabled / Unknown / Mismatch），最右侧一个 Switch 控制 policy；没有 Checkbox。点行展开 description、当前实际状态、上次命令结果和风险说明。
+- 机制透明化：每行必须显示实际冻结方式。Target 的 suspend/forceStop/clearCache、CloudAction、AntiFraudAction 都映射成用户能读懂的 FreezeMechanism；未来新增非 Android 原生冻结方式时，只在 enum 和行上增加一种 mechanism，不要让 UI 继续只显示“纳入策略”。手动冻结是否 clear cache 也应在 Apply 对话框中说明或作为选项。
+- 分级开关：绿色目标可单开关直接生效；黄色目标开关时给 inline 警告；红色目标（aipluginengine/assistant/magicvoice/brain/securityserver/awareness 等）开关时弹 DestructiveActionDialog，列出可能影响的桌面/YOYO/语音/相机/反诈能力。组级 master 不允许静默打开红色目标，必须列出并单独确认。
+- 底部固定动作栏（在底部导航之上）：左侧显示 N targets selected · M pending，右侧主按钮 Apply freeze；有 pending 时高亮，无目标或救援模式时禁用。文案统一为 Apply freeze（中文可用“应用冻结”），不要再用和 Overview 重复的“立即冻结”。
+- Apply 确认框 FreezePlanDialog：按组列出将执行的包和机制，标注 disable-user/AppOps/clear-cache 等强动作；Dry run 时按钮改为 Preview freeze plan，确认只记录不执行；包含 disable-user 或红色 AI 时要求勾选确认；列表可滚动，避免命令预览溢出。
+- 策略与应用模型：推荐“开关立即保存 policy，Apply 只负责执行”（改动最小、进程被杀不丢配置），但页面必须显示 Pending apply 计数和每行 Policy on, not applied 状态；如果改成 draft+一次保存，必须把 draft 提升到 ViewModel/可保存状态，并在离开页面时提示未保存，不能继续用页面内 remember。反诈组用组内编辑 sheet 保存 AntiFraudConfig，并统一成同一种保存模型，不能保留第三套。
+- 状态与不一致：每行 ActualStateChip 由实际快照计算；Policy on + Not frozen 显示 Mismatch chip 并可跳转 Detect；Suspended + process running 显示 Partial chip 并解释系统服务可能重新拉起进程；Unknown 不能当成功。页面顶部统计 Actually frozen 与 Pending，而不是只统计策略开启数。
+- 空状态：没有启用任何策略时显示 No freeze targets selected，说明“开关只保存策略，Apply 才会执行”，并提供展开各组按钮；某组为空/未安装时显示 Not installed on this device 的禁用行；没有 Root/Shizuku 时显示 Policies can be saved, but apply needs Root or Shizuku，而不是让开关看起来生效。
+- 自动化区：Boot auto-freeze 开关、延迟（≥60s）、上次结果/跳过原因/下次是否会被守卫跳过；手动 Apply 与自动冻结共用同一策略快照和同一 guard 语义（取消调度、recordAttempt、rescue 拦截）。把 BootFreezeCard 从 Overview 移到 Freeze 页，Overview 只留一行摘要和跳转。
+- 快捷解冻：Freeze 行右侧 overflow 菜单提供 Unfreeze…，点击跳转 Unfreeze 页并预选该包；这样既不在 Freeze 页放解冻控件，也保留单目标快速恢复路径。
+- 数据驱动与覆盖：从统一的 TargetCatalog（可按设备/系统版本生成，包含已安装/未安装状态）渲染分组，并提供 Custom package 添加入口（受 DenyList 和机制白名单约束）；温控基础服务 powergenie/iaware 保持只读不可冻结并明确写“不属于冻结目标”，COTA 参数文件只在 Settings 的 COTA 页管理，避免用户把“冻结所有”误解为包含温控。
+- 视觉与组件：沿用 SectionCard/StatusChip/RiskChip/主题；组 header 用 surfaceContainerHigh，危险动作使用 error 色；不要在 Freeze 页用 5 个横向 FilterChip 隐藏内容（隐藏会制造跨组状态），用可折叠分组替代。
+## unfreezePageProposal
+- 定位：Unfreeze 是恢复/救援页，只回答“现在实际处于冻结/停用/受限状态的目标有哪些，如何撤销”。页内不出现冻结策略 Switch（策略在 Freeze 页），只出现 Checkbox+解冻动作。入口：底部导航；Overview 的救援/冻结摘要带链接；Freeze 行 overflow 可带包名预选跳转。
+- 进入即刷新：onTabSelected(UNFREEZE) 触发 refreshTargetActual、readCloudStatuses、DetectionReader 快照和反诈实际状态读取；显示 Last checked HH:mm:ss 和刷新按钮。读取中显示 loading，读取失败显示 Unknown 并提供重试，不能用旧快照假装当前状态。
+- 数据源：复用 DetectionSnapshot.freezeStates（核心+AI）、cloudStates（云控/遥测）和 TargetActualUiState；反诈需新增实际状态读取（numberidentity 的 suspend/enabled、securityserver/awareness 的 AppOps/standby），不能只显示 AntiFraudResult 历史结果。所有实际状态都区分 known/unknown。
+- 按机制分组：S1 Suspended（suspend；核心/AI/遥测/numberidentity）；S2 Disabled（disable-user；运营商 DM 3+numberidentity，若被 Nemu 停用）；S3 Background restricted（AppOps RUN_ANY_IN_BACKGROUND ignore+standby restricted；securityserver/awareness）；S4 Policy only（策略已开但当前并未实际冻结/停用/受限；动作是移除策略，不是系统解冻）；S5 Observe only（cipservice/securitypluginbase，只读展示，不提供操作）。
+- 每行 UnfreezeTargetRow：标题+RiskChip、包名、MechanismChip、实际状态 chip（Suspended/Disabled/Restricted/Unknown）、Partial 警告（suspended 但进程存活）、Owned by Nemu / External or unknown 标记；右侧 Checkbox；没有 Switch。展开详情显示当前实际值、策略值、上次命令结果和撤销该机制将执行的命令。
+- 选择模型：每组有 select all visible 三态；批量条显示 N selected across all groups，切换分组/过滤后仍显示全局已选数，避免隐藏选择；提供 Clear。选中集合按 package+mechanism 唯一键保存，避免同一包在 suspend 与 disable 两个分组重复；选中状态建议 hoist 到页面级 ViewModel/rememberSaveable。
+- 两种解冻语义必须分开：A Release now 只执行 pm unsuspend/pm enable/AppOps allow/standby active，不改变策略，本次 boot 可能被下一次自动冻结再次挂起；B Unfreeze & stop auto-freeze 在 A 基础上关闭对应策略并写 bootFreezeSkippedBootCount，保证不再自动冻结。UI 用两个明确按钮或主按钮+次级菜单，不能再用一个含糊的“解冻所选”。
+- 批量解冻确认框 UnfreezePlanDialog：列出选中目标、机制、将执行的动作、哪些策略会被关闭、是否会跳过本次开机自动冻结、Dry run 说明；包含 disable-user 重新 enable 或红色 AI/反诈目标时要求额外勾选确认。单个目标 Release now 可以只用 Snackbar+Undo 或轻确认，但批量/永久动作必须确认。
+- 逐行结果：执行后每行显示 OK/FAIL/DRY-RUN 和输出摘要；失败项保留在列表并显示原因（suspend 由其他 suspendingPackage 施加、pm enable 未确认、进程仍存活等）；页面顶部显示 Last unfreeze result。执行后自动刷新实际状态，而不是只更新日志。
+- Restore everything 危险区：页面底部独立 DangerZoneCard，红色边框/容器；按钮 Unfreeze all & disable auto-freeze。确认框给出范围矩阵：unsuspend 全部 suspend 目标（core/AI/telemetry/numberidentity）；enable 仅由 Nemu 停用的 disable-user 包（保留原本就 disabled 的状态）；恢复 securityserver/awareness 的 AppOps/standby；不卸载、不删数据、不恢复 COTA 文件、不清日志；并说明会跳过本次开机自动冻结。
+- “全部”的实现边界：当前 onRestore 只 unsuspend SafetyTargets，不 enable 运营商 DM；Unfreeze 页若要提供真正的“全部”，必须新增聚合回调（建议 onRestoreAll(scope: RestoreScope)），内部依次调用 SafetyUnfreezer、CloudController.restoreAll、AntiFraudController.restoreAll，并保留 CloudController 的 originalEnabled 基线，避免把用户原本就停用的包误 enable。
+- 空状态：没有任何实际冻结/停用/受限目标时显示 Nothing is frozen，附 Last checked 和 Open Freeze 按钮；只有策略目标时显示 N policies enabled, but nothing is currently frozen，并引导去 Freeze 页或只提供 Remove policies；没有 Root/Shizuku 时显示只读横幅，解冻按钮禁用并说明需要权限。
+- 救援模式：RescueModeCard 移到 Unfreeze 页顶部（或至少在这里提供入口）。它展示连续未确认启动次数、被禁用的模块、已尝试恢复的状态；Clear rescue mode 继续走 BootGuard.clear 的二次校验，不能直接改 flag。Overview 只保留红色警告和跳转。
+- 安全解冻状态：把 SafetyResultCard/ResultRow 的上次关机/开机安全解冻结果、boot count、守卫是否跳过本次自动冻结移入 Unfreeze 页的 Automatic safety unfreeze 卡片；这些是解冻语义，放 Overview 会和手动解冻混淆。Overview 只留一行摘要。
+- 过滤与搜索：列表按机制分组后可加 Only active 开关和按包名/标签搜索；不要再用会隐藏选中项的 FilterChip 分类。所有过滤都显示当前筛选结果数和全局选中数，避免隐藏批量操作。
+- 转场与选择保护：从 Freeze 跳转时带 preselectedPackage；从 Unfreeze 返回 Freeze 不自动改策略；如果用户选了 Release now，页面明确标注 Temporary; auto-freeze may re-apply next boot。批量动作完成后清除选择或保留失败项选择，不能静默清空。
+- 可访问性与职责边界：每行 Checkbox 的 contentDescription 要包含包名和动作（如 Select com.hihonor.ouc for unfreeze）；状态不能只用颜色区分；Unfreeze 只做恢复动作，不承担审计职责，每行提供 View in Detect 链接，不要把 DetectionScreen 整体嵌进 Unfreeze 页。
+## sharedComponents
+- 可直接复用：theme/NemuTheme.kt 的 NemuAppTheme（Theme.kt wrapper 可保留或删除）、SectionCard、SectionHeader、StatusChip/StatusChipTone、RiskChip/riskLabel、NemuMark 与 drawNemuGlyph（导航图标）。
+- CoreTargetCard 的信息区（label/RiskChip/package/actualStatusText）抽成 TargetIdentityBlock；Switch/Checkbox 由外部 trailing slot 注入，避免两页复制。
+- AiTargetRow 的描述/风险/实际状态部分可复用；红色目标确认逻辑抽成 RiskyTargetConfirmDialog，Freeze 页和批量操作共用。
+- CloudSection 的每行（label/package/description/actionLabel/statusText）可改成 CloudTargetRow，去掉 Checkbox；CloudUiState/statusText/actionLabel 保留。
+- AntiFraudSection 的 SecurityRestrictionRow 可直接复用为 Freeze 页 D 组的 restriction row；numberIdentityLabel/三态 FilterChip 抽成 NumberIdentityModeSelector；apply/restore 对话框抽成共享危险确认。
+- CotaSection 不进入 Freeze/Unfreeze，整体移到 Settings 的 Advanced/COTA 子页，保留 CotaUiState/CotaCallbacks/所有确认框。
+- DetectionScreen 的 FreezeStateCard/CloudStateCard 的状态文案和展开详情最适合做 Unfreeze 行的只读详情；但它们的私有 StatusChip(text, warning) 必须替换成共享 StatusChip(text, tone)，删除同包重载。
+- BootFreezeCard 拆成 BootAutomationCard（Freeze 页）和 Overview 的一行摘要；SafetyResultCard/ResultRow 移到 Unfreeze 页；RescueModeCard 移到 Unfreeze 页，逻辑不变，Overview 用 RescueBanner（新）跳转。
+- 新增通用件 ManagedTargetRow（identity+mechanism+actual state+trailing control+expandable details），Freeze 用 Switch trailing，Unfreeze 用 Checkbox trailing；这是两页共享的核心行组件。
+- 新增 TargetGroupCard（折叠 header+组级 master+计数+风险摘要+children）、MechanismChip、ActualStateChip、PolicyStatePill（On/Off/Pending）、SelectionActionBar、DestructiveActionDialog（支持命令/包列表、ack checkbox、dry-run 文案）、EmptyStateCard、DryRunBanner、ResultBanner、BackendStatusBanner。
+- 纯函数共享：actualStatusText/actualStatusTone/bootResultTone/backendTone/aiDescription 从 DashboardScreen 移到 ui/TargetPresentation.kt；formatBytes 三份合并成一份（统一 MiB/GiB 精度和 Locale）。
+- 数据/回调共享：把 DashboardState 拆成 FreezePageState/UnfreezePageState/OverviewState/DetectionPageState；DashboardCallbacks 增加 onApplyFreeze(FreezePlan)、onUnfreezeSelected(selection, mode)、onRestoreAll(scope)、onNavigateToUnfreeze(selection)、onRefreshUnfreeze，删除/改造含糊的 onRestoreTargets。
+- 计划模型共享：SelectedRestorePlan 扩展为 UnfreezePlan（core/AI/cloud/antiFraud/disableUser 五类）并复用 Detect 的 FreezeState/CloudState；FreezePlan 由各组 policy+mechanism 生成，FreezePlanDialog 直接渲染它。
+- 字符串资源：把页面文案抽到 res/values/strings.xml（目前只有 app_name，其余硬编码在 Kotlin），这样英文改名/本地化和两页共用文案（Apply、Unfreeze、Danger）才可控；app_name 当前是 Nemu（霜冻），改名应先统一 label 和所有页面标题。
+- 主题 token：新页面继续用 surfaceContainer/surfaceContainerHigh/primaryContainer/errorContainer；为危险区/成功/警告补 StatusChipTone 的语义映射，不要在页面里散落 Color(0x...)。
+## risks
+- 行为语义风险（最高）：把“解冻所选”从当前 onRestoreTargets（解冻+关策略+跳过本 boot 自动冻结）拆成临时/永久两种，需要新的 controller/回调；如果 UI 只改文案不改实现，用户会把临时解冻当成永久解冻，或反之。
+- “全部恢复”范围风险：当前 onRestore 不 enable 运营商 DM 的 disable-user 包、不恢复 anti-fraud AppOps/standby；Unfreeze 页若宣称“全部”，必须补齐 CloudController.restoreAll+AntiFraudController.restoreAll 的聚合，并小心 CloudController.originalEnabled 基线（原本 disabled 的包不能误 enable）。
+- 实际状态数据缺口：targetActual 只覆盖 core+AI，CloudStatus 单独读，反诈当前状态没有读取；FreezeState/CloudState 只在 Detection 快照里。Unfreeze 页如果没有统一读取层，会显示不完整/过期状态，导致用户看不到仍被冻结的包。
+- Boot 守卫回归风险：手动冻结/解冻必须继续执行 BootFreezeScheduler.cancel、recordAttempt、bootFreezeSkippedBootCount、rescue 拦截；把按钮从 Overview 移到 Freeze/Unfreeze 时若复制逻辑而不是复用单一回调，容易出现“手动冻结导致 bootloop 但守卫没记录”或“解冻后本 boot 又被自动冻结”。
+- 救援模式风险：RescueModeCard 移动后仍必须走 BootGuard.clear 的二次校验和 root 检查；不能在 UI 直接清 flag。救援模式激活时 Freeze 页的 Apply 必须禁用。
+- 策略/草稿状态生命周期：如果采用 draft+Apply，必须把 draft 提升到 ViewModel 或 rememberSaveable；当前 AntiFraudSection.draft、FreezePage.restoreSelection、AiFreezeCard.pendingRedTarget 都是页面内 remember，切 Tab 就丢，会产生“编辑了但没保存”的静默丢失。
+- 导航状态兼容：DashboardTab.ordinal、FreezeCategory.ordinal 的 rememberSaveable 在新增/重排 Tab 后会把旧索引映射到错误页面；改用稳定字符串 key 或版本化迁移。
+- COTA 迁移风险：COTA 备份/删除/恢复是文件级危险操作，移到 Settings 后不能降低确认强度（备份存在才允许删除、风险勾选、恢复确认）；同时不要把它误放进 Unfreeze 的“全部恢复”范围。
+- 反诈实际状态风险：AntiFraudSection.draft 保存的是配置，实际 AppOps/standby 状态需要额外读取；没有读取就显示“已恢复”会误导；恢复还需要保留 numberIdentityOriginalEnabled 基线。
+- 5 个底部 Tab+英文字符串的布局风险：360dp 宽、字体放大或长英文标签（Unfreeze）可能截断；需要短标签、maxLines=1，并测 360dp/480dp/平板；如果放不下，退回 4 Tab+Freeze 页内顶部二级切换（两页仍独立）。
+- 重命名/本地化风险：当前所有 UI 文案硬编码在 Kotlin，strings.xml 只有 app_name=Nemu（霜冻）；用户要求的英文名改名会牵动所有页面标题、日志文案和通知，应先做字符串抽取，避免半中文半英文。此项不在本次只读 UI 审查范围内，但会影响两页的文案设计。
+- 批量选择范围风险：如果 Unfreeze 页允许 select all 跨机制选择，可能把 disable-user 的运营商包和红色反诈目标一起恢复；计划对话框必须按机制分组并要求强确认，默认只选 suspend 类安全目标。
+- 红色 AI/反诈目标：组级 master 可能一次性打开多个红目标；必须禁止静默全开，或把红色目标排除在 master 之外，否则违背 docs/07 §6.2 的逐项确认约束。
+- 性能/线程风险：实际状态读取（ps -A、PackageManager、root exec）不能在每个 row 的 composition 中调用；Unfreeze 页应在进入/刷新时做一次快照，显示 loading/unknown，避免 ANR 和状态闪烁。当前 MainActivity 的 currentBoot=BootCount.current() 直接在 composition 中调用，也应在迁移时一并改为 remember/LaunchedEffect。
+- 测试覆盖风险：现有测试主要覆盖策略/解析，没有 Compose UI 测试；新增两页后至少需要为 SelectedRestorePlan/新 UnfreezePlan 的映射、临时 vs 永久解冻、组 master 对红色目标的处理、空/未知状态写单元测试，并保留 BF2/BF3/BF4/BF5 真机回归。
+- 操作反馈风险：全局 busy 会让所有控件一起禁用但没有进度/错误摘要；两页需要 per-action 结果、timeout 和可重试，否则用户不知道点没点成功，容易重复点击。
+- 权限后端风险：无 Root 时 CotaSection 禁用，但云控/反诈/核心开关仍可改；Unfreeze 页需要明确哪些动作需要 Root 才能执行（例如 disable-user 的 enable 可能 Shizuku 可做，取决于后端），不要把“策略已保存”显示成“已执行”。
+- 静态清单风险：目标清单是硬编码的 5/6/7/4 个包，和用户“冻结所有云控/温控/AI/系统更新”的目标不一致；如果只改 UI 不改 catalog，页面会漏掉实际存在但未列入的包。温控 powergenie/iaware 按项目约束永远只读不可冻结，UI 必须明确说明，否则用户会误以为有遗漏。
+=== CODE ===
+## summary
+只读审计完成，未修改任何文件。当前 main 为 0156476（checkpoint: audit fixes for process verification, selected restore, ownership, guard v1.4）；工作树仅多出未跟踪的 docs/10-nemu-redesign.md（草案：Nemu 重命名、Freeze/Unfreeze 分页、COMPONENT/DISABLE_USER/OBSERVE 模式，尚未实现）。审计的代码内容即该提交内容。
+
+【冻结命令面】当前没有替代 Android 原生 suspend 的新机制：核心/AI/遥测仍是 `pm suspend --user 0 <pkg>` + `am force-stop <pkg>`；手动“立即冻结”的核心目标额外执行 `pm clear --user 0 --cache-only <pkg>`（BootFreezeWorker 用 copy(clearCache=false) 去掉）。只有云控运营商 DM 三件套（regservice/UEInfoCheck/AutoRegSms）和反诈 numberidentity 使用 `pm disable-user`；反诈 securityserver/awareness 只用 `appops ... RUN_ANY_IN_BACKGROUND ignore` + `am set-standby-bucket ... restricted`。没有组件级 `pm disable pkg/component`、没有 appops/standby 用于核心/AI、没有周期复核或重新冻结；新增的进程快照只做一次性核验和告警。COTA 不是冻结，是 root-only 的 /data/cota/para 文件备份/删除/恢复。
+
+【冻结入口】手动：MainActivity.onApply（493-585，只做核心+AI，不含云控/反诈/COTA）。自动：BootFreezeWorker.doWork（35-208，延迟 60-120s，先清残留解冻，再按 BootFreezePolicy 冻结核心+AI）。独立云控：CloudController.apply（27-103）。独立反诈：AntiFraudController.apply（23-59）。
+
+【解冻入口】1) 概览“全部恢复”MainActivity.onRestore（586-636）→ SafetyUnfreezer.unsuspendPackages(SafetyTargets)，只清 15 个 suspend，不含 DM/numberidentity 的 disable-user，也不恢复反诈 AppOps/standby；2) 冻结页“解冻所选”onRestoreTargets（637-712）→ SelectedRestorePlan → core/AI/cloud 控制器，并把所选策略关闭、跳过本 boot；3) 云控“恢复全部云控”onCloudRestoreAll（773-809）→ DM pm enable（仅原始 enabled=true）/遥测 pm unsuspend；4) 反诈“恢复反诈设置”onAntiFraudRestore（881-923）；5) 关机 SafetyService/ShutdownReceiver → ShutdownSafety（8s）→ SafetyUnfreezer + clean_shutdown 标记；6) 开机 BootWorker（22-60）→ SafetyUnfreezer；7) BootFreezeWorker 每次自动冻结前的残留解冻（93-108）；8) 救援清除 BootGuard.clear（62-65）→ boot_guard.sh clear（动态解冻 + 仅恢复带 disabled_by_nemu 标记的包）。
+
+【开启方式】核心：target_<pkg> 默认 false；AI：ai_deep_freeze_enabled 默认 false + ai_target_<pkg> 默认 false（红色目标 UI 二次确认）；云控：cloud_target_<pkg> 默认 false，DM 额外 cloud_confirmed_<pkg>；反诈：antifraud_numberidentity_mode 默认 OFF，securityserver/awareness 布尔默认 false；COTA：cota_enabled 默认 false（root-only）；开机自动冻结：boot_freeze_enabled 默认 true、延迟 120s（最短 60s，UI 无调节入口）；日志 logging_enabled 默认 false；全局 dry_run 默认 true（SafetyUnfreezer/BootGuard 安全路径不受 dry-run 影响）。
+
+【目标清单】代码实际目标：核心 5、AI 6、云控 DM 3、云控遥测 3、云控观察 2（cipservice、pushagent）、反诈 4（numberidentity/securityserver/awareness/securitypluginbase）、温控观察 2（powergenie/iaware）。DenyList 另保护 systemserver/systemmanager/devicemanager 等。docs/02/10 还有未实现的候选包（systemappsupdater、upgradeguide、associateassistant、visionengine、magicavatar、magictranslate、lens、android.chr、msdp、trustspace 等）。组件名目前只有 docs/01 §6.1 记录了两个实测组件（MagicVoiceInteractionService、NcDftService）；代码中没有组件级目录。
+
+【新增外部改动】0156476 新增：ProcessListParser/PackageProcessListReader（ps -A -o PID,ARGS）、SelectedRestorePlan、PackageEnabledStateReader、CloudSettings.originalEnabled / AntiFraudSettings.numberIdentityOriginalEnabled、CloudController/AiFreezeController 的 suspended/process 复核、BootGuard.markCleanShutdown/markDisabledByNemu、boot_guard.sh v1.4 的动态解冻/所有权回滚、UI 主题/图标/分类/选择性解冻/进程状态。这些是核验与可恢复性改进，不是新的冻结命令面。
+
+【UI 现状】4 个底部 tab：概览/冻结/检测/设置（DashboardScreen.kt:72-77）。冻结页一个页面混排 5 个类别（核心/AI/云控/反诈/COTA），COTA 是文件删除器却被标为“只读”；全局“解冻所选”只路由 core/AI/cloud；云控/反诈各有自己的应用/恢复按钮；概览“立即冻结”只做 core+AI，和“全部恢复”并不对称。这正是需要拆成 Freeze/Unfreeze 两页的原因。
+
+【重命名】docs/10 已建议展示名 Nemu，保留 applicationId com.nemu.hibernate 和模块 id nemu_boot_autostart 以避免丢失策略/root 授权/WorkManager/am start；改名需覆盖 strings.xml:3、DashboardScreen.kt:260、SafetyService 通知文案、settings.gradle.kts:30、README/PROJECT/docs、模块显示名。
+## freezePaths
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\MainActivity.kt:493-585 onApply() — 手动“立即冻结”：FreezeController.apply(核心已启用) + AiFreezeController.apply(AI 已启用)，不处理云控/反诈/COTA；先取消本 boot 自动冻结并写 attempt（仅非 dry-run 且有目标）
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\BootFreezeWorker.kt:35-208 doWork() — 延迟自动开机冻结：SafetyService.start、stale-boot 检查、后端、sys.boot_completed、rescue 检查、残留解冻、BootFreezePolicy、核心+AI
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\FreezeController.kt:14-31 apply() — 对已启用核心 Target 逐条：CommandBuilder.suspend + forceStop + clearCache；受 Settings.isEnabled 与 DenyList 限制；dry-run 只记日志；无结果复核
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\AiFreezeController.kt:28-66 apply() — 仅 AiTargets 白名单：suspend + forceStop；忽略 clearCache；随后用 processSnapshotReader 对 forceStop 目标做一次进程核验（49-64）
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\CloudController.kt:27-103 apply() — DISABLE_USER→disableUser；SUSPEND→suspend+forceStop；OBSERVE_ONLY 跳过；DM 前保存 originalEnabled 并写 BootGuard 所有权标记；执行后复核 PackageManager suspend 与进程（205-239）
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\AntiFraudController.kt:23-59 apply() — AntiFraudPolicy.planApply；numberidentity 可 suspend/disable-user；securityserver/awareness 只 appops+standby；execute 在 100-150
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\core\AntiFraudPolicy.kt:19-52 planApply() — 反诈命令矩阵；后台限制在 103-118，恢复在 120-135
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\core\CommandBuilder.kt:3-37 — 全部命令定义：suspend/unsuspend/unsuspendAll/forceStop/clearCache/disableUser/enable/appOpsBackground/standbyBucket
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\core\Targets.kt:4-30、AiTargets.kt:16-71、CloudTargets.kt:9-72 — 静态目标目录；CloudTargets.disableUserAllowed 在 63
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\BootFreezeScheduler.kt:43-83 ensureScheduled() — 唯一任务 nemu_boot_freeze，延迟最短 60s/默认 120s，ExistingWorkPolicy.REPLACE；未检查 rescue.flag
+## unfreezePaths
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\MainActivity.kt:586-636 onRestore() — 概览“全部恢复”：非 dry-run 先取消任务并写 boot_freeze_skipped_boot_count / last_boot_freeze_boot_count；调用 SafetyUnfreezer.unsuspendPackages(SafetyTargets.suspendPackageNames)；不会 pm enable DM/numberidentity 的 disable-user，也不会恢复反诈 AppOps/standby
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\MainActivity.kt:637-712 onRestoreTargets() — 冻结页“解冻所选”：SelectedRestorePlan.fromSelection → FreezeController.restore(core) / AiFreezeController.restore(ai) / CloudController.restoreAll(cloud)；关闭所选策略并标记本 boot 跳过；仅支持 core/AI/cloud，不支持反诈/COTA
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\MainActivity.kt:773-809 onCloudRestoreAll() — 云控“恢复全部云控”：CloudController.restoreAll(CloudTargets.all)；DM 仅在 originalEnabled=true 时 pm enable，遥测 pm unsuspend；复核 enabled/suspended 并清除 disabled_by_nemu 标记
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\MainActivity.kt:881-923 onAntiFraudRestore() — 反诈“恢复反诈设置”：numberidentity pm unsuspend，保存的原始 enabled=true 时 pm enable；securityserver/awareness appops allow + standby active；全部成功且非 dry-run 才重置配置
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\ShutdownSafety.kt:15-49 runBlockingUnfreeze() — 关机/重启 8s 路径：SafetyUnfreezer.runUnsuspendPackages(SafetyTargets...)，写 last_shutdown_*，成功后 BootGuard.markCleanShutdown（root）
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\SafetyService.kt:23-51 运行时 ACTION_SHUTDOWN/ACTION_REBOOT receiver；policy\ShutdownReceiver.kt:14-33 manifest fallback — 两者都调用 ShutdownSafety
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\BootWorker.kt:22-60 doWork() — 开机安全解冻全部 SafetyTargets，然后 BootFreezeScheduler.ensureScheduled
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\BootFreezeWorker.kt:93-108 — 每次自动冻结决策前的残留解冻，始终执行且不受 dry-run 影响；失败则跳过本次冻结
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\BootGuard.kt:62-65 clear() → /data/adb/nemu/boot_guard/boot_guard.sh clear；脚本动态解冻所有 suspend，并只 enable 带 disabled_by_nemu 标记的 DM/numberidentity，成功后清 rescue flag/module disable
+- D:\win_root\nemu\tools\nemu-boot-autostart\boot_guard.sh:291-314 service/rescue 模式 — count_attempt、unsuspend_all（KNOWN_SUSPEND + dumpsys suspended=true）、enable_disabled_targets、success watchdog；rescue_now 在 221-252
+- D:\win_root\nemu\tools\nemu-boot-autostart\service.sh:36-55 — guard 存在时先 run_guard rescue/service 再 am start；guard 缺失时 fallback pm unsuspend 15 个硬编码包
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\policy\FreezeController.kt:33-41 restore()、AiFreezeController.kt:68-81 restore()、CloudController.kt:105-159 restoreAll()、core\AntiFraudPolicy.kt:54-73 planRestore() — 控制器级解冻命令
+## newFreezeMechanism
+没有新的替代冻结命令面。0156476 新增的是核验与可恢复性配套，不是冻结方式变更：ProcessListParser/PackageProcessListReader 用 `ps -A -o PID,ARGS` 精确匹配 pkg 或 pkg:*，在 AI/云控 force-stop 后做一次性进程核验；CloudSettings.originalEnabled 与 AntiFraudSettings.numberIdentityOriginalEnabled 保存操作前 enabled 状态；SelectedRestorePlan 把用户勾选路由到 core/AI/cloud 控制器；BootGuard.markCleanShutdown/markDisabledByNemu 与 boot_guard.sh v1.4 提供 clean_shutdown/disabled_by_nemu 所有权标记和救援恢复；CloudController/AiFreezeController 增加 PackageManager suspend 与进程复核。核心/AI/遥测仍然只执行 `pm suspend` + `am force-stop`；手动核心还执行 `pm clear --cache-only`；只有运营商 DM 三件套和 numberidentity 使用 `pm disable-user`；只有 securityserver/awareness 使用 AppOps+standby。代码中的 `detection.FreezeMode`（SUSPEND/DISABLE/OBSERVE）只是只读检测分类，不是策略模式；docs/10 提出的 `COMPONENT` 模式（`pm disable --user 0 pkg/component` + `pm default-state`）目前只是草案，Kotlin 代码和测试中不存在组件级冻结。
+## settingsKeys
+- dry_run — Settings.kt:12-14；Boolean；默认 true；全局 dry-run，控制器只记 DRY-RUN 不执行；SafetyUnfreezer/BootGuard 安全路径故意忽略
+- backend — Settings.kt:8-10；String?；默认 null（自动 Root 优先，否则 Shizuku）
+- cota_enabled — Settings.kt:16-18；Boolean；默认 false；root-only COTA 模块
+- target_<pkg> — Settings.kt:50-54；Boolean；默认 false；每个核心 Target 的启用开关
+- boot_freeze_enabled — BootFreezeSettings.kt:20-24；Boolean；默认 true；开机自动冻结总开关
+- boot_freeze_delay_seconds — BootFreezeSettings.kt:27-35；Int；默认 120，最小 60；UI 当前无调节入口
+- ai_deep_freeze_enabled — BootFreezeSettings.kt:37-41；Boolean；默认 false；AI 深度冻结总开关
+- ai_target_<pkg> — BootFreezeSettings.kt:43-50；Boolean；默认 false；每个 AI 目标开关
+- last_boot_freeze_boot_count — BootFreezeSettings.kt:53-57；Int；默认 -1；commit() 持久化
+- last_boot_freeze_attempt_boot_count — BootFreezeSettings.kt:60-64；Int；默认 -1；冻结命令前 commit()
+- last_boot_freeze_attempt_time — BootFreezeSettings.kt:67-71；Long；默认 0；冻结命令前 commit()
+- last_boot_freeze_time — BootFreezeSettings.kt:73-77；Long；默认 0
+- last_boot_freeze_result — BootFreezeSettings.kt:79-83；String?
+- last_boot_freeze_detail — BootFreezeSettings.kt:85-89；String?
+- last_boot_freeze_succeeded — BootFreezeSettings.kt:91-95；Boolean；默认 false
+- boot_freeze_skipped_boot_count — BootFreezeSettings.kt:97-102；Int；默认 -1；全部恢复/选择性恢复写入
+- last_shutdown_time — Settings.kt:38-42；Long；默认 0；commit()；BootFreezeSettings.kt:105-106 只读
+- last_shutdown_result — Settings.kt:26-30；String?；commit()；BootFreezeSettings.lastShutdownOk 116-118 用字符串判断
+- last_shutdown_detail — Settings.kt:32-36；String?；commit()
+- last_boot_result — Settings.kt:20-24；String?；commit()
+- last_boot_detail — Settings.kt:44-48；String?；commit()
+- cloud_target_<pkg> — CloudSettings.kt:25-34；Boolean；默认 false；切换时同时把 cloud_applied_<pkg> 置 false
+- cloud_applied_<pkg> — CloudSettings.kt:42-46；Boolean；默认 false；表示策略自上次变更后已尝试应用
+- cloud_confirmed_<pkg> — CloudSettings.kt:36-40；Boolean；默认 false；DM disable-user 必须为 true
+- cloud_original_enabled_<pkg> — CloudSettings.kt:48-59；Boolean?；null=未知；Nemu 执行 disable-user 前保存操作前状态
+- cloud_last_result — CloudSettings.kt:21-23；String?
+- antifraud_numberidentity_mode — AntiFraudSettings.kt:10-21；枚举 OFF/SUSPEND/DISABLE_USER；默认 OFF
+- antifraud_securityserver_restrict — AntiFraudSettings.kt:23-27；Boolean；默认 false
+- antifraud_awareness_restrict — AntiFraudSettings.kt:29-33；Boolean；默认 false
+- antifraud_numberidentity_original_enabled — AntiFraudSettings.kt:39-50；Boolean?；null=未知；保存操作前 enabled
+- antifraud_last_result — AntiFraudSettings.kt:35-37；String?
+- logging_enabled — LogSettings.kt:12-14；Boolean；默认 false；持久日志开关
+- WorkManager 运行时键 — unique work nemu_boot_freeze（BootFreezeScheduler.kt:33）与 nemu_safety_unfreeze；输入 scheduled_boot_count（BootFreezeWorker.kt:259），任务 tag nemu_boot_freeze_boot_<bootCount>
+- shell guard 状态 — /data/adb/nemu/boot_guard/{last_boot_id,attempts,rescue.flag,clean_shutdown,disabled_by_nemu/<pkg>,guard.log,last_success}；配置 THRESHOLD=3、STABLE_SECONDS=600、UNSUSPEND_DEADLINE_SECONDS=180（boot_guard.sh:21-31）
+## packageTargets
+- core/update: com.hihonor.ouc — 软件更新（中文 label），risk YELLOW；suspend+force-stop；手动 additionally pm clear --cache-only；boot freeze 省略 clear cache
+- core: com.honor.yoyoappsug — App 建议；suspend+force-stop
+- core: com.honor.yoyocards — YOYO 建议卡片集；suspend+force-stop
+- core: com.hihonor.suggestion — 智能提醒；suspend+force-stop
+- core: com.hihonor.sceneservice — 荣耀智慧空间基础服务；suspend+force-stop
+- AI: com.hihonor.aipluginengine — 荣耀 AI 基础服务；RED；suspend+force-stop；默认关闭
+- AI: com.hihonor.assistant — YOYO 建议基础服务；RED；suspend+force-stop；默认关闭
+- AI: com.hihonor.magicvoice — YOYO 智能体/智慧语音；RED；suspend+force-stop；默认关闭
+- AI: com.hihonor.voiceengine — 语音服务；YELLOW；suspend+force-stop；默认关闭
+- AI: com.hihonor.brain — 智慧决策；RED；suspend+force-stop；默认关闭
+- AI: com.hihonor.mageruntime — MageEngineRuntime；YELLOW；suspend+force-stop；默认关闭
+- cloud/DM: com.hihonor.regservice — 系统消息（实际 CMCC DM）；DISABLE_USER；需确认、originalEnabled、BootGuard disabled_by_nemu 标记；不卸载
+- cloud/DM: com.hihonor.android.UEInfoCheck — 电信数据上报；DISABLE_USER；同上
+- cloud/DM: com.hihonor.android.AutoRegSms — 电信自注册短信；DISABLE_USER；同上
+- cloud/telemetry: com.hihonor.hiview — 遥测采集；SUSPEND+force-stop；进程核验；shared uid/persistent 进程可能仍存活
+- cloud/telemetry: com.hihonor.hiviewpush — 遥测推送；SUSPEND+force-stop
+- cloud/telemetry: com.hihonor.hiviewtunnel — 遥测上传通道；SUSPEND+force-stop
+- cloud/observe: com.hihonor.cipservice — HnCIPService；OBSERVE_ONLY，无操作
+- cloud/observe+DenyList: com.hihonor.android.pushagent — 荣耀推送；OBSERVE_ONLY，禁止冻结
+- anti-fraud: com.hihonor.numberidentity — 号码识别；SUSPEND 或 DISABLE_USER；纳入 SafetyTargets；保存 originalEnabled；DenyList 阻止通用冻结
+- anti-fraud: com.hihonor.securityserver — 安全公共服务；RED；仅 AppOps RUN_ANY_IN_BACKGROUND ignore + standby restricted；永不 suspend/disable/force-stop；DenyList
+- anti-fraud: com.hihonor.awareness — 情景感知；RED；仅 AppOps+standby；永不 suspend/disable；DenyList
+- anti-fraud/observe: com.hihonor.securitypluginbase — 安全插件底座；OBSERVE_ONLY；DenyList
+- thermal/observe+DenyList: com.hihonor.powergenie — PowerGenie/HAware；只读展示，禁止整包冻结
+- thermal/observe+DenyList: com.hihonor.iaware — iAware；只读展示，禁止整包冻结
+- DenyList/no action: com.hihonor.systemserver — HONOR 核心系统服务；永不冻结
+- DenyList/no action: com.hihonor.systemmanager — 系统管家；永不冻结
+- DenyList/no action: com.hihonor.devicemanager — 设备管理/系统管家；永不冻结
+- docs-only candidate (not implemented): com.hihonor.systemappsupdater — 系统应用更新器；docs/02
+- docs-only candidates (not implemented): com.hihonor.android.upgradeguide、com.hihonor.associateassistant、com.hihonor.visionengine、com.hihonor.magicavatar、com.hihonor.magictranslate、com.hihonor.lens、com.hihonor.msdp、com.hihonor.trustspace、com.hihonor.android.chr（shared process）；docs/02/10
+- component (docs/01 §6.1, not in code): com.hihonor.magicvoice/com.hihonor.magicvoice.voiceui.service.MagicVoiceInteractionService — 实测 pm disable 可阻断 system voice bind，pm default-state 恢复
+- component (docs/01 §6.1, not in code): com.hihonor.hiview/com.hihonor.ncdft.NcDftService — 实测 enabled state 改变但 persistent PID 仍存活，不能宣称进程已停
+## uiFiles
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\MainActivity.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\DashboardScreen.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\DetectionScreen.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\CloudSection.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\AntiFraudSection.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\CotaSection.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\SectionCard.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\StatusChip.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\Theme.kt
+- D:\win_root\nemu\app\src\main\java\com\nemu\hibernate\ui\theme\NemuTheme.kt
+- D:\win_root\nemu\app\src\main\res\values\strings.xml
+- D:\win_root\nemu\app\src\main\res\values\themes.xml
+- D:\win_root\nemu\app\src\main\AndroidManifest.xml
+- D:\win_root\nemu\app\build.gradle.kts
+- D:\win_root\nemu\settings.gradle.kts
+## concerns
+- 没有新的替代冻结机制：FreezeController.apply（14-31）与 AiFreezeController.apply（28-66）只发 pm suspend + am force-stop；AI 的进程快照（49-64）只写日志；CloudController 遥测同样（175-182、205-239）。没有组件级 pm disable、没有周期复核/重新冻结，用户想解决的“组件自动重启”未被现有代码解决；docs/10 的 COMPONENT 模式只是草案。
+- “全部恢复”不是全部：MainActivity.onRestore（586-636）只调用 SafetyUnfreezer.unsuspendPackages(SafetyTargets...)；SafetyTargets（16-23）故意排除 CloudTargets.disableUserAllowed，且 pm unsuspend 不能撤销 numberidentity 的 disable-user；反诈 securityserver/awareness 的 AppOps/standby 也不恢复。DM 三件套、numberidentity 停用和反诈限制会保留，UI/README 的“全部恢复”语义具有误导性。
+- 冻结页职责混杂：DashboardScreen.FreezePage（764-950）把 CORE/AI/CLOUD/SAFETY/COTA 放在同一页；全局“解冻所选”只路由 core/AI/cloud（SelectedRestorePlan 24-35），反诈/COTA 没有复选框；CLOUD/SAFETY 各自有应用/恢复按钮；COTA 是文件备份/删除器却和冻结同页，且 FreezeCategory.SAFETY/COTA 被标为“只读”（813-814）。这是“杂乱”的主要来源，也是拆 Freeze/Unfreeze 页的直接依据。
+- 选择性解冻有副作用：MainActivity.onRestoreTargets（637-712）先关闭所选策略并写 boot_freeze_skipped_boot_count/last_boot_freeze_boot_count，等于取消本 boot 对未选中目标的开机自动冻结；若恢复命令失败，策略已关闭且无回滚。该计划只覆盖 core/AI/cloud，无法选择性恢复反诈或 COTA。
+- 反诈模式切换回归：AntiFraudPolicy.planApply（23-33）在 NumberIdentityMode.SUSPEND 分支不再先执行 pm enable（0156476 删除了该命令）；若 numberidentity 之前被 DISABLE_USER，切到“暂停”仍保持整包停用，UI 所谓“暂停（较弱）”不成立。MainActivity（825-866）保存了 baseline，但 planApply 在该转换中没有使用它。
+- 反诈部分失败会造成配置/实际状态漂移：MainActivity.onAntiFraudApply（867-871）只在所有结果 ok 时保存 config，但失败前已执行的命令不会回滚；UI 继续显示旧配置。DetectionReader.read（101-111）和 DetectionSnapshot（328-356）没有任何反诈状态行，用户无法在检测页看到 numberidentity/securityserver/awareness 的实际状态。
+- disable-user 的隐藏 root 依赖：CloudController 的 beforeDisableByNemu（MainActivity 742-748）与反诈（847-855）通过 BootGuard.markDisabledByNemu 写标记，而标记写入使用 manager.getRootForShutdown()；Shizuku-only 时返回 null→false，CloudController 会拒绝 disable-user。命令本可通过 Shizuku 执行，但功能实际被限制为 root，UI 未说明。
+- 救援清除脚本误判：boot_guard.sh:196-210 的 enable_disabled_targets 把 dumpsys 的 enabled=0 和 enabled=1 都当作“已恢复”并删除 disabled_by_nemu 标记；如果 pm enable 没真正生效，标记丢失，后续救援无法重试，且日志会写 restored and verified。
+- 救援模式 fail-open：BootFreezeScheduler.ensureScheduled（43-83）不检查 rescue.flag；BootGuard.isRescue 在 root 为 null 时返回 false（24-30）；MainActivity.onApply（498）、云控（731）、反诈（820）都使用这个结果。root 暂时不可用时，救援模式下仍可能安排/执行手动冻结。docs/09 §6.4.3 曾建议在 scheduler 检查。
+- 恢复与运行中的 Worker 存在竞态：BootFreezeScheduler.cancel（85-92）和 MainActivity 恢复（591-610）不能可靠中断已经进入 FreezeController.apply 的 BootFreezeWorker；RootBackend.exec（27-75）是阻塞 waitFor，cooperative cancellation 无法在命令中途生效。Worker 可能在“全部恢复/解冻所选”之后再次 suspend 目标。
+- 核心冻结无结果复核：FreezeController.executeAll（43-62）只看命令 exit code，不读 isPackageSuspended 或进程表；核心 target 的“成功”可能是假成功。AiFreezeController/CloudController 虽有复核，但进程仍存活只产生日志/说明，AI 不改变 allOk，Cloud 只有 PackageManager mismatch 会改变 allOk（205-239）。
+- 安全目标列表多处硬编码：SafetyTargets.suspendPackageNames（16-23）、boot_guard.sh KNOWN_SUSPEND（36-57）、service.sh fallback（55-61）、docs/09 附录各有一份 15 包列表；SafetyTargetsTest（12-69）只校验 Kotlin 内部一致性，不校验 shell。新增/改名目标时守卫可能漏解冻或漏救援。
+- SafetyUnfreezer 全有或全无：runUnsuspendPackages（32-67）把 15 个包放在一条 pm unsuspend 中，只要输出出现一次 new suspended state: true 就判整次失败；若 suspend 由 Hail/adb 等外部工具持有，BootFreezeWorker（93-108）会永久跳过自动冻结，ShutdownSafety（32-43）不写 clean_shutdown，连续 3 次正常重启可能触发救援。没有逐包重试/例外 UI。
+- UI 状态文案不一致：BootFreezeCard（DashboardScreen 651-730）显示共享的 lastBootFreezeResult，手动“手动冻结成功”会出现在“开机自动冻结”卡片下；onRestoreTargets 只写 skipped/lastBootFreezeBootCount，不更新 lastBootFreezeResult/lastBootFreezeSucceeded，卡片可能仍显示成功。CLOUD 计数包含 observe-only 的 cipservice（775-777、808-820），SAFETY/COTA 标“只读”但实际有写操作。
+- 默认值与 UI 不匹配：boot_freeze_enabled 默认 true（BootFreezeSettings 20-24），但所有 target_<pkg> 默认 false（Settings.isEnabled 50-54；Target.defaultEnabled 从未使用）；boot_freeze_delay_seconds 没有 UI 调节入口（DashboardScreen BootFreezeCard 只有开关）。新装/升级后可能显示“开机冻结：开”但没有目标、延迟固定 120s；升级后已保存的目标可能在未重新确认的情况下继续冻结。
+- 重命名触点分散：显示名在 res/values/strings.xml:3（Nemu（霜冻））、顶栏硬编码 DashboardScreen.kt:260、通知文案 SafetyService.kt:81-87/94-96、rootProject settings.gradle.kts:30、applicationId app/build.gradle.kts:15、README/PROJECT/docs 和模块显示名。docs/10 建议只改展示名 Nemu，保留 applicationId com.nemu.hibernate 与模块 id nemu_boot_autostart，以保留 SharedPreferences、root 授权、WorkManager 和 am start 路径。
+- 检测范围不完整且云控残留不告警：DetectionSnapshot.freezeStates 只有 core+AI（DetectionReader 101-111），没有反诈行；CloudState.mismatch（DetectionModels 132-137）要求 policyApplied，而 CloudSettings.setEnabled（25-34）在关闭策略时把 cloud_applied_<pkg> 置 false，因此策略关闭后仍 suspended 的云控目标不会显示“不一致”。温控仅 powergenie/iaware 只读；COTA 是独立删除模块，不是冻结。
+- 持久性窗口：CloudSettings.setOriginalEnabled/setApplied（42-59）与 AntiFraudSettings.numberIdentityOriginalEnabled（39-50）使用 SharedPreferences.apply() 后再执行 pm disable-user；BootGuard.markDisabledByNemu/markCleanShutdown（33-55）的 shell 写入只有 touch/cat+chmod，没有 sync。崩溃/断电可能丢失原始 enabled 或所有权标记，导致恢复 fail-closed 或守卫无法 enable；对比 BootFreezeSettings.recordAttempt 使用 commit()。
+- 关机路径重复且预算紧张：SafetyService 运行时 receiver（23-51）和 manifest ShutdownReceiver（14-33）都可能收到 ACTION_SHUTDOWN/REBOOT，各自调用 ShutdownSafety 的 8s 路径；BackendManager.getForShutdown（39-48）可能探测两个后端各 3s，再加 pm unsuspend 和 clean_shutdown 写入，容易超时；两个 receiver 的结果也可能互相覆盖。
+- 进程快照不是进程已停的证明：ProcessListParser.isRunning（7-9）只匹配精确 pkg 或 pkg:*；hiview 这类 uid=1000 persistent 共享进程（docs/02:81 记录其承载 hiviewpush 与 android.chr）可能显示“无目标进程”但代码/服务仍存活。该信号只能作为证据，不能作为冻结成功的保证。

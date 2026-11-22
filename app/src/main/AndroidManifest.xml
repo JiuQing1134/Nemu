@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The custom freeze picker lists every installed app (debug/sideload app). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.hihonor.ouc" />
+        <package android:name="com.honor.yoyoappsug" />
+        <package android:name="com.honor.yoyocards" />
+        <package android:name="com.hihonor.suggestion" />
+        <package android:name="com.hihonor.sceneservice" />
+        <package android:name="com.hihonor.regservice" />
+        <package android:name="com.hihonor.android.UEInfoCheck" />
+        <package android:name="com.hihonor.android.AutoRegSms" />
+        <package android:name="com.hihonor.hiview" />
+        <package android:name="com.hihonor.hiviewpush" />
+        <package android:name="com.hihonor.hiviewtunnel" />
+        <package android:name="com.hihonor.cipservice" />
+        <package android:name="com.hihonor.numberidentity" />
+        <package android:name="com.hihonor.securityserver" />
+        <package android:name="com.hihonor.awareness" />
+        <package android:name="com.hihonor.securitypluginbase" />
+        <package android:name="com.hihonor.aipluginengine" />
+        <package android:name="com.hihonor.assistant" />
+        <package android:name="com.hihonor.magicvoice" />
+        <package android:name="com.hihonor.voiceengine" />
+        <package android:name="com.hihonor.brain" />
+        <package android:name="com.hihonor.mageruntime" />
+        <package android:name="com.hihonor.powergenie" />
+        <package android:name="com.hihonor.iaware" />
+        <package android:name="com.hihonor.android.pushagent" />
+        <package android:name="com.hihonor.systemappsupdater" />
+        <package android:name="com.hihonor.android.upgradeguide" />
+        <package android:name="com.hihonor.visionengine" />
+        <package android:name="com.hihonor.lens" />
+        <package android:name="com.hihonor.magicavatar" />
+        <package android:name="com.hihonor.magictranslate" />
+        <package android:name="com.hihonor.magichome" />
+        <package android:name="com.hihonor.hiboard" />
+        <package android:name="com.hihonor.detectrepair" />
+        <package android:name="com.hihonor.android.chr" />
+        <package android:name="com.hihonor.assetsync" />
+        <package android:name="com.hihonor.assetsyncservice" />
+        <package android:name="com.hihonor.systemserver" />
+        <package android:name="com.hihonor.systemmanager" />
+        <package android:name="com.hihonor.msdp" />
+        <package android:name="com.hihonor.android.hnaps" />
+    </queries>
+
+    <application
+        android:name=".NemuApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_app"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Nemu">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".policy.BootReceiver"
+            android:directBootAware="true"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".policy.ShutdownReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ACTION_SHUTDOWN" />
+                <action android:name="android.intent.action.REBOOT" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".policy.SafetyService"
+            android:directBootAware="true"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="safety_unfreeze" />
+        </service>
+
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+    </application>
+</manifest>

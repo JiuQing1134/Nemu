@@ -1,0 +1,104 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <int name="strategy_component_original_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.lcagent.service.LogCollectService" value="0" />
+    <int name="boot_freeze_delay_seconds" value="120" />
+    <boolean name="ai_target_com.hihonor.aipluginengine" value="true" />
+    <boolean name="strategy_applied_com.hihonor.powergenie" value="false" />
+    <boolean name="strategy_applied_com.honor.yoyocards" value="true" />
+    <boolean name="logging_enabled" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.mcs.system.diagnosis.service.DiagKitService" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiviewtunnel_com.hihonor.hiviewtunnel/com.hihonor.userexperience.provider.UserExperienceProvider" value="true" />
+    <long name="last_boot_freeze_time" value="1795321691296" />
+    <int name="last_boot_freeze_boot_count" value="38" />
+    <boolean name="strategy_applied_com.hihonor.hiviewtunnel" value="true" />
+    <boolean name="antifraud_awareness_restrict" value="true" />
+    <boolean name="strategy_applied_com.hihonor.magicvoice" value="true" />
+    <long name="last_boot_freeze_attempt_time" value="1795321690655" />
+    <boolean name="cloud_target_com.hihonor.hiview" value="true" />
+    <boolean name="cloud_original_enabled_com.hihonor.android.AutoRegSms" value="false" />
+    <boolean name="target_com.honor.yoyocards" value="true" />
+    <boolean name="target_com.hihonor.iaware" value="false" />
+    <boolean name="cloud_applied_com.hihonor.hiviewpush" value="true" />
+    <boolean name="strategy_applied_com.honor.yoyoappsug" value="true" />
+    <boolean name="ai_target_com.hihonor.assistant" value="true" />
+    <boolean name="target_com.hihonor.sceneservice" value="true" />
+    <boolean name="cloud_applied_com.hihonor.android.AutoRegSms" value="true" />
+    <boolean name="cloud_target_com.hihonor.android.UEInfoCheck" value="true" />
+    <boolean name="cloud_applied_com.hihonor.hiviewtunnel" value="true" />
+    <boolean name="cloud_confirmed_com.hihonor.hiviewpush" value="false" />
+    <int name="boot_freeze_skipped_boot_count" value="38" />
+    <boolean name="cloud_confirmed_com.hihonor.regservice" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.ncdft.NcDftService" value="true" />
+    <boolean name="ai_target_com.hihonor.brain" value="true" />
+    <boolean name="cota_enabled" value="true" />
+    <boolean name="cloud_original_enabled_com.hihonor.android.UEInfoCheck" value="false" />
+    <boolean name="cloud_confirmed_com.hihonor.android.UEInfoCheck" value="true" />
+    <boolean name="strategy_applied_com.hihonor.assistant" value="true" />
+    <boolean name="last_boot_freeze_succeeded" value="false" />
+    <boolean name="cloud_confirmed_com.hihonor.android.AutoRegSms" value="true" />
+    <boolean name="strategy_applied_com.hihonor.ouc" value="true" />
+    <string name="cloud_last_result">命令已执行；PackageManager 未确认 3 项暂停；1 项仍有进程（1795281732952）</string>
+    <boolean name="strategy_applied_com.hihonor.systemappsupdater" value="false" />
+    <boolean name="ai_target_com.hihonor.voiceengine" value="true" />
+    <boolean name="cloud_target_com.hihonor.android.AutoRegSms" value="true" />
+    <string name="last_shutdown_result">成功（1795264480098）</string>
+    <boolean name="antifraud_securityserver_restrict" value="true" />
+    <boolean name="cloud_confirmed_com.hihonor.hiview" value="false" />
+    <int name="strategy_component_original_com.hihonor.hiviewpush_com.hihonor.hiviewpush/com.hihonor.hiviewpush.PushMsgReceiverService" value="0" />
+    <boolean name="target_com.hihonor.powergenie" value="false" />
+    <boolean name="target_com.hihonor.ouc" value="true" />
+    <string name="last_boot_freeze_result">手动选择性解冻：本次开机不再自动冻结</string>
+    <string name="last_boot_result">安全解冻成功（1795273357263）</string>
+    <boolean name="strategy_applied_com.hihonor.hiview" value="true" />
+    <boolean name="target_com.honor.yoyoappsug" value="true" />
+    <string name="strategy_com.hihonor.numberidentity">DISABLE_USER</string>
+    <boolean name="strategy_applied_com.hihonor.mageruntime" value="true" />
+    <string name="last_boot_detail">Root | exit=0 | pm unsuspend --user 0 'com.hihonor.ouc' 'com.honor.yoyoappsug' 'com.honor.yoyocards' 'com.hihonor.suggestion' 'com.hihonor.sceneservice' 'com.hihonor.hiview' 'com.hihonor.hiviewpush' 'com.hihonor.hiviewtunnel' 'com.hihonor.numberidentity' 'com.hihonor.aipluginengine' 'com.hihonor.assistant' 'com.hihonor.magicvoice' 'com.hihonor.voiceengine' 'com.hihonor.brain' 'com.hihonor.mageruntime' | Package com.hihonor.ouc new suspended state: false&#10;Package com.honor.yoyoappsug new suspended state: false&#10;Package com.honor.yoyocards new suspended state: false&#10;Package com.hihonor.suggestion new suspended state: false&#10;Package com.hihonor.sceneservice new suspended state: false&#10;Package com.hihonor.hiview new suspended state: false&#10;Package com.hihonor.hiviewpush new suspended state: false&#10;Package com.hihonor.hiviewtunnel new suspended state: false&#10;Package com.hihonor.numberidentity new suspended state: false&#10;Package com.hihonor.aipluginengine new suspended state: false&#10;Package com.hihonor.assistant new suspended state: false&#10;Package com.hihonor.magicvoice new suspended state: false&#10;Package com.hihonor.voiceengine new suspended state: false&#10;Package com.hihonor.brain new suspended state: false&#10;Package com.hihonor.mageruntime new suspended state: false&#10;    </string>
+    <boolean name="strategy_component_owned_com.hihonor.hiviewtunnel_com.hihonor.hiviewtunnel/com.hihonor.updateconfig.UpdateConfigService" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.configupdate.CloudConfigUpdateReceiver" value="true" />
+    <int name="strategy_component_original_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.mcs.system.diagnosis.service.DiagKitService" value="0" />
+    <string name="last_boot_freeze_detail">成功：尝试 1，成功 1，失败 0</string>
+    <boolean name="strategy_component_owned_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.lcagent.service.LogCollectService" value="true" />
+    <boolean name="ai_target_com.hihonor.mageruntime" value="true" />
+    <boolean name="cloud_target_com.hihonor.regservice" value="true" />
+    <boolean name="cloud_applied_com.hihonor.android.UEInfoCheck" value="true" />
+    <long name="last_shutdown_time" value="1795264479871" />
+    <boolean name="strategy_applied_com.hihonor.numberidentity" value="true" />
+    <int name="strategy_component_original_com.hihonor.hiviewpush_com.hihonor.hiviewpush/com.hihonor.hiviewpush.PushManagerService" value="0" />
+    <boolean name="strategy_applied_com.hihonor.iaware" value="false" />
+    <string name="last_shutdown_detail">Root | exit=0 | pm unsuspend --user 0 'com.hihonor.ouc' 'com.honor.yoyoappsug' 'com.honor.yoyocards' 'com.hihonor.suggestion' 'com.hihonor.sceneservice' 'com.hihonor.hiview' 'com.hihonor.hiviewpush' 'com.hihonor.hiviewtunnel' 'com.hihonor.numberidentity' 'com.hihonor.aipluginengine' 'com.hihonor.assistant' 'com.hihonor.magicvoice' 'com.hihonor.voiceengine' 'com.hihonor.brain' 'com.hihonor.mageruntime' | Package com.hihonor.ouc new suspended state: false&#10;Package com.honor.yoyoappsug new suspended state: false&#10;Package com.honor.yoyocards new suspended state: false&#10;Package com.hihonor.suggestion new suspended state: false&#10;Package com.hihonor.sceneservice new suspended state: false&#10;Package com.hihonor.hiview new suspended state: false&#10;Package com.hihonor.hiviewpush new suspended state: false&#10;Package com.hihonor.hiviewtunnel new suspended state: false&#10;Package com.hihonor.numberidentity new suspended state: false&#10;Package com.hihonor.aipluginengine new suspended state: false&#10;Package com.hihonor.assistant new suspended state: false&#10;Package com.hihonor.magicvoice new suspended state: false&#10;Package com.hihonor.voiceengine new suspended state: false&#10;Package com.hihonor.brain new suspended state: false&#10;Package com.hihonor.mageruntime new suspended state: false&#10;    </string>
+    <string name="strategy_com.hihonor.iaware">COMPONENT</string>
+    <boolean name="target_com.hihonor.suggestion" value="true" />
+    <int name="last_boot_freeze_attempt_boot_count" value="38" />
+    <boolean name="strategy_original_enabled_com.hihonor.numberidentity" value="true" />
+    <boolean name="strategy_applied_com.hihonor.voiceengine" value="true" />
+    <boolean name="strategy_applied_com.hihonor.brain" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiviewtunnel_com.hihonor.hiviewtunnel/com.hihonor.idaptunnel.LogUploadService" value="true" />
+    <int name="strategy_component_original_com.hihonor.hiviewtunnel_com.hihonor.hiviewtunnel/com.hihonor.userexperience.provider.UserExperienceProvider" value="0" />
+    <int name="strategy_component_original_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.ncdft.NcDftService" value="0" />
+    <boolean name="dry_run" value="false" />
+    <boolean name="strategy_applied_com.hihonor.aipluginengine" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiviewpush_com.hihonor.hiviewpush/com.hihonor.hiviewpush.PushManagerService" value="true" />
+    <boolean name="strategy_applied_com.hihonor.suggestion" value="true" />
+    <boolean name="cloud_target_com.hihonor.hiviewtunnel" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiviewpush_com.hihonor.hiviewpush/com.hihonor.hiviewpush.PushMsgReceiverService" value="true" />
+    <boolean name="ai_deep_freeze_enabled" value="true" />
+    <boolean name="ai_target_com.hihonor.magicvoice" value="true" />
+    <boolean name="strategy_applied_com.hihonor.sceneservice" value="true" />
+    <boolean name="cloud_applied_com.hihonor.hiview" value="true" />
+    <boolean name="strategy_component_owned_com.hihonor.hiviewpush_com.hihonor.hiviewpush/com.hihonor.push.sdk.PushReceiver" value="true" />
+    <boolean name="strategy_applied_com.hihonor.hiviewpush" value="true" />
+    <string name="antifraud_numberidentity_mode">DISABLE_USER</string>
+    <boolean name="target_com.hihonor.systemappsupdater" value="false" />
+    <int name="strategy_component_original_com.hihonor.hiviewtunnel_com.hihonor.hiviewtunnel/com.hihonor.updateconfig.UpdateConfigService" value="0" />
+    <boolean name="cloud_confirmed_com.hihonor.hiviewtunnel" value="false" />
+    <boolean name="cloud_target_com.hihonor.hiviewpush" value="true" />
+    <boolean name="antifraud_numberidentity_original_enabled" value="true" />
+    <string name="strategy_com.hihonor.powergenie">COMPONENT</string>
+    <string name="antifraud_last_result">成功 5 条（1795281755428）</string>
+    <int name="strategy_component_original_com.hihonor.hiview_com.hihonor.hiview/com.hihonor.configupdate.CloudConfigUpdateReceiver" value="0" />
+    <boolean name="cloud_original_enabled_com.hihonor.regservice" value="false" />
+    <int name="strategy_component_original_com.hihonor.hiviewpush_com.hihonor.hiviewpush/com.hihonor.push.sdk.PushReceiver" value="0" />
+    <int name="strategy_component_original_com.hihonor.hiviewtunnel_com.hihonor.hiviewtunnel/com.hihonor.idaptunnel.LogUploadService" value="0" />
+    <boolean name="cloud_applied_com.hihonor.regservice" value="true" />
+</map>

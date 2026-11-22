@@ -1,0 +1,310 @@
+device: HONOR AAP-AN00（荣耀WIN，AAP_AN00/HNAAP），MagicOS 10.0.0.102（AAP-AN00 10.0.0.102(SP1C00E100R101P1)，增量 10DLDLD102SP1C00E100），Android 16，adb 序列号 <device-serial-redacted>
+## packages
+- com.hihonor.ouc | 软件更新（HnOUC） | system_update | installed=True enabled=enabled (1) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.hihonor.ouc → User 0: installed=true suspended=true stopped=true enabled=1; ps -A/pidof 无进程; codePath=/system/app/HnOUC v17.0.12.100
+- com.hihonor.systemappsupdater | 系统应用更新 | system_update | installed=True enabled=default (0) suspended=false proc=pid 11955 com.hihonor.systemappsupdater | dumpsys package com.hihonor.systemappsupdater → installed=true suspended=false stopped=false enabled=0; ps -A 命中 pid 11955; codePath=/data/app/... v16.0.20.301
+- com.hihonor.android.upgradeguide | 升级引导（HnUpgradeGuide） | system_update | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.android.upgradeguide → installed=true suspended=false stopped=false enabled=0; ps -A 无; codePath=/system/priv-app/HnUpgradeGuide
+- com.honor.gpudrivers | GPU 驱动 | system_update | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.honor.gpudrivers → installed=true suspended=false enabled=0; codePath=/vendor/app/com.honor.gpudrivers v1.0.840.0; 无导出组件
+- com.hihonor.aipluginengine | AI 插件引擎 | ai_yoyo | installed=True enabled=default (0) suspended=true proc=pid 21283 com.hihonor.aipluginengine（suspended=true 仍在运行） | dumpsys package com.hihonor.aipluginengine → installed=true suspended=true stopped=false enabled=0; ps -A pid 21283; codePath=/data/app/... v7.1.9.752
+- com.hihonor.assistant | YOYO 助理 | ai_yoyo | installed=True enabled=default (0) suspended=true proc=pid 22473 com.hihonor.assistant; 22414 :service; 22565 :cardmgr | dumpsys package com.hihonor.assistant → installed=true suspended=true stopped=false enabled=0; ps -A 3 个进程; codePath=/data/app/... v11.0.5.302
+- com.hihonor.magicvoice | YOYO 语音（MagicVoice） | ai_yoyo | installed=True enabled=default (0) suspended=true proc=pid 18969 com.hihonor.magicvoice; 18937 :interactor; 21309 :remote | dumpsys package com.hihonor.magicvoice → installed=true suspended=true stopped=false enabled=0; ps -A 3 个进程; codePath=/data/app/... v90.10.35.036
+- com.hihonor.voiceengine | 语音引擎 | ai_yoyo | installed=True enabled=default (0) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.hihonor.voiceengine → installed=true suspended=true stopped=true enabled=0; ps -A 无; codePath=/data/app/... v11.0.35.2
+- com.hihonor.brain | YOYO 智慧引擎（HONOR Brain） | ai_yoyo | installed=True enabled=default (0) suspended=true proc=pid 30410 com.hihonor.brain（suspended=true 仍在运行） | dumpsys package com.hihonor.brain → installed=true suspended=true stopped=false enabled=0; ps -A pid 30410; codePath=/data/app/... v11.0.0.752
+- com.hihonor.mageruntime | AI 运行时（MageEngine） | ai_yoyo | installed=True enabled=default (0) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.hihonor.mageruntime → installed=true suspended=true stopped=true enabled=0; 仅 EmptyLicenseActivity; codePath=/system/app/MageEngineRuntime
+- com.honor.yoyoappsug | YOYO 应用建议 | ai_yoyo | installed=True enabled=default (0) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.honor.yoyoappsug → installed=true suspended=true stopped=true enabled=0; 无导出组件; codePath=/system/priv-app/HnAppSuggestions
+- com.honor.yoyocards | YOYO 卡片 | ai_yoyo | installed=True enabled=default (0) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.honor.yoyocards → installed=true suspended=true stopped=true enabled=0; 无导出组件; codePath=/system/priv-app/HnYOYOCards
+- com.hihonor.suggestion | 智能建议（HnSmartSuggestion） | ai_yoyo | installed=True enabled=default (0) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.hihonor.suggestion → installed=true suspended=true stopped=true enabled=0; codePath=/data/app/... v16.1.0.300
+- com.hihonor.sceneservice | 场景服务（SceneService） | ai_yoyo | installed=True enabled=default (0) suspended=true proc=无进程（suspended=true, stopped=true） | dumpsys package com.hihonor.sceneservice → installed=true suspended=true stopped=true enabled=0; codePath=/data/app/... v10.0.8.301
+- com.hihonor.intelligentmessage | 智能信息（HnIntelligentMessage） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.intelligentmessage → installed=true suspended=false stopped=false enabled=0; 仅 androidx 导出组件; codePath=/data/app/... v10.0.44.309
+- com.hihonor.magictranslate | 魔法翻译（HnMagicTranslate） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.magictranslate → installed=true suspended=false enabled=0; codePath=/system/app/HnMagicTranslate v90.10.10.300（现由 data/app 更新）
+- com.hihonor.visionengine | 视觉引擎（VisionEngine） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=pid 11389 com.hihonor.visionengine; 21513 :qnns1 | dumpsys package com.hihonor.visionengine → installed=true suspended=false enabled=0; ps -A 2 个进程; codePath=/product_h/region_comm/china/app/VisionEngine
+- com.hihonor.magicavatar | 魔法形象（MagicAvatar） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.magicavatar → installed=true suspended=false enabled=0; codePath=/product_h/region_comm/china/app/MagicAvatar
+- com.hihonor.lens | 智慧视觉（HonorLens） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.lens → installed=true suspended=false enabled=0; codePath=/system/priv-app/HonorLens v82.0.0.115
+- com.hihonor.smartshot | 智慧截屏（HnSmartShot） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.smartshot → installed=true suspended=false enabled=0; 无 service/receiver 导出组件; codePath=/product_h/app/HnSmartShot
+- com.hihonor.hiboard | 负一屏（HiBoard） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=pid 7101 com.hihonor.hiboard; 9013 :express | dumpsys package com.hihonor.hiboard → installed=true suspended=false enabled=0; ps -A 2 个进程; codePath=/system/priv-app/HiBoard
+- com.hihonor.search | 荣耀搜索（HonorSearch） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.search → installed=true suspended=false enabled=0; codePath=/system/priv-app/HonorSearch
+- com.hihonor.searchservice | 全局搜索服务（SearchService） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=pid 7114 com.hihonor.searchservice; 另见 :monitor 进程 | dumpsys package com.hihonor.searchservice → installed=true suspended=false enabled=0; ps -A 命中 pid 7114; codePath=/system/priv-app/SearchService
+- com.hihonor.magickey | 魔法键（MagicKey） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.magickey → installed=true suspended=false enabled=0; 无 service 导出组件; codePath=/product_h/region_comm/china/app/MagicKey
+- com.hihonor.recordassistant | 录音/通话助理（HnRecordAssistant） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.recordassistant → installed=true suspended=false enabled=0; 含 AntiFraudProvider; codePath=/product_h/region_comm/china/app/HnRecordAssistant
+- com.hihonor.mediadatacenter | 媒体数据服务（MediaDataCenter） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=pid 13013 com.hihonor.mediadatacenter | dumpsys package com.hihonor.mediadatacenter → installed=true suspended=false enabled=0; ps -A pid 13013; codePath=/system/priv-app/MediaDataCenter
+- com.hihonor.awareness | 情景感知（HONOR Awareness） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=pid 22775 com.hihonor.awareness; 22259 :dp.ofdb | dumpsys package com.hihonor.awareness → installed=true suspended=false enabled=0; ps -A 2 个进程; codePath=/data/app/... v10.0.0.375
+- com.hihonor.motionservice | 动作识别（HnMotionRecognition） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.motionservice → installed=true suspended=false enabled=0; codePath=/system/priv-app/HnMotionRecognition
+- com.hihonor.hnmagicportal | 任意门（Magic Portal，HnMagicPortal） | ai_yoyo | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.hnmagicportal → installed=true suspended=false enabled=0; codePath=/system/priv-app/HnMagicPortal
+- com.hihonor.hiview | HiView 日志采集/用户体验（HiView） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=pid 4670 com.hihonor.hiview（PERS，stopped=true 但进程存活；另有原生 hiview pid 2720 root） | dumpsys package com.hihonor.hiview → installed=true suspended=false stopped=true enabled=0; ps -A pid 4670 + hiview 2720; codePath=/system/app/HiView
+- com.hihonor.hiviewpush | HiView 推送（HiViewPush） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=无进程（stopped=true） | dumpsys package com.hihonor.hiviewpush → installed=true suspended=false stopped=true enabled=0; ps -A 无; codePath=/system/app/HiViewPush
+- com.hihonor.hiviewtunnel | HiView 日志上传隧道（HiViewTunnel） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=无进程（stopped=true） | dumpsys package com.hihonor.hiviewtunnel → installed=true suspended=false stopped=true enabled=0; ps -A 无; codePath=/system/app/HiViewTunnel
+- com.hihonor.cipservice | CIP 数据平台服务（HnCIPService） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.cipservice → installed=true suspended=false enabled=0; 声明 ACCESS_HNCIPSERVICE、被授予 SET_CHR_DATA/定位/WiFi 权限; codePath=/system/priv-app/HnCIPService（label 为推断）
+- com.hihonor.android.pushagent | 推送代理（HiPushAgent） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=pid 8465 com.hihonor.android.pushagent（另有 com.hihonor.android.pushagent.HiPushService 进程） | dumpsys package com.hihonor.android.pushagent → installed=true suspended=false enabled=0; ps -A 命中; codePath=/data/app/... v11.0.11.313
+- com.hihonor.android.chr | CHR 售后日志服务（HnChrService） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.android.chr → installed=true suspended=false enabled=0; codePath=/system/app/HnChrService
+- com.hihonor.systemserver | 系统服务（HnSystemServer） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=pid 4663 com.hihonor.systemserver（persistent） | dumpsys package com.hihonor.systemserver → installed=true suspended=false enabled=0; ps -A pid 4663; codePath=/system/priv-app/HnSystemServer; 承载 PluginManager、AppMCP 配置、运营商配置、云参数、热补丁
+- com.hihonor.quickengine | 快应用引擎（QuickAppEngine） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.quickengine → installed=true suspended=false enabled=0; codePath=/system/priv-app/QuickAppEngine
+- com.hihonor.popularapps | 热门应用推荐（PopularApps） | cloud_telemetry | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.popularapps → installed=true suspended=false enabled=0; codePath=/system/priv-app/PopularApps
+- com.hihonor.smartiot | 智慧互联（SmartIoT） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.smartiot → installed=true suspended=false enabled=0; codePath=/system/priv-app/SmartIot
+- com.hihonor.magichome | 智慧空间（MagicHome） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程（stopped=true） | dumpsys package com.hihonor.magichome → installed=true suspended=false stopped=true enabled=0; 含 com.hihonor.parentcontrol...preventfraud.PreventFraudProvider; codePath=/product_h/region_comm/china/app/MagicHome
+- com.hihonor.id | 荣耀账号（HONOR ID） | cloud_service | installed=True enabled=default (0) suspended=false proc=pid 12522 com.hihonor.id; 7253 :core; 7450 :persistent; 13300 :p1 | dumpsys package com.hihonor.id → installed=true suspended=false enabled=0; ps -A 4 个进程; codePath=/system/app/HnMMS
+- com.hihonor.hncloud | 云空间（HnCloud） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.hncloud → installed=true suspended=false enabled=0; codePath=/data/app/... v10.1.8.301
+- com.hihonor.findmydevice | 查找设备（FindMyDevice） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.findmydevice → installed=true suspended=false enabled=0; codePath=/data/app/... v11.0.4.301
+- com.hihonor.devicefinder | 设备查找（DeviceFinder） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程（stopped=true） | dumpsys package com.hihonor.devicefinder → installed=true suspended=false stopped=true enabled=0; codePath=/system/app/DeviceFinder
+- com.hihonor.contacts.sync | 联系人同步（HnContactsSync） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.contacts.sync → installed=true suspended=false enabled=0; codePath=/system/priv-app/HnContactsSync
+- com.hihonor.assetsync | 资产同步（HnAssetSync） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.assetsync → installed=true suspended=false enabled=0; 无导出组件; codePath=/system/app/HnAssetSync
+- com.hihonor.assetsyncservice | 资产同步服务（HnAssetSyncService） | cloud_service | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.assetsyncservice → installed=true suspended=false enabled=0; 无导出 service/receiver; codePath=/system/app/HnAssetSyncService
+- com.hihonor.devicemanager | 设备管理（MDM，HnDeviceManager） | device_mgmt | installed=True enabled=default (0) suspended=false proc=无进程（stopped=true） | dumpsys package com.hihonor.devicemanager → installed=true suspended=false stopped=true enabled=0; 持有 com.hihonor.permission.sec.MDM.v2、BIND_CLOUD_SERVICE; codePath=/data/app/... v16.0.0.340
+- com.hihonor.ddmp | 分布式数据/文件协同（HnDRSP） | cross_device | installed=True enabled=default (0) suspended=false proc=pid 7013 com.hihonor.drsp（ddmp 的实际进程名） | dumpsys package com.hihonor.ddmp → installed=true suspended=false enabled=0; ps -A 显示进程 com.hihonor.drsp pid 7013; 服务 DistributedFileService/NetworkSynergyService/DccAarService；不是遥测
+- com.hihonor.regservice | 中国移动 DM（HnCmccDm） | carrier_dm | installed=True enabled=disabled-user (3) suspended=false proc=无进程 | pm list packages -d 含该包; dumpsys package com.hihonor.regservice → installed=true suspended=false enabled=3 (DISABLED_USER); codePath=/system/app/HnCmccDm v15.10.0.104; 组件 DM/MT BroadcastReceiver
+- com.hihonor.android.UEInfoCheck | UE 信息检查（UEInfoCheck） | carrier_dm | installed=True enabled=disabled-user (3) suspended=false proc=无进程 | pm list packages -d 含该包; dumpsys package → installed=true suspended=false enabled=3; codePath=/version/cust/app/UEInfoCheck
+- com.hihonor.android.AutoRegSms | 中国电信自动注册短信（ChnTelecomAutoReg） | carrier_dm | installed=True enabled=disabled-user (3) suspended=false proc=无进程 | pm list packages -d 含该包; dumpsys package → installed=true suspended=false enabled=3; codePath=/version/cust/app/ChnTelecomAutoReg
+- com.hihonor.powergenie | 功耗管理（PowerGenie / HAware） | thermal_power | installed=True enabled=default (0) suspended=false proc=无独立进程；PowerKitService 的 ServiceRecord processName=com.hihonor.iaware（pid 4651） | dumpsys package com.hihonor.powergenie → installed=true suspended=false enabled=0; dumpsys activity services 显示 ServiceRecord processName=com.hihonor.iaware/pid 4651; codePath=/system/app/HAware
+- com.hihonor.iaware | 智能调度（iAware） | thermal_power | installed=True enabled=default (0) suspended=false proc=pid 4651 com.hihonor.iaware（system uid 1000） | dumpsys package com.hihonor.iaware → installed=true suspended=false enabled=0; ps -A pid 4651; 同时承载 powergenie 的 PowerKitService; codePath=/system/app/HnIAware
+- com.hihonor.systemmanager | 系统管家（HnSystemManager） | system_optimizer | installed=True enabled=default (0) suspended=false proc=pid 25170 com.hihonor.systemmanager; 5306 :service; 13557 :security_scan | dumpsys package com.hihonor.systemmanager → installed=true suspended=false enabled=0; ps -A 3 个进程; 含 securitycenter.antifraud、antivirus、power、cleaner 等; codePath=/system/priv-app/HnSystemManager
+- com.hihonor.gameassistant | 游戏管家（GameAssistant） | thermal_power | installed=True enabled=default (0) suspended=false proc=pid 8719 com.hihonor.gameassistant | dumpsys package com.hihonor.gameassistant → installed=true suspended=false enabled=0; ps -A pid 8719; 含 SyncFrameRateGraphicsProvider; codePath=/system/priv-app/GameAssistant
+- com.hihonor.game.kitserver | 游戏服务（GameKit） | thermal_power | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.game.kitserver → installed=true suspended=false enabled=0; GameService/TGPAService; codePath=/system/app/GameKit
+- com.hihonor.numberidentity | 号码识别（NumberIdentity） | anti_fraud | installed=True enabled=disabled-user (3) suspended=false proc=无进程 | pm list packages -d 含该包; dumpsys package com.hihonor.numberidentity → installed=true suspended=false enabled=3; codePath=/system/priv-app/NumberIdentity v18.0.10.305
+- com.hihonor.securityserver | 安全服务（HnSecurityServer） | anti_fraud | installed=True enabled=default (0) suspended=false proc=pid 4665 com.hihonor.securityserver（system uid） | dumpsys package com.hihonor.securityserver → installed=true suspended=false enabled=0; ps -A pid 4665; codePath=/system_ext/app/HnSecurityServer
+- com.hihonor.securitypluginbase | 安全插件基础（HnSecurityPluginBase） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.securitypluginbase → installed=true suspended=false enabled=0; AntivirusAbilityProvider; codePath=/system/app/HnSecurityPluginBase
+- com.hihonor.behaviorauth | 行为认证（HnBehaviorAuth） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.behaviorauth → installed=true suspended=false enabled=0; 无导出 service/receiver（仅 EmptyLicenseActivity）; codePath=/system/app/HnBehaviorAuth
+- com.hihonor.trustspace | 支付保护（HnTrustSpace） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.trustspace → installed=true suspended=false enabled=0; TrustSpaceService; codePath=/system/app/HnTrustSpace
+- com.hihonor.coauthservice | 协同认证（HnCoAuthService） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.coauthservice → installed=true suspended=false enabled=0; FusionService/CoAuthCountService; codePath=/system/app/HnCoAuthService
+- com.hihonor.fido.uafclient | FIDO UAF 客户端（HnFidoClient） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.fido.uafclient → installed=true suspended=false enabled=0; MfacService; codePath=/system/app/HnFidoClient
+- com.hihonor.trustagent | 可信代理（HnTrustAgent） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.trustagent → installed=true suspended=false enabled=0; TrustAgentProvider; codePath=/system/app/HnTrustAgent
+- com.hihonor.trustcircle | 可信环（HnTrustCircle） | anti_fraud | installed=True enabled=default (0) suspended=false proc=pid 19676 com.hihonor.trustcircle | dumpsys package com.hihonor.trustcircle → installed=true suspended=false enabled=0; ps -A pid 19676; codePath=/system/app/HnTrustCircle
+- com.hihonor.deviceauth | 设备认证（HnDeviceAuth） | anti_fraud | installed=True enabled=default (0) suspended=false proc=pid 13171 com.hihonor.deviceauth | dumpsys package com.hihonor.deviceauth → installed=true suspended=false enabled=0; ps -A pid 13171; 无导出组件; codePath=/system/app/HnDeviceAuth
+- com.hihonor.keychain | 密钥链（HnKeyChain） | anti_fraud | installed=True enabled=default (0) suspended=false proc=pid 27495 com.hihonor.keychain | dumpsys package com.hihonor.keychain → installed=true suspended=false enabled=0; ps -A pid 27495; codePath=/system/app/HnKeyChain
+- com.hihonor.hnasm | FIDO ASM（HnFidoAsm） | anti_fraud | installed=True enabled=default (0) suspended=false proc=无进程 | dumpsys package com.hihonor.hnasm → installed=true suspended=false enabled=0; 无导出 service/receiver; codePath=/system/app/HnFidoAsm
+## components
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.newBiz.service.CotaService | service | OTA/COTA 升级核心服务
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.para.push.HnOucMessageService | service | 升级 Push 消息服务
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.biz.impl.reveiver.CheckNewVersionReceiver | receiver | 检查新版本触发
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.biz.impl.reveiver.FirmwareAutoDownloadReceiver | receiver | 固件自动下载触发
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.biz.impl.reveiver.FirmwareInstallReceiver | receiver | 固件安装触发
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.biz.impl.reveiver.NightUpgradeReceiver | receiver | 夜间自动升级触发
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.newBiz.reveiver.CotaReceiver | receiver | COTA 升级广播入口
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.para.push.LocalPushReceiver | receiver | 本地推送拉起升级流程
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.provider.PullUpProcessReceiver | receiver | 外部广播拉起 OUC 进程
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.provider.UpdateDbProvider | provider | 升级数据库 Provider
+- com.hihonor.ouc | com.hihonor.ouc/com.hihonor.android.hnouc.newUtils.download.provider.CotaUpdateProvider | provider | COTA 更新数据 Provider
+- com.hihonor.systemappsupdater | com.hihonor.systemappsupdater/com.hihonor.updater.third.remote.UpdaterService | service | 系统应用更新服务
+- com.hihonor.systemappsupdater | com.hihonor.systemappsupdater/com.hihonor.updater.provider.AppUpdateProvider | provider | 应用更新数据 Provider
+- com.hihonor.systemappsupdater | com.hihonor.systemappsupdater/com.hihonor.updater.provider.SystemAppCallProvider | provider | 系统应用更新调用 Provider
+- com.hihonor.systemappsupdater | com.hihonor.systemappsupdater/com.hihonor.updater.receiver.WifiStateChangeReceiver | receiver | WiFi 状态触发更新
+- com.hihonor.systemappsupdater | com.hihonor.systemappsupdater/com.hihonor.updater.receiver.PowerConnectedReceiver | receiver | 充电状态触发更新
+- com.hihonor.android.upgradeguide | com.hihonor.android.upgradeguide/com.hihonor.android.upgradeguide.UpgradeWizardActivity | activity | 升级后引导向导
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.AIModel.AIModelService | service | 端侧 AI 模型服务
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.AIModel.AiModelIntelligenceService | service | AI 智能能力服务
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.awarenessfence.BrainFenceNotifyService | service | 与 Brain 情景围栏联动
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.llm.service.CloudCfgReceiver | receiver | AI 云配置下发接收
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.com.hihonor.dataupdate.receiver.DataUpdateReceiver | receiver | 模型/资源数据更新
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.llm.service.LLMAbilityProvider | provider | 大模型能力 Provider
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.llm.update.ModelUpdateProvider | provider | 大模型更新 Provider
+- com.hihonor.aipluginengine | com.hihonor.aipluginengine/com.hihonor.aipluginengine.provider.AiPluginEngineProvider | provider | AI 插件引擎能力 Provider
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.mcp.service.YOYOAssistantMcpService | service | YOYO MCP 工具调用服务
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.service.BrainNotifyService | service | Brain 通知服务
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.feedback.CardMgrService | service | YOYO 卡片管理服务
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.fence.receiver.AwarenessFenceReceiver | receiver | 情景围栏触发
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.support.fence.CoreFenceReceiver | receiver | 核心围栏触发
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.receiver.OceanUpdateReceiver | receiver | 云侧内容/配置更新
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.filltable.business.service.AiFillAppClipService | service | AI 填表服务
+- com.hihonor.assistant | com.hihonor.assistant/com.hihonor.assistant.scene.provider.SceneProvider | provider | 场景卡片数据 Provider
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.voiceui.service.MagicVoiceInteractionService | service | 语音交互主服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.voiceui.service.MagicVoiceRecognitionService | service | 语音识别服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.com.hihonor.wakeup.service.WakeupService | service | 语音唤醒服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.voiceui.service.HonorPushMsgService | service | 语音助手推送服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.service.UIAgentService | service | UI Agent 服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.startup.StartAssistantService | service | 拉起语音助手
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.aicall.HnAiCallService | service | AI 通话服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.business.mcpservice.LensMcpService | service | 视觉 MCP 工具服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.business.mcpservice.OsControlMcpService | service | 系统控制 MCP 工具服务
+- com.hihonor.magicvoice | com.hihonor.magicvoice/com.hihonor.magicvoice.phonebase.cloudparam.CloudConfigUpdateReceiver | receiver | 云参数更新接收
+- com.hihonor.voiceengine | com.hihonor.voiceengine/com.hihonor.voiceengine.com.hihonor.tts.TtsService | service | TTS 语音合成服务
+- com.hihonor.voiceengine | com.hihonor.voiceengine/com.hihonor.voiceengine.check.TtsUpdateCheckService | service | TTS 资源更新检查
+- com.hihonor.voiceengine | com.hihonor.voiceengine/com.hihonor.voiceengine.awarenessfence.BrainFenceNotifyService | service | Brain 围栏联动
+- com.hihonor.voiceengine | com.hihonor.voiceengine/com.hihonor.voiceengine.com.hihonor.aipluginengine.nlu.business.message.update.CloudCfgReceiver | receiver | NLU 云配置接收
+- com.hihonor.voiceengine | com.hihonor.voiceengine/com.hihonor.voiceengine.com.hihonor.dataupdate.receiver.DataUpdateReceiver | receiver | 资源数据更新
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.BrainService | service | 智慧引擎核心服务
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.BrainAgentService | service | 智能体服务
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.BrainMsgReceiverService | service | 消息接收服务
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.business.decision.task.mcp.BrainMcpService | service | Brain MCP 工具服务
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.business.decision.personalagent.mcp.PersonalAgentMcpService | service | 个人智能体 MCP 服务
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.UniCfgUpdateReceiver | receiver | 统一云配置更新
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.ability.ResUpdateService | service | AI 资源更新服务
+- com.hihonor.brain | com.hihonor.brain/com.hihonor.brain.provider.UserProfileProvider | provider | 用户画像 Provider
+- com.hihonor.suggestion | com.hihonor.suggestion/com.hihonor.suggestion.com.hihonor.decision.service.DecisionNotifyService | service | 智能建议通知服务
+- com.hihonor.suggestion | com.hihonor.suggestion/com.hihonor.suggestion.com.hihonor.decision.service.DecisionReceiverService | service | 建议决策接收服务
+- com.hihonor.suggestion | com.hihonor.suggestion/com.hihonor.suggestion.com.hihonor.tips.MessageReceiver | receiver | 建议消息触发
+- com.hihonor.sceneservice | com.hihonor.sceneservice/com.hihonor.sceneservice.business.trigger.push.PushMessageService | service | 场景推送服务
+- com.hihonor.sceneservice | com.hihonor.sceneservice/com.hihonor.sceneservice.core.infrastructure.awareness.AwarenessStartReceiver | receiver | 情景感知启动
+- com.hihonor.sceneservice | com.hihonor.sceneservice/com.hihonor.sceneservice.core.infrastructure.trigger.AwarenessReceiver | receiver | 情景触发接收
+- com.hihonor.sceneservice | com.hihonor.sceneservice/com.hihonor.sceneservice.cmuniversalapp.EventNotifyProvider | provider | 场景事件 Provider
+- com.hihonor.magictranslate | com.hihonor.magictranslate/com.hihonor.magictranslate.screen.service.ScreenTranslateQuickService | service | 屏幕翻译快捷服务
+- com.hihonor.magictranslate | com.hihonor.magictranslate/com.hihonor.magictranslate.facetoface.newservice.FaceToFaceQuickSettingService | service | 面对面翻译服务
+- com.hihonor.magictranslate | com.hihonor.magictranslate/com.hihonor.magictranslate.facetoface.cloudconfig.CloudConfigUpdateReceiver | receiver | 翻译云配置更新
+- com.hihonor.visionengine | com.hihonor.visionengine/com.hihonor.visionengine.com.hihonor.vision.awareness.BrainFenceNotifyService | service | 视觉能力与 Brain 联动
+- com.hihonor.visionengine | com.hihonor.visionengine/com.hihonor.visionengine.com.hihonor.dataupdate.receiver.DataUpdateReceiver | receiver | 视觉模型/资源更新
+- com.hihonor.visionengine | com.hihonor.visionengine/com.hihonor.visionengine.com.hihonor.vision.utils.CheckResourceProvider | provider | 视觉资源校验 Provider
+- com.hihonor.lens | com.hihonor.lens/com.hihonor.lens.com.hihonor.aolens.service.HonorLensService | service | 智慧视觉核心服务
+- com.hihonor.lens | com.hihonor.lens/com.hihonor.lens.com.hihonor.aolens.service.HonorLensRouterService | service | 智慧视觉路由服务
+- com.hihonor.search | com.hihonor.search/com.hihonor.search.aidlservice.GlobalSearchGestureService | service | 手势搜索服务
+- com.hihonor.search | com.hihonor.search/com.hihonor.search.business.push.PushMessageService | service | 搜索推送服务
+- com.hihonor.search | com.hihonor.search/com.hihonor.search.feature.aiso.service.MagicLinkService | service | AI 搜索/魔法链接服务
+- com.hihonor.searchservice | com.hihonor.searchservice/com.hihonor.searchservice.server.SearchService | service | 全局搜索索引服务
+- com.hihonor.searchservice | com.hihonor.searchservice/com.hihonor.searchservice.server.mcp.SearchMcpService | service | 搜索 MCP 工具服务
+- com.hihonor.searchservice | com.hihonor.searchservice/com.hihonor.searchservice.server.receiver.ConfigReceiver | receiver | 搜索云配置更新
+- com.hihonor.searchservice | com.hihonor.searchservice/com.hihonor.searchservice.server.controller.dfx.betaupload.UploadIndexProvider | provider | 索引/DFX 上传 Provider
+- com.hihonor.recordassistant | com.hihonor.recordassistant/com.hihonor.recordassistant.provider.AntiFraudProvider | provider | 通话反诈数据 Provider
+- com.hihonor.recordassistant | com.hihonor.recordassistant/com.hihonor.recordassistant.callsummary.CallSummaryProvider | provider | 通话摘要 Provider
+- com.hihonor.recordassistant | com.hihonor.recordassistant/com.hihonor.recordassistant.provider.RecordsProvider | provider | 录音数据 Provider
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.AwarenessService | service | 情景感知核心服务
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.VoiceAssistantService | service | 语音助手情景服务
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.agent.service.UiAgentService | service | UI 代理服务
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.server.atomicability.push.HonorAwarenessPushService | service | 情景感知推送服务
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.server.AwarenessContentCaptureService | service | 屏幕内容捕获服务
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.server.pluginmanager.ResourcesUpdateService | service | 感知资源更新服务
+- com.hihonor.awareness | com.hihonor.awareness/com.hihonor.awareness.com.hihonor.hianalytics.manager.service.HaManagerService | service | 埋点/分析管理服务
+- com.hihonor.motionservice | com.hihonor.motionservice/com.hihonor.motionservice.MotionService | service | 动作识别服务
+- com.hihonor.hnmagicportal | com.hihonor.hnmagicportal/com.hihonor.hnmagicportal.com.hihonor.hntransgate.AppClipService | service | 任意门快应用服务
+- com.hihonor.hnmagicportal | com.hihonor.hnmagicportal/com.hihonor.hnmagicportal.com.hihonor.hntransgate.utils.CFGReceiver | receiver | 任意门云配置接收
+- com.hihonor.hiboard | com.hihonor.hiboard/com.hihonor.hiboard.cardstack.service.HiBoardNotifyService | service | 负一屏通知服务
+- com.hihonor.hiboard | com.hihonor.hiboard/com.hihonor.hiboard.com.hihonor.intelligent.feature.push.presentation.service.PushMessageService | service | 负一屏推送服务
+- com.hihonor.hiboard | com.hihonor.hiboard/com.hihonor.hiboard.com.hihonor.intelligent.remoteservice.LauncherOverlayService | service | 桌面负一屏 Overlay 服务
+- com.hihonor.hiboard | com.hihonor.hiboard/com.hihonor.hiboard.com.hihonor.contentcard.ticket.data.BrainNotifyService | service | 负一屏 Brain 通知服务
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.lcagent.service.LogCollectService | service | 日志采集服务
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.mcs.system.diagnosis.service.DiagKitService | service | 诊断工具服务
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.ncdft.NcDftService | service | DFT 日志服务
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.lcagent.service.receiver.LogCollectReceiver | receiver | 日志采集触发
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.lcagent.service.receiver.HiViewSysReceiver | receiver | 系统事件接收
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.configupdate.CloudConfigUpdateReceiver | receiver | HiView 云配置更新
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.mcs.system.diagnosis.service.receiver.BootReceiver | receiver | 开机启动日志/诊断
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.lcagent.common.dboperate.UeInfoContentProvider | provider | UE 信息数据 Provider
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.lcagent.common.dboperate.LogServiceContentProvider | provider | 日志数据 Provider
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.lcagent.common.dboperate.BigDataInnerProvider | provider | 埋点大数据 Provider
+- com.hihonor.hiview | com.hihonor.hiview/com.hihonor.dubai.DubaiCfgCotaUpdateReceiver | receiver | Dubai 云配置更新
+- com.hihonor.hiviewpush | com.hihonor.hiviewpush/com.hihonor.hiviewpush.PushManagerService | service | HiView 推送管理服务
+- com.hihonor.hiviewpush | com.hihonor.hiviewpush/com.hihonor.hiviewpush.PushMsgReceiverService | service | 推送消息接收服务
+- com.hihonor.hiviewpush | com.hihonor.hiviewpush/com.hihonor.hiviewpush.com.hihonor.push.sdk.PushReceiver | receiver | 推送广播接收
+- com.hihonor.hiviewtunnel | com.hihonor.hiviewtunnel/com.hihonor.hiviewtunnel.com.hihonor.idaptunnel.LogUploadService | service | 用户体验日志上传服务
+- com.hihonor.hiviewtunnel | com.hihonor.hiviewtunnel/com.hihonor.hiviewtunnel.com.hihonor.updateconfig.UpdateConfigService | service | 上传配置更新服务
+- com.hihonor.hiviewtunnel | com.hihonor.hiviewtunnel/com.hihonor.hiviewtunnel.com.hihonor.userexperience.provider.UserExperienceProvider | provider | 用户体验数据 Provider
+- com.hihonor.cipservice | com.hihonor.cipservice/com.hihonor.cipservice.HnCIPService | service | CIP 数据平台服务
+- com.hihonor.cipservice | com.hihonor.cipservice/com.hihonor.cipservice.dataplatform.database.CIPDbProvider | provider | CIP 数据库 Provider
+- com.hihonor.android.pushagent | com.hihonor.android.pushagent/com.hihonor.android.pushagent.receiver.PushMsgReceiver | receiver | 推送消息广播接收
+- com.hihonor.android.pushagent | com.hihonor.android.pushagent/com.hihonor.android.pushagent.provider.MessageBoxProvider | provider | 推送消息箱 Provider
+- com.hihonor.android.pushagent | com.hihonor.android.pushagent/com.hihonor.android.pushagent.provider.SystemEventProvider | provider | 系统事件 Provider
+- com.hihonor.android.pushagent | com.hihonor.android.pushagent/com.hihonor.android.pushagent.com.hihonor.android.push.plugin.systemui.NotificationControlPlugin | service | 通知控制插件服务
+- com.hihonor.android.chr | com.hihonor.android.chr/com.hihonor.android.chr.com.hihonor.mdlog.MdlogService | service | Modem 日志服务
+- com.hihonor.android.chr | com.hihonor.android.chr/com.hihonor.android.chr.com.hihonor.ncdft.HnNcDftService | service | DFT 日志服务
+- com.hihonor.android.chr | com.hihonor.android.chr/com.hihonor.android.chr.com.hihonor.mdlog.MdlogBootReceiver | receiver | Modem 日志开机触发
+- com.hihonor.android.chr | com.hihonor.android.chr/com.hihonor.android.chr.com.hihonor.mdlog.MdlogReceiver | receiver | Modem 日志触发
+- com.hihonor.android.chr | com.hihonor.android.chr/com.hihonor.android.chr.ChrCloudParaUpdateReceiver | receiver | CHR 云参数更新
+- com.hihonor.android.chr | com.hihonor.android.chr/com.hihonor.android.chr.ChrCommonReceiver | receiver | CHR 通用广播接收
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.pluginmanager.PluginQueryProvider | provider | 系统插件查询 Provider
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.pluginmanager.ConfirmationDialogActivity | activity | 插件权限确认界面
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.appmcp.AppMcpCfgUpdatedReceiver | receiver | App MCP 云配置更新
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.appclip.AppClipCfgUpdatedReceiver | receiver | 快应用云配置更新
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.booster.framework.config.CommonCloudParaUpdateReceiver | receiver | 通用云参数更新
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.booster.framework.config.PowerCloudParaUpdateReceiver | receiver | 功耗云参数更新
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.carrierconfig.HwCarrierConfigProvider | provider | 运营商配置 Provider
+- com.hihonor.systemserver | com.hihonor.systemserver/com.hihonor.systemserver.hotpatch.PatchServiceStub | service | 热补丁服务桩
+- com.hihonor.iaware | com.hihonor.iaware/com.hihonor.iaware.CloudConfigUpdateReceiver | receiver | iAware 云配置更新
+- com.hihonor.iaware | com.hihonor.iaware/com.hihonor.iaware.CloudPushContentProvider | provider | 云推送配置 Provider
+- com.hihonor.iaware | com.hihonor.iaware/com.hihonor.iaware.IAwareContentProvider | provider | 调度策略 Provider
+- com.hihonor.iaware | com.hihonor.iaware/com.hihonor.iaware.AppUsageContentProvider | provider | 应用使用数据 Provider
+- com.hihonor.iaware | com.hihonor.iaware/com.hihonor.iaware.StartBroadcastReceiver | receiver | 开机/启动触发
+- com.hihonor.iaware | com.hihonor.iaware/com.hihonor.iaware.PreloadAlarmReceiver | receiver | 预加载定时触发
+- com.hihonor.quickengine | com.hihonor.quickengine/com.hihonor.quickengine.org.hapjs.card.support.service.PlatformInstallService | service | 快应用安装服务
+- com.hihonor.quickengine | com.hihonor.quickengine/com.hihonor.quickengine.org.hapjs.features.adapter.honor.remote.RemoteJsApiService | service | 远程 JS API 服务
+- com.hihonor.quickengine | com.hihonor.quickengine/com.hihonor.quickengine.org.hapjs.features.remote.AppRemoteService | service | 远程应用服务
+- com.hihonor.popularapps | com.hihonor.popularapps/com.hihonor.popularapps.aidl.RemoteService | service | 热门应用推荐远程服务
+- com.hihonor.smartiot | com.hihonor.smartiot/com.hihonor.smartiot.SmartIotBroadcastReceiver | receiver | 智慧互联广播接收
+- com.hihonor.smartiot | com.hihonor.smartiot/com.hihonor.smartiot.cloudcota.CloudCotaParamReceiver | receiver | IoT 云参数更新
+- com.hihonor.smartiot | com.hihonor.smartiot/com.hihonor.smartiot.com.hihonor.push.sdk.PushReceiver | receiver | IoT 推送接收
+- com.hihonor.smartiot | com.hihonor.smartiot/com.hihonor.smartiot.FenceBroadcastReceiver | receiver | 地理/情景围栏接收
+- com.hihonor.id | com.hihonor.id/com.hihonor.id.com.hihonor.cloudservice.core.service.CloudServiceInnerService | service | 荣耀账号云服务
+- com.hihonor.id | com.hihonor.id/com.hihonor.id.com.hihonor.cloudservice.services.HnOaIdService | service | OAID/账号服务
+- com.hihonor.id | com.hihonor.id/com.hihonor.id.com.hihonor.hnid.cloudsettings.services.CloudAccountService | service | 云账号服务
+- com.hihonor.id | com.hihonor.id/com.hihonor.id.com.hihonor.hnid.cloudsettings.services.HnCloudAccountService | service | 云空间账号服务
+- com.hihonor.hncloud | com.hihonor.hncloud/com.hihonor.hncloud.com.hihonor.android.hncloud.aidl.SyncLogicService | service | 云同步逻辑服务
+- com.hihonor.hncloud | com.hihonor.hncloud/com.hihonor.hncloud.com.hihonor.android.hncloud.aidl.FileDownloadService | service | 云文件下载服务
+- com.hihonor.hncloud | com.hihonor.hncloud/com.hihonor.hncloud.push.HonorPushMessageReceiverService | service | 云空间推送服务
+- com.hihonor.hncloud | com.hihonor.hncloud/com.hihonor.hncloud.sync.provider.CloudSyncProvider | provider | 云同步 Provider
+- com.hihonor.hncloud | com.hihonor.hncloud/com.hihonor.hncloud.drive.CloudDiskProvider | provider | 云盘 Provider
+- com.hihonor.findmydevice | com.hihonor.findmydevice/com.hihonor.findmydevice.com.hihonor.android.remotecontrol.service.PhoneFinderService | service | 查找设备服务
+- com.hihonor.findmydevice | com.hihonor.findmydevice/com.hihonor.findmydevice.com.hihonor.android.remotecontrol.registration.ControlService | service | 设备注册/控制服务
+- com.hihonor.findmydevice | com.hihonor.findmydevice/com.hihonor.findmydevice.com.hihonor.android.remotecontrol.service.ReceiverPushService | service | 查找设备推送服务
+- com.hihonor.findmydevice | com.hihonor.findmydevice/com.hihonor.findmydevice.com.hihonor.android.remotecontrol.service.RebootService | service | 远程重启服务
+- com.hihonor.findmydevice | com.hihonor.findmydevice/com.hihonor.findmydevice.com.hihonor.android.remotecontrol.sms.InterceptService | service | 短信拦截服务
+- com.hihonor.contacts.sync | com.hihonor.contacts.sync/com.hihonor.contacts.sync.CloudConsistencyService | service | 联系人云一致性服务
+- com.hihonor.contacts.sync | com.hihonor.contacts.sync/com.hihonor.contacts.sync.ContactSyncJobScheduler | receiver | 联系人同步调度
+- com.hihonor.contacts.sync | com.hihonor.contacts.sync/com.hihonor.contacts.sync.com.hihonor.contacts.DefService | service | 联系人默认同步服务
+- com.hihonor.magichome | com.hihonor.magichome/com.hihonor.magichome.com.hihonor.parentcontrol.parentaar.data.database.preventfraud.PreventFraudProvider | provider | 家长防护中的防诈骗数据 Provider
+- com.hihonor.magichome | com.hihonor.magichome/com.hihonor.magichome.capabilitykit.CapabilityProvider | provider | 智慧空间能力 Provider
+- com.hihonor.regservice | com.hihonor.regservice/com.hihonor.regservice.cn.richinfo.dm.receiver.DMBroadCastReceiver | receiver | 中国移动 DM 广播接收
+- com.hihonor.regservice | com.hihonor.regservice/com.hihonor.regservice.cn.richinfo.mt.receiver.MTBroadCastReceiver | receiver | 中国移动 MT 广播接收
+- com.hihonor.regservice | com.hihonor.regservice/com.hihonor.regservice.SimStateChangeReceiver | receiver | SIM 状态变化接收
+- com.hihonor.regservice | com.hihonor.regservice/com.hihonor.regservice.VolteStateReceiver | receiver | VoLTE 状态变化接收
+- com.hihonor.android.UEInfoCheck | com.hihonor.android.UEInfoCheck/com.hihonor.android.UEInfoCheck.UEInfoCheckReceiver | receiver | UE 信息检查触发
+- com.hihonor.android.UEInfoCheck | com.hihonor.android.UEInfoCheck/com.hihonor.android.UEInfoCheck.UEInfoCheckHelpService | service | UE 信息检查服务
+- com.hihonor.android.AutoRegSms | com.hihonor.android.AutoRegSms/com.hihonor.android.AutoRegSms.AutoRegReceiver | receiver | 电信自动注册短信接收
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.com.hihonor.android.powerkit.PowerKitService | service | 功耗策略核心服务（运行于 com.hihonor.iaware 进程）
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.com.hihonor.android.powerkit.PowerCheckerKitService | service | 功耗检查服务
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.com.hihonor.thermal.adapter.ThermalTraceService | service | 热控追踪服务
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.core.contextaware.BrainNotifyService | service | 功耗与 Brain 联动服务
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.integration.eventhub.bcreceiver.ThermalCfgCotaUpdateReceiver | receiver | 热控配置云更新
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.integration.eventhub.bcreceiver.PgConfigCotaUpdateReceiver | receiver | PowerGenie 配置云更新
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.integration.eventhub.bcreceiver.CpuCfgCotaUpdateReceiver | receiver | CPU 配置云更新
+- com.hihonor.powergenie | com.hihonor.powergenie/com.hihonor.powergenie.core.policy.PolicyProvider | provider | 功耗策略 Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.aiprotection.configmanager.receiver.AntiFraudConfigReceiver | receiver | 反诈云配置更新
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.securitycenter.antifraud.fraudrecord.FraudRecordProvider | provider | 反诈记录 Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.securitycenter.antifraud.fraudbehavior.ability.FraudDetectOpenProvider | provider | 反诈检测开关 Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.securitycenter.antifraud.fraudbehavior.screenshare.ScreenShareStateProvider | provider | 共享屏幕状态（反诈）Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.securitycenter.mainservice.BootCompletedReceiver | receiver | 安全中心开机启动
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.securitycenter.antivirus.db.AntiVirusDBProvider | provider | 病毒库 Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.com.hihonor.securitycenter.malicious.db.MaliDataProvider | provider | 恶意应用库 Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.power.provider.BatteryDetectionProvider | provider | 电池检测 Provider
+- com.hihonor.systemmanager | com.hihonor.systemmanager/com.hihonor.systemmanager.power.provider.SmartProvider | provider | 功耗智能 Provider
+- com.hihonor.gameassistant | com.hihonor.gameassistant/com.hihonor.gameassistant.server.receiver.BootCompleteReceiver | receiver | 游戏管家开机启动
+- com.hihonor.gameassistant | com.hihonor.gameassistant/com.hihonor.gameassistant.box.provider.GameManagerSettingProvider | provider | 游戏设置 Provider
+- com.hihonor.gameassistant | com.hihonor.gameassistant/com.hihonor.gameassistant.box.provider.SyncFrameRateGraphicsProvider | provider | 帧率/画质同步 Provider
+- com.hihonor.gameassistant | com.hihonor.gameassistant/com.hihonor.gameassistant.com.hihonor.gamekeymap.GameKeyMapProvider | provider | 游戏键位 Provider
+- com.hihonor.game.kitserver | com.hihonor.game.kitserver/com.hihonor.game.kitserver.gameService.GameService | service | 游戏加速/性能服务
+- com.hihonor.game.kitserver | com.hihonor.game.kitserver/com.hihonor.game.kitserver.tgpaserver.TGPAService | service | TGP 性能服务
+- com.hihonor.numberidentity | com.hihonor.numberidentity/com.hihonor.numberidentity.activities.OnlineNumberIdentificationActivity | activity | 在线号码识别界面
+- com.hihonor.numberidentity | com.hihonor.numberidentity/com.hihonor.numberidentity.numbermark.NumberMarkActivity | activity | 号码标记界面
+- com.hihonor.numberidentity | com.hihonor.numberidentity/com.hihonor.numberidentity.numbermark.NumberMarkSettings | activity | 号码识别设置
+- com.hihonor.numberidentity | com.hihonor.numberidentity/com.hihonor.numberidentity.numberlocation.NLContentProvider | provider | 号码归属地 Provider
+- com.hihonor.numberidentity | com.hihonor.numberidentity/com.hihonor.numberidentity.util.report.UeContentProvider | provider | 号码识别上报数据 Provider
+- com.hihonor.numberidentity | com.hihonor.numberidentity/com.hihonor.numberidentity.PreBootReceiver | receiver | 开机预启动接收
+- com.hihonor.securityserver | com.hihonor.securityserver/com.hihonor.securityserver.service.HnUnifiedAuthService | service | 统一认证服务
+- com.hihonor.securityserver | com.hihonor.securityserver/com.hihonor.securityserver.service.InterDevAuthService | service | 跨设备认证服务
+- com.hihonor.securityserver | com.hihonor.securityserver/com.hihonor.securityserver.scenerecommend.CloudParaReceiver | receiver | 安全云参数更新
+- com.hihonor.securityserver | com.hihonor.securityserver/com.hihonor.securityserver.ui.view.SensitiveAppActivity | activity | 敏感应用提示界面
+- com.hihonor.securitypluginbase | com.hihonor.securitypluginbase/com.hihonor.securitypluginbase.com.hihonor.antivirus.AntivirusAbilityProvider | provider | 杀毒能力 Provider
+- com.hihonor.trustspace | com.hihonor.trustspace/com.hihonor.trustspace.service.TrustSpaceService | service | 支付保护服务
+- com.hihonor.trustspace | com.hihonor.trustspace/com.hihonor.trustspace.provider.TrustSpaceProvider | provider | 支付保护 Provider
+- com.hihonor.coauthservice | com.hihonor.coauthservice/com.hihonor.coauthservice.com.hihonor.fusionauth.FusionService | service | 融合认证服务
+- com.hihonor.coauthservice | com.hihonor.coauthservice/com.hihonor.coauthservice.CoAuthCountService | service | 协同认证计数服务
+- com.hihonor.coauthservice | com.hihonor.coauthservice/com.hihonor.coauthservice.CapsuleService | service | 认证胶囊服务
+- com.hihonor.coauthservice | com.hihonor.coauthservice/com.hihonor.coauthservice.ScheduleService | service | 认证调度服务
+- com.hihonor.fido.uafclient | com.hihonor.fido.uafclient/com.hihonor.fido.uafclient.com.fido.android.uaf.framework.service.MfacService | service | FIDO MFAC 认证服务
+- com.hihonor.trustagent | com.hihonor.trustagent/com.hihonor.trustagent.utils.TrustAgentProvider | provider | 可信代理 Provider
+- com.hihonor.trustcircle | com.hihonor.trustcircle/com.hihonor.trustcircle.push.TcPushService | service | 可信环推送服务
+- com.hihonor.trustcircle | com.hihonor.trustcircle/com.hihonor.trustcircle.account.TcAccountReceiver | receiver | 可信环账号广播接收
+- com.hihonor.trustcircle | com.hihonor.trustcircle/com.hihonor.trustcircle.com.hihonor.push.sdk.PushReceiver | receiver | 可信环推送接收
+- com.hihonor.keychain | com.hihonor.keychain/com.hihonor.keychain.service.HwAutofillService | service | 自动填充服务
+- com.hihonor.keychain | com.hihonor.keychain/com.hihonor.keychain.provider.ConfigUpdateReceiver | receiver | 密钥链配置更新
+## notes
+- 采集方式（全部只读）：pm list packages / -d / -e / -s / -3 / -u、pm path、dumpsys package（全量 124783 行）、dumpsys activity services / processes、ps -A、pidof、getprop、am get-standby-bucket。未执行 install/uninstall/suspend/disable/am force-stop/reboot/写操作。
+- 设备总量：373 个包（314 个系统包、59 个三方包）；pm list packages -e 367 个、-d 6 个。主 Packages 段解析到 448 个 Package 条目（含 Hidden system packages 重复段）。
+- 当前被冻结（User 0 suspended=true）共 11 个，且全部是系统更新/AI 组：com.hihonor.ouc、com.hihonor.aipluginengine、com.hihonor.assistant、com.hihonor.magicvoice、com.hihonor.voiceengine、com.hihonor.brain、com.hihonor.mageruntime、com.honor.yoyoappsug、com.honor.yoyocards、com.hihonor.suggestion、com.hihonor.sceneservice。
+- 重要：suspended=true 只阻止组件启动，不杀已有进程。本次采集时 aipluginengine（pid 21283）、assistant（22414/22473/22565）、brain（30410）、magicvoice（18937/18969/21309）在 suspended=true 下仍有进程存活；若冻结后要立即清进程需另做 force-stop（写操作，本次未做）。
+- 已 disabled-user（enabled=3）的相关包 4 个：com.hihonor.regservice（中国移动 DM，codePath HnCmccDm）、com.hihonor.android.UEInfoCheck、com.hihonor.android.AutoRegSms（中国电信自动注册，ChnTelecomAutoReg）、com.hihonor.numberidentity（号码识别）。pm list packages -d 还列出 com.android.devicelockcontroller 等无关项。
+- label 说明：pm list packages 与 dumpsys package 均不输出应用 label。表中的中文 label 依据 codePath（HnOUC、HnCmccDm、MageEngineRuntime、HiView、HAware 等）与 MagicOS 公开命名映射得出，不是 adb 直接读出；com.hihonor.cipservice、com.hihonor.hnaps、com.hihonor.systemserver、com.hihonor.ddmp、com.hihonor.devicemanager 的 label 标注为推断。
+- 温控栈没有独立的 thermal 包。包层面是 com.hihonor.powergenie（/system/app/HAware，含 ThermalCfgCotaUpdateReceiver、ThermalTraceService、PowerKitService、PowerCheckerKitService）、com.hihonor.iaware、com.hihonor.systemmanager 的 power provider、com.hihonor.gameassistant 的帧率/画质同步。
+- 关键进程关系：dumpsys activity services 显示 com.hihonor.powergenie/com.hihonor.android.powerkit.PowerKitService 的 ServiceRecord 为 processName=com.hihonor.iaware、app=ProcessRecord{... 4651:com.hihonor.iaware/1000}。即 powergenie 的服务寄宿在 iAware 进程中，只 suspend powergenie 包不会杀死该进程；同理 iAware 被冻结会连带影响 PowerKitService。
+- pm 冻结管不到的原生/厂商进程（ps + getprop 证据）：hiview（pid 2720，root）、vendor.honor.hardware.hwhiview.service（pid 2027）、android.hardware.thermal-service.qti（pid 1985）、vendor.honor.hardware.iawareperf-service（pid 2032）、init.svc.vendor.thermal-hal=running、perf2-hal-1-0、powerlogd（2155）、poweropt-service（2001）、vendor.power、vendor.powerstats-hal、vendor.perfservice。纯包冻结对它们无效，需要模块/内核层处理。
+- 反诈能力实际主要落在 com.hihonor.systemmanager（securitycenter.antifraud.*：FraudDetectOpenProvider、FraudRecordProvider、ScreenShareStateProvider、AntiFraudConfigReceiver、securitycenter.mainservice.BootCompletedReceiver、aiprotection.configmanager.*），另有 com.hihonor.recordassistant/AntiFraudProvider、com.hihonor.magichome 的 PreventFraudProvider；com.hihonor.numberidentity 当前 disabled-user。
+- 易误判包名更正：com.hihonor.contactscamcard 是名片扫描（CardCamera / CamCardProvider），不是反诈（scam）；com.hihonor.associateassistant 是无线投屏（WFD）相关；com.hihonor.hisight 的 codePath 是 AirSharingClient（投屏/共享）；com.hihonor.ddmp（HnDRSP，进程名 com.hihonor.drsp）是分布式文件/网络协同，不是遥测；com.hihonor.devicemanager 是 MDM 设备管理，不是运营商 DM；运营商 DM 是 com.hihonor.regservice（HnCmccDm）。
+- com.hihonor.android.hnaps（HnAps，/system/app/HnAps，appId 1000 PERSISTENT）从声明/请求权限（CHANGE_SCREEN_RESOLUTION_ACTION、APS_RESOLUTION_CHANGE_ACTION、com.hihonor.aps.permission.UPDATE_APS_INFO）看更像显示分辨率/画面自适应服务，且带 CloudConfigUpdateReceiver；疑似非云控，未归入主表。
+- 云控入口（组件级）大量以 CloudConfig / CloudPara / Cota / DataUpdate / UniCfg 命名：systemserver（Common/Power/NetworkCloudParaUpdateReceiver）、iaware（CloudConfigUpdateReceiver）、powergenie（Thermal/Pg/CpuCfgCotaUpdateReceiver）、brain（UniCfgUpdateReceiver）、aipluginengine（CloudCfgReceiver）、voiceengine、magicvoice、visionengine、magictranslate、magicavatar、smartiot、hiview（DubaiCfgCotaUpdateReceiver、CloudConfigUpdateReceiver）等；冻结对应包/组件可切断这些云配置更新通道。
+- hiview / hiviewpush / hiviewtunnel 本次采集时 stopped=true（非 suspended），但 hiview 进程仍在（pid 4670，PERSISTENT 系统应用）；hiview 另有 root 原生守护进程 hiview（pid 2720）。
+- 风险提示：com.hihonor.systemserver（pid 4663，PERSISTENT，承载插件管理、运营商配置、网络加速、热补丁）、com.hihonor.systemmanager（系统管家，承载安全/反诈/电池/清理）、com.hihonor.iaware（system uid 调度，且承载 powergenie 服务）、com.hihonor.powergenie（功耗/热控策略）、com.hihonor.securityserver（system uid 认证）属于高耦合系统服务，冻结前需评估。
+- standby bucket：ouc / hiview / powergenie / iaware = 5（WORKING_SET），aipluginengine / assistant = 10（ACTIVE）；bucket 不等于 suspended，只反映系统活跃度。
+- components 取自 dumpsys package 的 Activity/Service/Receiver/Provider Resolver Table 与 Registered ContentProviders/ContentProvider Authorities，因此列出的都是带 intent-filter 的导出组件；未导出组件不会出现在这些段（例如 behaviorauth、deviceauth、assetsyncservice 没有可枚举的导出 service/receiver，yoyoappsug 与 yoyocards 导出组件数为 0，只能做包级冻结）。
+- 当前已安装的冻结/管理类三方应用（供交叉验证）：com.nemu.hibernate、com.aistra.hail、me.yuki.fina、io.github.xiaotong6666.fusehide、roro.stellar.manager、com.omarea.vtools；com.nemu.hibernate 当前冻结的正是上述 11 个 suspended 包（系统更新 + AI）。
