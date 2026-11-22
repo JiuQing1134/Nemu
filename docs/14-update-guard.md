@@ -37,7 +37,8 @@ XposedHelpers.findAndHookMethod(
 
 ## 3. 激活状态：hook 优先
 
-“已激活”只以**本次进入前台/点刷新后收到的 fresh hook 报告**为准。模块通过绑定式
+“已激活”优先以**本次进入前台/点刷新后收到的 fresh hook 报告**为准；2 秒内没有新报告时，
+本次开机曾成功 hook 也按“已激活”显示。模块通过绑定式
 `HookReportService`（Messenger）向 App 上报：
 
 - 只接受 `Message.sendingUid == com.hihonor.ouc` 的报文；普通 App 无法伪造；
@@ -57,7 +58,8 @@ XposedHelpers.findAndHookMethod(
 
 管理器开关是另一层配置：关闭开关不会卸载已经运行的 OUC 进程中的 hook，
 只会影响新启动的 OUC 进程。只有 fresh 报告为成功时，才显示
-“已激活（管理器已关闭，新进程不再生效）”；没有 fresh 报告时只显示“未上报”。
+“已激活（管理器已关闭，新进程不再生效）”；没有 fresh 报告时显示“已在管理器中关闭”，
+不再显示“未上报”。
 
 ## 4. 管理器开关读取
 
