@@ -58,7 +58,8 @@ Nemu 自己隐藏的包。
 
 - 所有已应用 SUSPEND 目标 → `pm unsuspend --user 0 ...`（自定义目标也包含）；
 - 已应用 COMPONENT 目标 → 按 `strategy_component_original_*` 恢复组件；
-- 已应用 DISABLE_USER 且原始为启用 → `pm enable`；
+- 已应用 DISABLE_USER → **不恢复**。disable-user 是持久状态，关机安全解冻
+  不会逆转它；只有用户在恢复页执行显式解冻才会 `pm enable`；
 - 已应用 HIDE 且属于 Nemu → `pm unhide`。
 
 没有冻结目标时文件为 0 字节，模块用 `[ -s ]` 判断，不会执行无意义命令。

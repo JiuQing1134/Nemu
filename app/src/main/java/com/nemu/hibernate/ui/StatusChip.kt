@@ -2,17 +2,19 @@ package com.nemu.hibernate.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.ui.theme.flClashInset
 
 /** 状态 chip 的语义色；具体颜色由当前主题明暗推导。 */
 enum class StatusChipTone {
@@ -21,7 +23,11 @@ enum class StatusChipTone {
     SUCCESS,
     INFO,
     WARNING,
-    ERROR
+    ERROR,
+    /** Fixed green for low-risk labels, independent of the user palette. */
+    LOW_RISK,
+    /** Follows the selected palette instead of a fixed semantic colour. */
+    THEME
 }
 
 @Composable
@@ -40,7 +46,7 @@ fun StatusChip(
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -57,7 +63,7 @@ fun RiskChip(
         text = riskLabel(risk),
         modifier = modifier,
         tone = when (risk) {
-            RiskLevel.GREEN -> StatusChipTone.SUCCESS
+            RiskLevel.GREEN -> StatusChipTone.LOW_RISK
             RiskLevel.YELLOW -> StatusChipTone.WARNING
             RiskLevel.RED -> StatusChipTone.ERROR
         }
@@ -73,26 +79,56 @@ fun riskLabel(risk: RiskLevel): String = when (risk) {
 @Composable
 private fun chipColors(tone: StatusChipTone): Pair<Color, Color> {
     val scheme = MaterialTheme.colorScheme
-    val dark = scheme.surface.luminance() < 0.5f
     return when (tone) {
         StatusChipTone.NEUTRAL ->
-            scheme.surfaceContainerHighest to scheme.onSurfaceVariant
-        // Solid accent: readable even on a primaryContainer hero card.
-        StatusChipTone.PRIMARY -> scheme.primary to scheme.onPrimary
-        // Risk colours stay semantically green/amber/red; everything else is
-        // derived from the selected palette.
-        StatusChipTone.SUCCESS -> if (dark) {
-            Color(0xFF1F5223) to Color(0xFFB7F0BC)
-        } else {
-            Color(0xFFDCF3DD) to Color(0xFF1B5E20)
-        }
+            scheme.flClashInset() to scheme.onSurfaceVariant
+        // Every theme-owned control uses the selected palette's vivid primary
+        // and FlClash's designed on-primary ink (white on the blue controls;
+        // dark ink only where the palette itself specifies it).
+        StatusChipTone.PRIMARY ->
+            scheme.primary to scheme.onPrimary
+        StatusChipTone.SUCCESS ->
+            scheme.primary to scheme.onPrimary
         StatusChipTone.INFO ->
-            scheme.secondaryContainer to scheme.onSecondaryContainer
-        StatusChipTone.WARNING -> if (dark) {
-            Color(0xFF5C4100) to Color(0xFFFFE08A)
-        } else {
-            Color(0xFFFFF0C2) to Color(0xFF5C4100)
-        }
-        StatusChipTone.ERROR -> scheme.errorContainer to scheme.onErrorContainer
+            scheme.primary to scheme.onPrimary
+        StatusChipTone.WARNING ->
+            Color(0xFFFF8D28) to Color(0xFF1A1200)
+        // Small chip text must stay readable; keep the red family but use a
+        // darker shade than the vivid error ink used for body copy.
+        StatusChipTone.ERROR ->
+            Color(0xFFD32F2F) to Color.White
+        StatusChipTone.LOW_RISK ->
+            Color(0xFF2E7D32) to Color.White
+        StatusChipTone.THEME ->
+            scheme.primary to scheme.onPrimary
     }
+}
+
+/** FlClash-style filter chip: vivid primary when selected, inset when idle. */
+@Composable
+fun NemuFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    label: @Composable () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        shape = RoundedCornerShape(percent = 50),
+        border = null,
+        label = label,
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = scheme.flClashInset(),
+            labelColor = scheme.onSurfaceVariant,
+            selectedContainerColor = scheme.primary,
+            selectedLabelColor = scheme.onPrimary,
+            disabledContainerColor = scheme.flClashInset().copy(alpha = 0.5f),
+            disabledLabelColor = scheme.onSurfaceVariant.copy(alpha = 0.38f)
+        )
+    )
 }

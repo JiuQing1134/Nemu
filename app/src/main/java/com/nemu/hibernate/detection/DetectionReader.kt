@@ -5,15 +5,11 @@ import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.SystemClock
-import android.provider.Settings as AndroidSettings
 import com.nemu.hibernate.core.AiTargets
-import com.nemu.hibernate.core.CloudAction
-import com.nemu.hibernate.core.CloudTarget
-import com.nemu.hibernate.core.CloudTargets
-import com.nemu.hibernate.core.DenyList
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.FreezeStrategyPolicy
+import com.nemu.hibernate.core.StrategyOptions
+import com.nemu.hibernate.core.StrategyOptionsCodec
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetCatalog
 import com.nemu.hibernate.core.TargetCategory
@@ -25,6 +21,8 @@ import com.nemu.hibernate.cota.CotaResult
 import com.nemu.hibernate.data.Settings
 import com.nemu.hibernate.privilege.AndroidComponentStateReader
 import com.nemu.hibernate.privilege.ComponentStateReader
+import com.nemu.hibernate.policy.BootCount
+import com.nemu.hibernate.policy.TargetPolicy
 import com.nemu.hibernate.privilege.PackageStatusReader
 import com.nemu.hibernate.privilege.RootPrivilegeBackend
 import kotlinx.coroutines.CancellationException
@@ -35,22 +33,16 @@ import kotlinx.coroutines.withContext
  * Read-only detection. Every probe is best-effort: failures become explicit
  * state ([CotaReadStatus.ERROR], "读取失败", snapshot notes) and never throw
  * out of [read]. No write commands are built here; COTA uses only
- * [CotaController.listFiles]. PowerGenie/iAware are observed, never stopped.
+ * [CotaController.listFiles]. Every row uses the same stored strategy as the
+ * Applications page; there is no separate fixed-action cloud model.
  */
 class DetectionReader(
     private val context: Context,
     private val packageStatusReader: PackageStatusReader,
-    private val cloudTargets: List<CloudTarget> = CloudTargets.all,
     private val coreTargets: List<Target> = Targets.all,
     private val aiTargets: List<Target> = AiTargets.all,
     private val rootBackend: RootPrivilegeBackend? = null,
-    /**
-     * Optional policy snapshot from CloudSettings. Missing entries fall back
-     * to the same `cloud_target_<pkg>` preference key, so the reader does not
-     * need a compile-time dependency on CloudSettings.
-     */
-    private val cloudEnabled: Map<String, Boolean> = emptyMap(),
-    /** Unified catalog rows not covered by the legacy core/AI/cloud lists. */
+    /** Every installed-target row, including cloud/telemetry entries. */
     private val catalogTargets: List<Target> = TargetCatalog.all,
     private val componentStateReader: ComponentStateReader =
         AndroidComponentStateReader(context)
@@ -72,16 +64,9 @@ class DetectionReader(
                 }
             }
 
-            val cloudStates = readSectionSafe(
-                label = "云控/遥测状态读取失败",
-                notes = notes,
-                fallback = emptyList()
-            ) { readCloudStates(processSnapshot) }
-
-            // One strategy-aware row per catalog target. Cloud targets have
-            // their own richer section and are excluded here to avoid
-            // duplicates; every other target (core/AI/update/safety/thermal)
-            // is rendered with its actual strategy, not a hard-coded SUSPEND.
+            // One strategy-aware row per catalog target (core/AI/update/
+            // cloud/safety/thermal), using the stored strategy, never a
+            // hard-coded per-section action.
             val catalogStates = readSectionSafe(
                 label = "统一目录状态读取失败",
                 notes = notes,
@@ -98,7 +83,7 @@ class DetectionReader(
                 label = "COTA 状态读取失败",
                 notes = notes,
                 fallback = CotaState(CotaReadStatus.ERROR, message = "读取异常")
-            ) { readCotaState() }
+            ) { readCotaState(settings) }
 
             val bootSafety = readSectionSafe(
                 label = "启动/安全状态读取失败",
@@ -107,10 +92,7 @@ class DetectionReader(
             ) { readBootSafetyState(settings) }
 
             DetectionSnapshot(
-                // Cloud rows have their own detailed section; do not duplicate
-                // them in the freeze list or double-count mismatches.
                 freezeStates = catalogStates,
-                cloudStates = cloudStates,
                 cota = cota,
                 thermal = thermal,
                 bootSafety = bootSafety,
@@ -125,33 +107,54 @@ class DetectionReader(
         "ai_target_$packageName"
 
     /**
-     * Strategy-aware rows for every catalog target except the cloud section's
-     * own packages (including the observe-only pushagent extra). COMPONENT
-     * rows read the actual component enabled state, so a successful command is
-     * never mistaken for a still-enabled component.
+     * Strategy-aware rows for every catalog target. COMPONENT rows read the
+     * actual component enabled state, so a successful command is never
+     * mistaken for a still-enabled component.
      */
     private fun readCatalogStates(
         processSnapshot: ProcessListSnapshot?
     ): List<FreezeState> {
         val corePackages = coreTargets.map { it.packageName }.toSet()
         val aiPackages = aiTargets.map { it.packageName }.toSet()
-        val covered = (
-            cloudTargets.map { it.packageName } + CLOUD_EXTRA_PACKAGES
-            ).toSet()
         return catalogTargets
-            .filter { it.packageName !in covered }
             .map { target ->
                 val actual = readActual(target.packageName, processSnapshot)
                 val strategy = catalogStrategy(target)
+                val options = readOptions(target)
+                val appOpsOwned = prefs.getBoolean(
+                    "strategy_appops_owned_${target.packageName}",
+                    false
+                )
+                val standbyOwned = prefs.getBoolean(
+                    "strategy_standby_owned_${target.packageName}",
+                    false
+                )
+                val restrictionApplied = appOpsOwned || standbyOwned
+                val restrictionRequested = options?.let {
+                    it.appOps || it.standby
+                } == true
                 val mode = when (strategy) {
                     FreezeStrategy.SUSPEND -> FreezeMode.SUSPEND
                     FreezeStrategy.COMPONENT -> FreezeMode.COMPONENT
                     FreezeStrategy.DISABLE_USER -> FreezeMode.DISABLE
                     FreezeStrategy.HIDE -> FreezeMode.HIDE
-                    FreezeStrategy.OBSERVE -> FreezeMode.OBSERVE
+                    FreezeStrategy.OBSERVE ->
+                        if (restrictionRequested || restrictionApplied) {
+                            FreezeMode.RESTRICT
+                        } else {
+                            FreezeMode.OBSERVE
+                        }
+                }
+                val selected = options?.components
+                val components = if (mode == FreezeMode.COMPONENT &&
+                    selected != null
+                ) {
+                    target.components.filter { it.className in selected }
+                } else {
+                    target.components
                 }
                 val componentStates = if (mode == FreezeMode.COMPONENT) {
-                    target.components.map {
+                    components.map {
                         componentStateReader.state(it.className)
                     }
                 } else {
@@ -165,12 +168,19 @@ class DetectionReader(
                 val componentKnown = mode != FreezeMode.COMPONENT ||
                     (componentStates.isNotEmpty() &&
                         componentStates.all { it != null })
+                val appliedMarker = readBoolean(
+                    "strategy_applied_${target.packageName}",
+                    false
+                ) || (target.category == TargetCategory.CLOUD &&
+                    readBoolean("cloud_applied_${target.packageName}", false))
                 FreezeState(
                     packageName = target.packageName,
                     label = target.label,
-                    source = when (target.packageName) {
-                        in corePackages -> FreezeSource.CORE
-                        in aiPackages -> FreezeSource.AI
+                    source = when {
+                        target.packageName in corePackages -> FreezeSource.CORE
+                        target.packageName in aiPackages -> FreezeSource.AI
+                        target.category == TargetCategory.CLOUD ->
+                            FreezeSource.CLOUD
                         else -> FreezeSource.CATALOG
                     },
                     mode = mode,
@@ -182,98 +192,39 @@ class DetectionReader(
                     stopped = actual.stopped,
                     processRunning = actual.processRunning,
                     risk = target.risk,
-                    componentDisabled = componentDisabled
+                    componentDisabled = componentDisabled,
+                    restrictionApplied = restrictionApplied,
+                    policyApplied = appliedMarker,
+                    preset = options?.presetOf(strategy)
                 )
             }
     }
 
-    private fun catalogStrategy(target: Target): FreezeStrategy {
-        if (target.packageName == "com.hihonor.numberidentity") {
-            when (readString("antifraud_numberidentity_mode") ?: "OFF") {
-                "DISABLE_USER" -> return FreezeStrategy.DISABLE_USER
-                "SUSPEND" -> return FreezeStrategy.SUSPEND
-            }
-        }
-        val raw = readString("strategy_${target.packageName}")
-        val stored = raw?.let {
-            runCatching { FreezeStrategy.valueOf(it) }.getOrNull()
-        } ?: target.defaultStrategy
-        return if (
-            stored in target.supportedStrategies &&
-            FreezeStrategyPolicy.isAllowed(target, stored)
-        ) {
-            stored
-        } else {
-            target.defaultStrategy
-        }
-    }
+    private fun readOptions(target: Target): StrategyOptions? =
+        prefs.getString("strategy_opts_${target.packageName}", null)
+            ?.let { StrategyOptionsCodec.decode(it) }
+
+    private fun catalogStrategy(target: Target): FreezeStrategy =
+        DetectionStrategy.resolve(
+            target = target,
+            legacyNumberMode = readString("antifraud_numberidentity_mode"),
+            storedRaw = readString("strategy_${target.packageName}")
+        )
 
     private fun catalogPolicyEnabled(target: Target): Boolean {
         if (target.packageName == "com.hihonor.numberidentity") {
             return (readString("antifraud_numberidentity_mode") ?: "OFF") != "OFF"
         }
         if (target.packageName in AI_DEEP_FREEZE_PACKAGES) {
-            return readBoolean("ai_deep_freeze_enabled", false) &&
-                readBoolean(aiTargetKey(target.packageName), false)
+            // Per-target flag is the only AI policy store; the old global
+            // switch is gone.
+            return readBoolean(aiTargetKey(target.packageName), false)
         }
         if (target.category == TargetCategory.CLOUD) {
             return readBoolean("cloud_target_${target.packageName}", false)
         }
         return readBoolean("target_${target.packageName}", false)
     }
-
-    private fun readCloudStates(processSnapshot: ProcessListSnapshot?): List<CloudState> {
-        val configured = cloudTargets.map { target -> cloudState(target, processSnapshot) }
-        val extras = OBSERVE_ONLY_EXTRAS
-            .filter { extra ->
-                cloudTargets.none { it.packageName == extra.packageName }
-            }
-            .map { target -> cloudState(target, processSnapshot) }
-        return configured + extras
-    }
-
-    private fun cloudState(
-        target: CloudTarget,
-        processSnapshot: ProcessListSnapshot?
-    ): CloudState {
-        val actual = readActual(target.packageName, processSnapshot)
-        val policy = if (target.action == CloudAction.OBSERVE_ONLY) {
-            false
-        } else {
-            cloudPolicy(target.packageName)
-        }
-        val state = CloudState(
-            packageName = target.packageName,
-            label = target.label,
-            action = target.action,
-            policyEnabled = policy,
-            policyApplied = false,
-            installed = actual.installed,
-            actualKnown = actual.known,
-            enabled = actual.enabled,
-            suspended = actual.suspended,
-            stopped = actual.stopped,
-            processRunning = actual.processRunning,
-            note = target.description,
-            protected = DenyList.isProtected(target.packageName)
-        )
-        // Legacy installs may have applied a policy before the marker existed.
-        // If the actual state already matches, treat it as applied; a visible
-        // difference without a marker stays "未应用", never a false mismatch.
-        val applied = cloudApplied(target.packageName) ||
-            (policy && state.actuallyApplied)
-        return state.copy(policyApplied = applied)
-    }
-
-    private fun cloudApplied(packageName: String): Boolean =
-        runCatching {
-            prefs.getBoolean("cloud_applied_$packageName", false)
-        }.getOrDefault(false)
-
-    private fun cloudPolicy(packageName: String): Boolean =
-        cloudEnabled[packageName] ?: runCatching {
-            prefs.getBoolean("cloud_target_$packageName", false)
-        }.getOrDefault(false)
 
     // ---- Thermal base services (observe only) ----
 
@@ -293,13 +244,21 @@ class DetectionReader(
 
     // ---- COTA (read-only listFiles only) ----
 
-    private suspend fun readCotaState(): CotaState {
+    private suspend fun readCotaState(settings: Settings): CotaState {
+        if (!settings.cotaEnabled) {
+            return CotaState(
+                status = CotaReadStatus.UNKNOWN,
+                message = "COTA 模块未启用"
+            )
+        }
         val backend = rootBackend
             ?: return CotaState(
                 status = CotaReadStatus.NO_ROOT,
                 message = "未提供 Root 后端"
             )
-        val rootFiles = when (val result = CotaController(backend, enabled = true).listFiles()) {
+        val rootFiles = when (
+            val result = CotaController(backend, settings.cotaEnabled).listFiles()
+        ) {
             is CotaResult.Ok -> result.value
             is CotaResult.Error -> return CotaState(
                 status = CotaReadStatus.ERROR,
@@ -342,7 +301,9 @@ class DetectionReader(
                 KEY_BOOT_FREEZE_DELAY_SECONDS,
                 120
             ).coerceAtLeast(60),
-            aiDeepFreezeEnabled = readBoolean(KEY_AI_DEEP_FREEZE_ENABLED, false),
+            aiTargetsEnabledAny = TargetCatalog.all
+                .filter { it.category == TargetCategory.AI }
+                .any { TargetPolicy(context).isEnabled(it) },
             lastBootFreezeResult = readString(KEY_LAST_BOOT_FREEZE_RESULT),
             lastBootFreezeDetail = readString(KEY_LAST_BOOT_FREEZE_DETAIL),
             lastBootFreezeTime = readLong(KEY_LAST_BOOT_FREEZE_TIME, 0L),
@@ -357,18 +318,7 @@ class DetectionReader(
             skippedBootCount = readInt(KEY_BOOT_FREEZE_SKIPPED_BOOT_COUNT, -1)
         )
 
-    private fun readBootCount(): Int {
-        val fromSystem = runCatching {
-            AndroidSettings.Global.getInt(
-                context.contentResolver,
-                AndroidSettings.Global.BOOT_COUNT,
-                -1
-            )
-        }.getOrDefault(-1)
-        if (fromSystem >= 0) return fromSystem
-        // docs/07 section 5.2 fallback: coarse elapsedRealtime hour bucket.
-        return (SystemClock.elapsedRealtime() / 1000L / 3600L).toInt()
-    }
+    private fun readBootCount(): Int = BootCount.current(context)
 
     private fun readInt(key: String, default: Int): Int =
         runCatching { prefs.getInt(key, default) }.getOrDefault(default)
@@ -458,7 +408,6 @@ class DetectionReader(
         // Keys from docs/07 section 5.1, owned by data/BootFreezeSettings.kt.
         private const val KEY_BOOT_FREEZE_ENABLED = "boot_freeze_enabled"
         private const val KEY_BOOT_FREEZE_DELAY_SECONDS = "boot_freeze_delay_seconds"
-        private const val KEY_AI_DEEP_FREEZE_ENABLED = "ai_deep_freeze_enabled"
         private const val KEY_LAST_BOOT_FREEZE_BOOT_COUNT =
             "last_boot_freeze_boot_count"
         private const val KEY_LAST_BOOT_FREEZE_ATTEMPT_BOOT_COUNT =
@@ -475,21 +424,6 @@ class DetectionReader(
 
         private val AI_DEEP_FREEZE_PACKAGES =
             AiTargets.all.map { it.packageName }.toSet()
-
-        /** Cloud-section-only rows that must not be duplicated as catalog rows. */
-        private val CLOUD_EXTRA_PACKAGES = setOf(
-            "com.hihonor.android.pushagent"
-        )
-
-        /** Read-only extra rows requested by docs/07 section 9.2. */
-        private val OBSERVE_ONLY_EXTRAS = listOf(
-            CloudTarget(
-                packageName = "com.hihonor.android.pushagent",
-                label = "荣耀推送服务（pushagent）",
-                action = CloudAction.OBSERVE_ONLY,
-                description = "禁止操作：在 DenyList 中；本页只读展示状态。"
-            )
-        )
 
         private val THERMAL_SERVICES = listOf(
             "com.hihonor.powergenie" to "PowerGenie（功耗策略）",

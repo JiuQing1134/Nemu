@@ -3,6 +3,7 @@ package com.nemu.hibernate.policy
 import com.nemu.hibernate.core.CommandBuilder
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.FreezeStrategyPolicy
+import com.nemu.hibernate.core.StrategyOptions
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetComponent
 
@@ -34,7 +35,8 @@ object FreezeStrategyPlanner {
     fun apply(
         target: Target,
         strategy: FreezeStrategy,
-        componentOverride: List<TargetComponent>? = null
+        componentOverride: List<TargetComponent>? = null,
+        options: StrategyOptions = StrategyOptions()
     ): FreezeStrategyPlan {
         require(FreezeStrategyPolicy.validate(target, strategy) == null) {
             FreezeStrategyPolicy.validate(target, strategy) ?: ""
@@ -46,12 +48,12 @@ object FreezeStrategyPlanner {
         }
         val commands = when (strategy) {
             FreezeStrategy.SUSPEND -> buildList {
-                if (target.suspend) add(CommandBuilder.suspend(target.packageName))
-                if (target.forceStop) add(CommandBuilder.forceStop(target.packageName))
+                add(CommandBuilder.suspend(target.packageName))
+                if (options.forceStop) add(CommandBuilder.forceStop(target.packageName))
             }
             FreezeStrategy.COMPONENT -> buildList {
                 components.forEach { add(CommandBuilder.disableComponent(it.className)) }
-                if (target.forceStop) add(CommandBuilder.forceStop(target.packageName))
+                if (options.forceStop) add(CommandBuilder.forceStop(target.packageName))
             }
             FreezeStrategy.DISABLE_USER -> listOf(
                 CommandBuilder.disableUser(target.packageName)
@@ -77,6 +79,28 @@ object FreezeStrategyPlanner {
         }
         return FreezeStrategyPlan(target, strategy, components, commands, restore)
     }
+
+    /**
+     * Restore commands for the stored strategy, without the capability
+     * validation used by [apply]. A capability retired in a newer build must
+     * still be undoable for state written by an older build.
+     */
+    fun restoreOnly(target: Target, strategy: FreezeStrategy): List<String> =
+        when (strategy) {
+            FreezeStrategy.SUSPEND -> listOf(
+                CommandBuilder.unsuspend(target.packageName)
+            )
+            FreezeStrategy.COMPONENT -> target.components.map {
+                CommandBuilder.defaultStateComponent(it.className)
+            }
+            FreezeStrategy.DISABLE_USER -> listOf(
+                CommandBuilder.enable(target.packageName)
+            )
+            FreezeStrategy.HIDE -> listOf(
+                CommandBuilder.unhide(target.packageName)
+            )
+            FreezeStrategy.OBSERVE -> emptyList()
+        }
 
     /** Builds the plan for every target whose policy is enabled. */
     fun applyEnabled(

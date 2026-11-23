@@ -65,11 +65,6 @@ com.hihonor.msdp
 com.hihonor.securityserver
 com.hihonor.awareness
 "
-KNOWN_DISABLE="
-com.hihonor.regservice
-com.hihonor.android.UEInfoCheck
-com.hihonor.android.AutoRegSms
-"
 
 run_timeout() {
     seconds=$1
@@ -221,12 +216,12 @@ unsuspend_all() {
 
 enable_disabled_targets() {
     # Nemu's reversible disable-user targets. Only rescue mode enables them;
-    # a normal boot must not undo the user's cloud/anti-fraud policy.
+    # a normal boot must not undo the user's cloud/security policy.
     mkdir -p "$DISABLED_MARKER_DIR" 2>/dev/null
     failures=0
     # The app may own any catalog DISABLE_USER target. Scan the markers rather
     # than a hard-coded list so rescue/clear never leaves an owned package
-    # disabled simply because it was not in KNOWN_DISABLE.
+    # disabled simply because it was not in a static allowlist.
     for marker in "$DISABLED_MARKER_DIR"/*; do
         [ -f "$marker" ] || continue
         pkg=${marker##*/}
@@ -312,6 +307,116 @@ restore_owned_components() {
     [ "$failures" -eq 0 ]
 }
 
+restore_owned_hidden() {
+    marker_dir="$GUARD_DIR/hidden_by_nemu"
+    [ -d "$marker_dir" ] || return 0
+    failures=0
+    for marker in "$marker_dir"/*; do
+        [ -f "$marker" ] || continue
+        pkg=${marker##*/}
+        out=$(run_timeout 10 pm unhide --user 0 "$pkg" 2>&1)
+        command_status=$?
+        case "$out" in
+            *"Unknown target package"*|*"Unknown package"*|*"not found"*)
+                rm -f "$marker" 2>/dev/null
+                log_line "owned hidden package no longer installed; marker cleared: $pkg"
+                continue
+                ;;
+        esac
+        if [ "$command_status" -eq 0 ]; then
+            rm -f "$marker" 2>/dev/null || failures=$((failures + 1))
+            log_line "unhide owned target: $pkg"
+        else
+            failures=$((failures + 1))
+            log_line "WARN unhide failed; ownership marker retained: $pkg ($out)"
+        fi
+    done
+    rmdir "$marker_dir" 2>/dev/null
+    sync 2>/dev/null
+    [ "$failures" -eq 0 ]
+}
+
+restore_owned_appops() {
+    marker_dir="$GUARD_DIR/appops_owned"
+    [ -d "$marker_dir" ] || return 0
+    failures=0
+    for marker in "$marker_dir"/*; do
+        [ -f "$marker" ] || continue
+        pkg=${marker##*/}
+        mode=$(cat "$marker" 2>/dev/null)
+        case "$mode" in
+            allow|ignore|deny|default|foreground) ;;
+            *)
+                failures=$((failures + 1))
+                log_line "WARN malformed AppOps marker retained: $pkg ($mode)"
+                continue
+                ;;
+        esac
+        out=$(run_timeout 5 appops set --user 0 "$pkg" \
+            RUN_ANY_IN_BACKGROUND "$mode" 2>&1)
+        command_status=$?
+        verify=$(run_timeout 5 appops get --user 0 "$pkg" \
+            RUN_ANY_IN_BACKGROUND 2>&1)
+        case "$verify" in
+            *"$mode"*)
+                if [ "$command_status" -eq 0 ]; then
+                    rm -f "$marker" 2>/dev/null || failures=$((failures + 1))
+                    log_line "restore AppOps mode: $pkg -> $mode"
+                else
+                    failures=$((failures + 1))
+                    log_line "WARN AppOps restore failed; marker retained: $pkg ($out)"
+                fi
+                ;;
+            *)
+                failures=$((failures + 1))
+                log_line "WARN AppOps restore unverified; marker retained: $pkg"
+                ;;
+        esac
+    done
+    rmdir "$marker_dir" 2>/dev/null
+    sync 2>/dev/null
+    [ "$failures" -eq 0 ]
+}
+
+restore_owned_standby() {
+    marker_dir="$GUARD_DIR/standby_owned"
+    [ -d "$marker_dir" ] || return 0
+    failures=0
+    for marker in "$marker_dir"/*; do
+        [ -f "$marker" ] || continue
+        pkg=${marker##*/}
+        bucket=$(cat "$marker" 2>/dev/null)
+        case "$bucket" in
+            ''|*[!0-9]*)
+                failures=$((failures + 1))
+                log_line "WARN malformed standby marker retained: $pkg ($bucket)"
+                continue
+                ;;
+        esac
+        out=$(run_timeout 5 am set-standby-bucket --user 0 "$pkg" "$bucket" 2>&1)
+        command_status=$?
+        verify=$(run_timeout 5 am get-standby-bucket --user 0 "$pkg" 2>&1)
+        case "$verify" in
+            *"$bucket"*)
+                if [ "$command_status" -eq 0 ]; then
+                    rm -f "$marker" 2>/dev/null || failures=$((failures + 1))
+                    log_line "restore standby bucket: $pkg -> $bucket"
+                else
+                    failures=$((failures + 1))
+                    log_line "WARN standby restore failed; marker retained: $pkg ($out)"
+                fi
+                ;;
+            *)
+                failures=$((failures + 1))
+                log_line "WARN standby restore unverified; marker retained: $pkg"
+                ;;
+        esac
+    done
+    rmdir "$marker_dir" 2>/dev/null
+    sync 2>/dev/null
+    [ "$failures" -eq 0 ]
+}
+
 rescue_now() {
     reason=${1:-manual}
     log_line "RESCUE: $reason"
@@ -332,12 +437,19 @@ rescue_now() {
         unsuspend_status=0
         enable_status=0
         component_status=0
+        hidden_status=0
+        appops_status=0
+        standby_status=0
         restore_owned_components || component_status=$?
+        restore_owned_hidden || hidden_status=$?
+        restore_owned_appops || appops_status=$?
+        restore_owned_standby || standby_status=$?
         unsuspend_all || unsuspend_status=$?
         enable_disabled_targets || enable_status=$?
         if [ "$unsuspend_status" -ne 0 ] || [ "$enable_status" -ne 0 ] ||
-            [ "$component_status" -ne 0 ]; then
-            log_line "RESCUE incomplete (components=$component_status unsuspend=$unsuspend_status enable=$enable_status); ownership markers retained where unverified"
+            [ "$component_status" -ne 0 ] || [ "$hidden_status" -ne 0 ] ||
+            [ "$appops_status" -ne 0 ] || [ "$standby_status" -ne 0 ]; then
+            log_line "RESCUE incomplete (components=$component_status hidden=$hidden_status appops=$appops_status standby=$standby_status unsuspend=$unsuspend_status enable=$enable_status); ownership markers retained where unverified"
         else
             log_line "RESCUE recovery commands verified"
         fi
@@ -401,12 +513,24 @@ case "${1:-service}" in
             # so a rescue is not lost to a one-shot failure.
             restore_owned_components ||
                 log_line "WARN rescue component restore pass 1 incomplete"
+            restore_owned_hidden ||
+                log_line "WARN rescue hidden restore pass 1 incomplete"
+            restore_owned_appops ||
+                log_line "WARN rescue AppOps restore pass 1 incomplete"
+            restore_owned_standby ||
+                log_line "WARN rescue standby restore pass 1 incomplete"
             unsuspend_all || log_line "WARN rescue unsuspend pass 1 incomplete"
             enable_disabled_targets ||
                 log_line "WARN rescue enable pass 1 incomplete"
             if wait_boot_completed; then
                 restore_owned_components ||
                     log_line "WARN rescue component restore pass 2 incomplete"
+                restore_owned_hidden ||
+                    log_line "WARN rescue hidden restore pass 2 incomplete"
+                restore_owned_appops ||
+                    log_line "WARN rescue AppOps restore pass 2 incomplete"
+                restore_owned_standby ||
+                    log_line "WARN rescue standby restore pass 2 incomplete"
                 unsuspend_all || log_line "WARN rescue unsuspend pass 2 incomplete"
                 enable_disabled_targets ||
                     log_line "WARN rescue enable pass 2 incomplete"
@@ -415,14 +539,17 @@ case "${1:-service}" in
             fi
             exit 0
         fi
-        # Early safety pass, before waiting for boot_completed. Components are
-        # restored here too; the app re-applies its component policy after the
-        # boot delay, so early boot never depends on a disabled component.
+        # Early safety pass, before waiting for boot_completed. Components and
+        # hidden state are restored here too; the app re-applies its policy
+        # after the boot delay, so early boot never depends on a disabled
+        # component or an invisible package.
         restore_owned_components
-        unsuspend_all
+        restore_owned_hidden
+        # Do not unsuspend every suspended package on a normal boot: Hail/MDM
+        # or the user may own that suspension. Rescue paths keep the broad pass.
         if wait_boot_completed; then
             restore_owned_components
-            unsuspend_all
+            restore_owned_hidden
             arm_success_watchdog
         else
             log_line "boot_completed timeout; not starting watchdog"
@@ -448,6 +575,18 @@ case "${1:-service}" in
         # after their package is verified enabled, so another rescue can retry.
         if ! restore_owned_components; then
             log_line "rescue clear refused: one or more Nemu-owned components could not be restored"
+            exit 1
+        fi
+        if ! restore_owned_hidden; then
+            log_line "rescue clear refused: one or more Nemu-hidden packages could not be unhidden"
+            exit 1
+        fi
+        if ! restore_owned_appops; then
+            log_line "rescue clear refused: one or more AppOps modes could not be restored"
+            exit 1
+        fi
+        if ! restore_owned_standby; then
+            log_line "rescue clear refused: one or more standby buckets could not be restored"
             exit 1
         fi
         if ! unsuspend_all; then

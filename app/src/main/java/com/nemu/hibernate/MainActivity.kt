@@ -8,10 +8,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -19,19 +23,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import com.nemu.hibernate.core.AntiFraudConfig
-import com.nemu.hibernate.core.AntiFraudPolicy
-import com.nemu.hibernate.core.AntiFraudResult
-import com.nemu.hibernate.core.CloudTargets
 import com.nemu.hibernate.core.FreezeStrategy
+import com.nemu.hibernate.core.ResultNote
+import com.nemu.hibernate.core.ResultReason
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetCatalog
+import com.nemu.hibernate.core.TargetCopy
 import com.nemu.hibernate.cota.CotaBackupSummary
 import com.nemu.hibernate.cota.CotaController
 import com.nemu.hibernate.cota.CotaFile
 import com.nemu.hibernate.cota.CotaResult
 import com.nemu.hibernate.data.ActionLog
-import com.nemu.hibernate.data.AntiFraudSettings
 import com.nemu.hibernate.data.BootFreezeSettings
 import com.nemu.hibernate.data.LogSettings
 import com.nemu.hibernate.data.Settings
@@ -39,10 +41,12 @@ import com.nemu.hibernate.detection.DetectionReader
 import com.nemu.hibernate.detection.DetectionSnapshot
 import com.nemu.hibernate.detection.PackageProcessListReader
 import com.nemu.hibernate.logging.PersistentLogger
-import com.nemu.hibernate.policy.AntiFraudController
 import com.nemu.hibernate.policy.BootCount
 import com.nemu.hibernate.policy.BootFreezeScheduler
 import com.nemu.hibernate.policy.BootGuard
+import com.nemu.hibernate.policy.BootReceiver
+import com.nemu.hibernate.policy.FreezeOperationLock
+import com.nemu.hibernate.policy.RestoreExecutionPolicy
 import com.nemu.hibernate.policy.SafetyService
 import com.nemu.hibernate.policy.TargetFreezeService
 import com.nemu.hibernate.policy.TargetPolicy
@@ -54,8 +58,9 @@ import com.nemu.hibernate.privilege.AndroidComponentStateReader
 import com.nemu.hibernate.privilege.AndroidPackageEnabledStateReader
 import com.nemu.hibernate.privilege.ComponentStateReader
 import com.nemu.hibernate.privilege.PrivilegeBackend
+import com.nemu.hibernate.privilege.PrivilegeLabels
 import com.nemu.hibernate.privilege.PrivilegeOverview
-import com.nemu.hibernate.ui.AntiFraudUiState
+import com.nemu.hibernate.privilege.PrivilegeOverviewReader
 import com.nemu.hibernate.ui.BootFreezeUiState
 import com.nemu.hibernate.ui.CatalogTargetUiState
 import com.nemu.hibernate.ui.CotaCallbacks
@@ -66,8 +71,8 @@ import com.nemu.hibernate.ui.DashboardState
 import com.nemu.hibernate.ui.DashboardTab
 import com.nemu.hibernate.ui.DetectionScreen
 import com.nemu.hibernate.ui.DetectionScreenUiState
-import com.nemu.hibernate.ui.DetectionUiState
 import com.nemu.hibernate.ui.LogUiState
+import com.nemu.hibernate.ui.isOwnershipPending
 import com.nemu.hibernate.ui.TargetActualCache
 import com.nemu.hibernate.ui.TargetActualUiState
 import com.nemu.hibernate.ui.theme.NemuAppTheme
@@ -80,41 +85,62 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import rikka.shizuku.Shizuku
+import java.io.File
 
 class MainActivity : ComponentActivity() {
+    /** App-private COTA backups: other apps cannot rewrite manifest + files. */
+    private val cotaBackupRoot: String
+        get() = File(filesDir, "cota-backup").absolutePath
+
     private lateinit var settings: Settings
-    private lateinit var antiFraudSettings: AntiFraudSettings
     private lateinit var bootFreezeSettings: BootFreezeSettings
     private lateinit var logSettings: LogSettings
     private lateinit var manager: BackendManager
     private lateinit var statusReader: PackageStatusReader
     private lateinit var enabledStateReader: PackageEnabledStateReader
     private lateinit var componentStateReader: ComponentStateReader
+    /** Set from composition so the Shizuku callback can refresh the privilege card. */
+    private var privilegeRefresh: (() -> Unit)? = null
+    /** Shizuku-only refresh for onResume; never probes root. */
+    private var privilegeQuickRefresh: (() -> Unit)? = null
     private val shizukuPermissionListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
-            if (grantResult == PackageManager.PERMISSION_GRANTED) {
+            val granted = grantResult == PackageManager.PERMISSION_GRANTED
+            if (granted) {
                 ActionLog.info("Shizuku 权限已授予")
             } else {
                 ActionLog.warn("Shizuku 权限被拒绝")
             }
+            Toast.makeText(
+                this,
+                if (granted) "Shizuku 已授权" else "Shizuku 授权被拒绝",
+                Toast.LENGTH_SHORT
+            ).show()
+            runOnUiThread { privilegeRefresh?.invoke() }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyHighRefreshRate()
         settings = Settings(this)
-        antiFraudSettings = AntiFraudSettings(this)
         bootFreezeSettings = BootFreezeSettings(this)
         logSettings = LogSettings(this)
         manager = BackendManager(settings)
         statusReader = AndroidPackageStatusReader(this)
         enabledStateReader = AndroidPackageEnabledStateReader(this)
         componentStateReader = AndroidComponentStateReader(this)
+
+        // If the process was killed between LOCKED_BOOT and USER_UNLOCKED,
+        // the runtime receiver never fired; resume the pending safety pass.
+        if (savedInstanceState == null) {
+            BootReceiver.ensureBootSafetyIfPending(this)
+        }
 
         // The safety service is started only when something is actually
         // frozen; opening the app with no frozen targets must not leave a
@@ -137,13 +163,13 @@ class MainActivity : ComponentActivity() {
             var themeStyle by remember {
                 mutableStateOf(
                     ThemeStyle.entries.firstOrNull { it.name == settings.themeStyle }
-                        ?: ThemeStyle.MATERIAL3
+                        ?: ThemeStyle.VIVID
                 )
             }
             var themePalette by remember {
                 mutableStateOf(
                     ThemePalette.entries.firstOrNull { it.name == settings.themePalette }
-                        ?: ThemePalette.MINT
+                        ?: ThemePalette.BLUE
                 )
             }
             var themeMode by remember {
@@ -162,14 +188,11 @@ class MainActivity : ComponentActivity() {
                 palette = themePalette,
                 darkTheme = darkTheme
             ) {
-                // System bars follow the app's forced light/dark choice, not
-                // just the system setting. Dark uses true black for OLED.
-                LaunchedEffect(darkTheme) {
-                    val background = if (darkTheme) {
-                        0xFF000000.toInt()
-                    } else {
-                        0xFFF2F7FA.toInt()
-                    }
+                // System bars follow FlClash's page colour, not a fixed
+                // blue-grey, so every palette reaches the window edge.
+                val pageColor = MaterialTheme.colorScheme.background
+                LaunchedEffect(darkTheme, pageColor) {
+                    val background = pageColor.toArgb()
                     window.statusBarColor = background
                     window.navigationBarColor = background
                     WindowCompat.getInsetsController(
@@ -186,18 +209,35 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf<PrivilegeOverview?>(null)
                 }
                 var busy by remember { mutableStateOf(false) }
-                fun launchBusy(action: suspend () -> Unit) = scope.launch {
+                // Freezing/restoring can take several seconds. Do not let an
+                // accidental Back destroy the activity and cancel the work.
+                BackHandler(enabled = busy) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "操作进行中，请稍候",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                fun launchBusy(action: suspend () -> Unit) {
+                    // Set the gate synchronously on the click path. Setting it
+                    // inside launch() left a one-frame window where a second
+                    // tap could start a duplicate apply/backup/delete.
+                    if (busy) return
                     busy = true
-                    try {
-                        action()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (throwable: Throwable) {
-                        ActionLog.error(
-                            "操作异常：${throwable.message ?: throwable.javaClass.simpleName}"
-                        )
-                    } finally {
-                        busy = false
+                    scope.launch {
+                        try {
+                            action()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (throwable: Throwable) {
+                            ActionLog.error(
+                                "操作异常：" +
+                                    (throwable.message
+                                        ?: throwable.javaClass.simpleName)
+                            )
+                        } finally {
+                            busy = false
+                        }
                     }
                 }
                 var dryRun by remember { mutableStateOf(settings.dryRun) }
@@ -209,20 +249,10 @@ class MainActivity : ComponentActivity() {
                 }
                 val logs by ActionLog.entries.collectAsState()
 
-                // Anti-fraud state.
-                var antiFraudConfig by remember {
-                    mutableStateOf(antiFraudSettings.config())
-                }
-                var antiFraudResults by remember {
-                    mutableStateOf<List<AntiFraudResult>>(emptyList())
-                }
-                var antiFraudLastResult by remember {
-                    mutableStateOf(antiFraudSettings.lastResult ?: "尚未执行")
-                }
-
                 // COTA state.
                 var cotaEnabled by remember { mutableStateOf(settings.cotaEnabled) }
                 var cotaRootAvailable by remember { mutableStateOf(false) }
+                var cotaLoaded by remember { mutableStateOf(false) }
                 var cotaFiles by remember {
                     mutableStateOf<List<CotaFile>>(emptyList())
                 }
@@ -273,9 +303,12 @@ class MainActivity : ComponentActivity() {
                 var lastCatalogResult by remember {
                     mutableStateOf<String?>(null)
                 }
+                var catalogRefreshing by remember { mutableStateOf(false) }
+                var focusPackage by remember {
+                    mutableStateOf<String?>(null)
+                }
 
                 // Detection/log state.
-                var detectionSummary by remember { mutableStateOf(DetectionUiState()) }
                 var detectionScreen by remember {
                     mutableStateOf(DetectionScreenUiState())
                 }
@@ -293,6 +326,9 @@ class MainActivity : ComponentActivity() {
 
                 fun refreshBootFreezeState() {
                     currentBoot = BootCount.current(this@MainActivity)
+                    lastBootResult = settings.lastBootResult ?: "尚未执行"
+                    lastShutdownResult =
+                        settings.lastShutdownResult ?: "尚未执行"
                     bootFreezeDelaySeconds =
                         bootFreezeSettings.bootFreezeDelaySeconds
                     bootFreezeResultBootCount =
@@ -326,6 +362,16 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                fun refreshBootFreezeSchedule() {
+                    scope.launch(Dispatchers.IO) {
+                        runCatching {
+                            BootFreezeScheduler.ensureScheduled(
+                                this@MainActivity
+                            )
                         }
                     }
                 }
@@ -372,6 +418,7 @@ class MainActivity : ComponentActivity() {
                         // it finishes instead of stacking another shell probe.
                         return
                     }
+                    catalogRefreshing = true
                     refreshQueue.job = scope.launch {
                         try {
                             while (true) {
@@ -405,19 +452,44 @@ class MainActivity : ComponentActivity() {
                                 scheduleShutdownScriptWrite()
                                 if (refreshQueue.pending.isEmpty()) break
                             }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (throwable: Throwable) {
+                            // A failed read must be visible; the previous list
+                            // stays on screen rather than pretending to be
+                            // fresh.
+                            val message = throwable.message
+                                ?: throwable.javaClass.simpleName
+                            lastCatalogResult = "刷新失败：$message"
+                            ActionLog.warn("刷新实际状态失败：$message")
                         } finally {
+                            catalogRefreshing = false
                             refreshQueue.job = null
                         }
                     }
                 }
 
-                fun refreshPrivilege() {
+                suspend fun loadPrivilegeOverview() {
+                    val overview = manager.readPrivilegeOverview(this@MainActivity)
+                    privilegeOverview = overview
+                    // Root/Shizuku changes must also re-evaluate the root-only
+                    // gates (components, disable-user, hide, COTA), not just
+                    // the top-bar label.
+                    cotaRootAvailable = overview.rootAvailable
+                    backendStatus = manager.status()
+                }
+
+                fun refreshPrivilege(notify: Boolean = false) {
                     scope.launch {
                         try {
-                            privilegeOverview = manager.readPrivilegeOverview(
-                                this@MainActivity
-                            )
-                            backendStatus = manager.status()
+                            loadPrivilegeOverview()
+                            if (notify) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "授权状态已刷新",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (throwable: Throwable) {
@@ -429,11 +501,66 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                fun refreshShizukuOnly() {
+                    val previous = privilegeOverview ?: return
+                    scope.launch {
+                        try {
+                            val updated = PrivilegeOverviewReader.readShizuku(
+                                this@MainActivity,
+                                previous
+                            )
+                            privilegeOverview = updated
+                            cotaRootAvailable = updated.rootAvailable
+                            backendStatus = when {
+                                updated.rootAvailable -> "Root"
+                                updated.shizukuGranted ->
+                                    PrivilegeLabels.shizukuBackendLabel(
+                                        updated.shizukuUid
+                                    )
+                                updated.shizukuRunning -> "Shizuku（未授权）"
+                                else -> "未授权"
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (throwable: Throwable) {
+                            ActionLog.error(
+                                "读取 Shizuku 状态失败：" +
+                                    (throwable.message ?: throwable.javaClass.simpleName)
+                            )
+                        }
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    privilegeRefresh = { refreshPrivilege() }
+                    privilegeQuickRefresh = { refreshShizukuOnly() }
+                }
+
                 suspend fun targetService(backend: PrivilegeBackend) =
                     TargetFreezeService(
                         context = this@MainActivity,
                         backend = backend,
                         dryRun = settings.dryRun,
+                        markerBackend = manager.getRootForShutdown(),
+                        processSnapshotReader = {
+                            val processBackend = manager.getRoot() ?: backend
+                            PackageProcessListReader(processBackend).read()
+                        },
+                        suspendedStateReader = {
+                            statusReader.read(it)?.suspended
+                        }
+                    )
+
+                /**
+                 * Always-on safety path: resume/rescue must never be disabled
+                 * by the preview switch. Only user-initiated apply/restore
+                 * honors [settings.dryRun].
+                 */
+                suspend fun safetyService(backend: PrivilegeBackend) =
+                    TargetFreezeService(
+                        context = this@MainActivity,
+                        backend = backend,
+                        dryRun = false,
                         markerBackend = manager.getRootForShutdown(),
                         processSnapshotReader = {
                             val processBackend = manager.getRoot() ?: backend
@@ -487,39 +614,56 @@ class MainActivity : ComponentActivity() {
                                 loading = false,
                                 error = "检测失败（权限或读取错误）"
                             )
-                            detectionSummary = DetectionUiState(
-                                lastCheckedText = null,
-                                mismatchCount = 0,
-                                note = "检测失败；请重试"
-                            )
                         } else {
                             detectionScreen = DetectionScreenUiState(
                                 snapshot = snapshot,
                                 loading = false,
                                 error = null
                             )
-                            detectionSummary = DetectionUiState(
-                                lastCheckedText = formatEpoch(
-                                    snapshot.generatedAtMillis
-                                ),
-                                mismatchCount = snapshot.mismatchCount +
-                                    snapshot.cloudMismatches.size,
-                                note = snapshot.notes.firstOrNull()
-                            )
                         }
                     }
                 }
 
                 LaunchedEffect(Unit) {
-                    // Rewrite persisted strategies that are no longer supported
-                    // (e.g. powergenie COMPONENT -> OBSERVE-only) once per launch.
+                    // Materialize component options for a stored COMPONENT
+                    // strategy written by an older build.
                     withContext(Dispatchers.IO) {
                         TargetPolicy(this@MainActivity).normalizeStrategies()
                     }
-                    val root = manager.getRoot()
-                    cotaRootAvailable = root != null
-                    backendStatus = manager.status()
-                    privilegeOverview = manager.readPrivilegeOverview(this@MainActivity)
+                    loadPrivilegeOverview()
+                    // Restore states written by older builds when their stored
+                    // strategy is no longer applicable (for example COMPONENT
+                    // on a target with no registered components). Never mark
+                    // it done from preview mode; the restore must really run.
+                    if (!settings.policyMigrationDone && !settings.dryRun) {
+                        try {
+                            val backend = manager.get()
+                            if (backend != null) {
+                                val policy = TargetPolicy(this@MainActivity)
+                                val legacy = TargetCatalog.all.filter {
+                                    policy.storedStrategy(it) != policy.strategy(it)
+                                }
+                                val migrated = if (legacy.isEmpty()) {
+                                    true
+                                } else {
+                                    withContext(Dispatchers.IO) {
+                                        targetService(backend)
+                                            .restore(legacy, force = true)
+                                            .ok
+                                    }
+                                }
+                                if (migrated) settings.policyMigrationDone = true
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (throwable: Throwable) {
+                            ActionLog.error(
+                                "策略迁移失败：" +
+                                    (throwable.message
+                                        ?: throwable.javaClass.simpleName)
+                            )
+                        }
+                    }
                     BootFreezeScheduler.ensureScheduled(this@MainActivity)
                     refreshTargetActual()
                     refreshLogUi()
@@ -527,11 +671,39 @@ class MainActivity : ComponentActivity() {
                     refreshBootGuardState()
                 }
 
+                /**
+                 * Re-read the file list after a backup action. Even a failed
+                 * delete/restore can delete some files before erroring, so the
+                 * list must never stay stale; an unreadable re-list clears it.
+                 */
+                suspend fun refreshCotaFilesAfterAction(
+                    controller: CotaController
+                ) {
+                    if (!cotaEnabled) return
+                    when (val listed = controller.listFiles()) {
+                        is CotaResult.Ok -> {
+                            cotaFiles = listed.value
+                            cotaLoaded = true
+                            val names = listed.value.map { it.name }.toSet()
+                            cotaSelected = cotaSelected intersect names
+                        }
+                        else -> {
+                            cotaFiles = emptyList()
+                            cotaLoaded = false
+                            cotaSelected = emptySet()
+                        }
+                    }
+                }
+
                 fun refreshCota(moduleEnabled: Boolean = cotaEnabled) {
                     launchBusy {
                         val root = manager.getRoot()
                         cotaRootAvailable = root != null
-                        val controller = CotaController(root, moduleEnabled)
+                        val controller = CotaController(
+                            root,
+                            moduleEnabled,
+                            backupRoot = cotaBackupRoot
+                        )
                         val filesResult = controller.listFiles()
                         // The user may have switched the module off while the
                         // read was in flight; do not repopulate stale state.
@@ -541,12 +713,29 @@ class MainActivity : ComponentActivity() {
                         when (filesResult) {
                             is CotaResult.Ok -> {
                                 cotaFiles = filesResult.value
-                                cotaSelected = emptySet()
-                                cotaMessage = "读取到 ${filesResult.value.size} 个文件"
+                                cotaLoaded = true
+                                // Keep selections that still exist after a
+                                // refresh; disappearances are pruned.
+                                val names = filesResult.value
+                                    .map { it.name }
+                                    .toSet()
+                                cotaSelected = cotaSelected intersect names
+                                // The grouped list already shows the count;
+                                // keeping a message here duplicated it.
+                                cotaMessage = null
                             }
-                            is CotaResult.Error -> cotaMessage = filesResult.message
-                            CotaResult.Disabled ->
+                            is CotaResult.Error -> {
+                                cotaMessage = filesResult.message
+                                cotaLoaded = false
+                                cotaFiles = emptyList()
+                                cotaSelected = emptySet()
+                            }
+                            CotaResult.Disabled -> {
                                 cotaMessage = "模块未启用或没有 Root"
+                                cotaLoaded = false
+                                cotaFiles = emptyList()
+                                cotaSelected = emptySet()
+                            }
                         }
                         val backupsResult = controller.listBackups()
                         if (!cotaEnabled) {
@@ -588,19 +777,17 @@ class MainActivity : ComponentActivity() {
                             lastAttemptText = formatEpoch(bootFreezeAttemptTime),
                             lastSuccessText = formatEpoch(bootFreezeFinishTime),
                             plannedCount = catalog.count {
-                                it.enabled && !it.observeOnly &&
-                                    it.strategy != FreezeStrategy.OBSERVE
+                                // Match BootFreezeScheduler/Worker: AppOps or
+                                // standby-only targets are active plans too.
+                                it.enabled && it.active
                             }
-                        ),
-                        antiFraud = AntiFraudUiState(
-                            config = antiFraudConfig,
-                            results = antiFraudResults,
-                            lastResult = antiFraudLastResult
                         ),
                         cota = CotaUiState(
                             moduleEnabled = cotaEnabled,
                             rootAvailable = cotaRootAvailable,
                             busy = busy,
+                            dryRun = dryRun,
+                            loaded = cotaLoaded,
                             files = cotaFiles,
                             selected = cotaSelected,
                             backups = cotaBackups,
@@ -609,10 +796,10 @@ class MainActivity : ComponentActivity() {
                         ),
                         logs = logs,
                         logSettings = logUi,
-                        detection = detectionSummary,
                         rescueMode = rescueMode,
                         catalog = catalog,
                         lastCatalogResult = lastCatalogResult,
+                        catalogRefreshing = catalogRefreshing,
                         rootAvailable = cotaRootAvailable,
                         privilege = privilegeOverview,
                         themeStyle = themeStyle,
@@ -624,78 +811,87 @@ class MainActivity : ComponentActivity() {
                             settings.dryRun = it
                             dryRun = it
                         },
-                        onRequestShizuku = {
-                            runCatching {
-                                if (!Shizuku.pingBinder()) {
-                                    ActionLog.warn(
-                                        "Shizuku 未运行，请先用 Shizuku Store/无线调试启动"
-                                    )
-                                } else if (
-                                    Shizuku.checkSelfPermission() !=
-                                    PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    Shizuku.requestPermission(0)
-                                } else {
-                                    ActionLog.info("Shizuku 权限已授予")
+                        onAuthorizeRoot = {
+                            val checking = privilegeOverview?.rootAvailable == true
+                            scope.launch {
+                                val granted = runCatching {
+                                    manager.requestRoot()
+                                }.getOrDefault(false)
+                                if (!checking || !granted) {
+                                    loadPrivilegeOverview()
                                 }
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    when {
+                                        granted && checking -> "Root 可用"
+                                        granted -> "Root 已授权"
+                                        checking ->
+                                            "Root 已不可用，请重新授权"
+                                        else ->
+                                            "未获得 Root；请在 KernelSU/Magisk 中允许 Nemu"
+                                    },
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         },
-                        onRequestPrivilege = {
-                            launchBusy {
-                                val root = manager.requestRoot()
-                                if (!root) {
-                                    val running = runCatching {
-                                        Shizuku.pingBinder()
-                                    }.getOrDefault(false)
-                                    if (running) {
-                                        val granted = runCatching {
-                                            Shizuku.checkSelfPermission() ==
-                                                PackageManager.PERMISSION_GRANTED
-                                        }.getOrDefault(false)
-                                        if (!granted) {
-                                            Shizuku.requestPermission(0)
-                                            ActionLog.info(
-                                                "已请求 Shizuku 授权，请在弹窗中允许"
-                                            )
-                                        }
-                                    } else {
-                                        ActionLog.warn(
-                                            "Root 未授权，Shizuku 也没有运行；" +
-                                                "请先启动 Shizuku 或授予 Root"
-                                        )
-                                    }
-                                } else {
-                                    ActionLog.info("Root 授权可用")
-                                }
-                                privilegeOverview = manager.readPrivilegeOverview(
-                                    this@MainActivity
-                                )
-                                backendStatus = manager.status()
-                            }
-                        },
-                        onRefreshPrivilege = { refreshPrivilege() },
-                        onOpenShizuku = {
-                            val opened = runCatching {
-                                packageManager.getLaunchIntentForPackage(
-                                    "moe.shizuku.privileged.api"
-                                )?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let {
-                                    startActivity(it)
-                                    true
-                                } ?: false
+                        onAuthorizeShizuku = {
+                            val running = runCatching {
+                                Shizuku.pingBinder()
                             }.getOrDefault(false)
-                            if (!opened) {
-                                ActionLog.warn("没有找到 Shizuku 应用")
+                            val granted = running && runCatching {
+                                Shizuku.checkSelfPermission() ==
+                                    PackageManager.PERMISSION_GRANTED
+                            }.getOrDefault(false)
+                            when {
+                                granted -> Toast.makeText(
+                                    this@MainActivity,
+                                    "Shizuku 已授权",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                running -> {
+                                    // Canonical Shizuku permission dialog.
+                                    val requested = runCatching {
+                                        Shizuku.requestPermission(0)
+                                        true
+                                    }.getOrDefault(false)
+                                    if (!requested) {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "无法弹出授权窗口；请在 Shizuku 中手动授权",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                                else -> {
+                                    // Shizuku is not running: open Stellar's
+                                    // manager window when installed so the
+                                    // user has a visible next step.
+                                    val stellarMain =
+                                        packageManager.getLaunchIntentForPackage(
+                                            "roro.stellar.manager"
+                                        )
+                                    if (stellarMain != null) {
+                                        startActivity(
+                                            stellarMain.addFlags(
+                                                Intent.FLAG_ACTIVITY_NEW_TASK
+                                            )
+                                        )
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "请在 Stellar 中启动并授权",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Shizuku 未运行，请先启动 Shizuku",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
                             }
                         },
-                        onOpenDeveloperSettings = {
-                            runCatching {
-                                startActivity(
-                                    Intent(
-                                        AndroidSettings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
-                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            }
-                        },
+                        onRefreshPrivilege = { refreshPrivilege(notify = true) },
                         onThemeStyleChange = { style ->
                             themeStyle = style
                             settings.themeStyle = style.name
@@ -717,131 +913,21 @@ class MainActivity : ComponentActivity() {
                                 true
                             }.getOrDefault(false)
                             if (!opened) {
-                                runCatching {
+                                val fallbackOpened = runCatching {
                                     startActivity(
                                         Intent(
                                             AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                             Uri.parse("package:$packageName")
                                         )
                                     )
-                                }
-                            }
-                        },
-                        onAntiFraudApply = { config: AntiFraudConfig ->
-                            launchBusy {
-                                val backend = manager.get()
-                                if (backend == null) {
-                                    ActionLog.warn("无可用权限；反诈设置未执行")
-                                } else if (BootGuard.isRescue(manager.getRoot())) {
-                                    ActionLog.warn("自动救砖模式：已拒绝应用反诈停用策略")
-                                    antiFraudLastResult = "已拒绝：自动救砖模式"
-                                    antiFraudSettings.lastResult = antiFraudLastResult
-                                } else {
-                                    val identityState =
-                                        enabledStateReader.isEnabled(
-                                            com.nemu.hibernate.core.AntiFraudTargets.NUMBER_IDENTITY
-                                        )
-                                    val identityBaseline = antiFraudSettings
-                                        .numberIdentityOriginalEnabled
-                                        ?: identityState
-                                    if (!settings.dryRun &&
-                                        config.numberIdentityMode !=
-                                        com.nemu.hibernate.core.NumberIdentityMode.OFF &&
-                                        antiFraudSettings.numberIdentityOriginalEnabled == null &&
-                                        identityBaseline != null
-                                    ) {
-                                        antiFraudSettings.numberIdentityOriginalEnabled =
-                                            identityBaseline
-                                    }
-                                    val results = AntiFraudController(
-                                        backend,
-                                        settings.dryRun,
-                                        previousConfig = antiFraudConfig,
-                                        numberIdentityWasEnabled = identityBaseline,
-                                        numberIdentityCurrentlyEnabled = identityState,
-                                        beforeDisableByNemu = {
-                                            if (identityBaseline == true) {
-                                                BootGuard.markDisabledByNemu(
-                                                    manager.getRootForShutdown(),
-                                                    com.nemu.hibernate.core.AntiFraudTargets.NUMBER_IDENTITY,
-                                                    disabledByNemu = true
-                                                )
-                                            } else true
-                                        },
-                                        afterRestoreByNemu = {
-                                            BootGuard.markDisabledByNemu(
-                                                manager.getRootForShutdown(),
-                                                com.nemu.hibernate.core.AntiFraudTargets.NUMBER_IDENTITY,
-                                                disabledByNemu = false
-                                            )
-                                        },
-                                        enabledStateReader = {
-                                            enabledStateReader.isEnabled(it)
-                                        }
-                                    ).apply(config)
-                                    antiFraudResults = results
-                                    if (results.all { it.ok }) {
-                                        antiFraudConfig = config
-                                        antiFraudSettings.save(config)
-                                    }
-                                    val text =
-                                        "${AntiFraudPolicy.summarize(results)}" +
-                                            "（${System.currentTimeMillis()}）"
-                                    antiFraudLastResult = text
-                                    antiFraudSettings.lastResult = text
-                                    refreshTargetActual()
-                                    backendStatus = manager.status()
-                                }
-                            }
-                        },
-                        onAntiFraudRestore = {
-                            launchBusy {
-                                val backend = manager.get()
-                                if (backend == null) {
-                                    ActionLog.warn("无可用权限；无法恢复反诈设置")
-                                } else {
-                                    val moduleDryRun = settings.dryRun
-                                    val identityState =
-                                        enabledStateReader.isEnabled(
-                                            com.nemu.hibernate.core.AntiFraudTargets.NUMBER_IDENTITY
-                                        )
-                                    val results = AntiFraudController(
-                                        backend,
-                                        moduleDryRun,
-                                        numberIdentityWasEnabled = antiFraudSettings
-                                            .numberIdentityOriginalEnabled,
-                                        numberIdentityCurrentlyEnabled = identityState,
-                                        afterRestoreByNemu = {
-                                            BootGuard.markDisabledByNemu(
-                                                manager.getRootForShutdown(),
-                                                com.nemu.hibernate.core.AntiFraudTargets.NUMBER_IDENTITY,
-                                                disabledByNemu = false
-                                            )
-                                        },
-                                        enabledStateReader = {
-                                            enabledStateReader.isEnabled(it)
-                                        }
-                                    ).restoreAll()
-                                    antiFraudResults = results
-                                    if (!moduleDryRun && results.all { it.ok }) {
-                                        antiFraudConfig = AntiFraudConfig()
-                                        antiFraudSettings.reset()
-                                        antiFraudSettings.numberIdentityOriginalEnabled = null
-                                        TargetCatalog.byPackage(
-                                            com.nemu.hibernate.core.AntiFraudTargets.NUMBER_IDENTITY
-                                        )?.let { target ->
-                                            val policy = TargetPolicy(this@MainActivity)
-                                            policy.setApplied(target, false)
-                                            policy.setOriginalEnabled(target, null)
-                                        }
-                                    }
-                                    val text = "恢复：" +
-                                        "${AntiFraudPolicy.summarize(results)}" +
-                                        "（${System.currentTimeMillis()}）"
-                                    antiFraudLastResult = text
-                                    antiFraudSettings.lastResult = text
-                                    refreshTargetActual()
-                                    backendStatus = manager.status()
+                                    true
+                                }.getOrDefault(false)
+                                if (!fallbackOpened) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "请在系统设置中允许 Nemu 自启动",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         },
@@ -852,10 +938,11 @@ class MainActivity : ComponentActivity() {
                                 if (value) {
                                     refreshCota(true)
                                 } else {
+                                    cotaLoaded = false
                                     cotaFiles = emptyList()
                                     cotaSelected = emptySet()
                                     cotaMessage =
-                                        "模块已关闭；已删除的文件不会自动恢复"
+                                        "模块已关闭；不会删除或恢复文件，备份在重新开启后仍可恢复"
                                 }
                             },
                             onRefresh = { refreshCota() },
@@ -868,13 +955,16 @@ class MainActivity : ComponentActivity() {
                             },
                             onBackup = {
                                 launchBusy {
-                                    if (settings.dryRun) {
-                                        cotaMessage = "预览：备份未执行"
-                                        return@launchBusy
-                                    }
+                                    // Backup only writes an app-private copy;
+                                    // it is safe in preview and is the required
+                                    // prerequisite for delete.
                                     val root = manager.getRoot()
                                     cotaRootAvailable = root != null
-                                    val controller = CotaController(root, cotaEnabled)
+                                    val controller = CotaController(
+                                            root,
+                                            cotaEnabled,
+                                            backupRoot = cotaBackupRoot
+                                        )
                                     when (val result = controller.backup(cotaSelected)) {
                                         is CotaResult.Ok -> {
                                             cotaLastBackupId = result.value.id
@@ -906,7 +996,11 @@ class MainActivity : ComponentActivity() {
                                         val root = manager.getRoot()
                                         cotaRootAvailable = root != null
                                         val controller =
-                                            CotaController(root, cotaEnabled)
+                                            CotaController(
+                                            root,
+                                            cotaEnabled,
+                                            backupRoot = cotaBackupRoot
+                                        )
                                         when (
                                             val result = controller.delete(
                                                 names = cotaSelected,
@@ -918,20 +1012,16 @@ class MainActivity : ComponentActivity() {
                                                 cotaMessage =
                                                     "删除完成；备份 $backupId 可用于恢复"
                                                 cotaSelected = emptySet()
-                                                when (
-                                                    val listed =
-                                                        controller.listFiles()
-                                                ) {
-                                                    is CotaResult.Ok ->
-                                                        cotaFiles = listed.value
-                                                    else -> Unit
-                                                }
                                             }
                                             is CotaResult.Error ->
                                                 cotaMessage = result.message
                                             CotaResult.Disabled ->
                                                 cotaMessage = "模块未启用或没有 Root"
                                         }
+                                        // A failure can still have deleted
+                                        // files before the error; always
+                                        // re-list instead of leaving stale rows.
+                                        refreshCotaFilesAfterAction(controller)
                                     }
                                 }
                             },
@@ -943,26 +1033,26 @@ class MainActivity : ComponentActivity() {
                                     }
                                     val root = manager.getRoot()
                                     cotaRootAvailable = root != null
-                                    val controller = CotaController(root, cotaEnabled)
+                                    val controller = CotaController(
+                                            root,
+                                            cotaEnabled,
+                                            backupRoot = cotaBackupRoot
+                                        )
                                     when (
                                         val result = controller.restore(backupId)
                                     ) {
                                         is CotaResult.Ok -> {
                                             cotaMessage =
                                                 "已从备份 $backupId 恢复"
-                                            when (
-                                                val listed = controller.listFiles()
-                                            ) {
-                                                is CotaResult.Ok ->
-                                                    cotaFiles = listed.value
-                                                else -> Unit
-                                            }
                                         }
                                         is CotaResult.Error ->
                                             cotaMessage = result.message
                                         CotaResult.Disabled ->
                                             cotaMessage = "模块未启用或没有 Root"
                                     }
+                                    // Restore may be partial on failure; the
+                                    // list must reflect what is actually there.
+                                    refreshCotaFilesAfterAction(controller)
                                 }
                             }
                         ),
@@ -1027,6 +1117,7 @@ class MainActivity : ComponentActivity() {
                                 withContext(Dispatchers.IO) {
                                     PersistentLogger.clear(this@MainActivity)
                                 }
+                                ActionLog.clear()
                                 logUi = logUi.copy(message = "日志已清空")
                                 refreshLogUi()
                             }
@@ -1035,12 +1126,32 @@ class MainActivity : ComponentActivity() {
                             scope.launch {
                                 val backend = manager.getRoot()
                                 if (backend == null) {
-                                    ActionLog.warn("无 root，无法清除救援模式")
+                                    lastCatalogResult = "无 Root，无法清除救援模式"
+                                    ActionLog.warn(lastCatalogResult!!)
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        lastCatalogResult,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 } else if (BootGuard.clear(backend)) {
                                     rescueMode = false
-                                    ActionLog.info("救援模式已清除；下次开机模块恢复")
+                                    lastCatalogResult =
+                                        "救援模式已清除；下次开机模块恢复"
+                                    ActionLog.info(lastCatalogResult!!)
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        lastCatalogResult,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    refreshBootGuardState()
                                 } else {
-                                    ActionLog.warn("清除救援模式失败")
+                                    lastCatalogResult = "清除救援模式失败"
+                                    ActionLog.warn(lastCatalogResult!!)
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        lastCatalogResult,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         },
@@ -1048,61 +1159,112 @@ class MainActivity : ComponentActivity() {
                             val target = TargetCatalog.byPackage(packageName)
                             if (target == null) {
                                 ActionLog.warn("未知目标：$packageName")
-                            } else if (value && target.supportedStrategies ==
-                                setOf(FreezeStrategy.OBSERVE)
+                            } else if (value &&
+                                !TargetPolicy(this@MainActivity).isActive(target)
                             ) {
-                                ActionLog.warn("${target.label} 仅观察，不能启用冻结")
+                                ActionLog.warn("${target.label} 当前为观察，不能加入开机计划")
                             } else {
-                                TargetPolicy(this@MainActivity)
-                                    .setEnabled(target, value)
-                                // Flip the row immediately: selection is pure
-                                // policy and must never wait on a shell read.
-                                catalog = catalog.map { row ->
-                                    if (row.packageName == packageName) {
-                                        row.copy(enabled = value)
-                                    } else {
-                                        row
-                                    }
+                                val policy = TargetPolicy(this@MainActivity)
+                                val reason = if (value) {
+                                    TargetCopy.unavailableReason(
+                                        target,
+                                        policy.preset(target),
+                                        cotaRootAvailable
+                                    )
+                                } else {
+                                    null
                                 }
-                                rebuildCatalog()
+                                if (value && reason != null) {
+                                    ActionLog.warn(
+                                        "${target.label} 当前策略不可用（$reason），" +
+                                            "不能加入开机计划"
+                                    )
+                                } else {
+                                    policy.setEnabled(target, value)
+                                    // Flip the row immediately: selection is
+                                    // pure policy and must never wait on a
+                                    // shell read.
+                                    catalog = catalog.map { row ->
+                                        if (row.packageName == packageName) {
+                                            row.copy(enabled = value)
+                                        } else {
+                                            row
+                                        }
+                                    }
+                                    rebuildCatalog()
+                                    scheduleShutdownScriptWrite()
+                                    refreshBootFreezeSchedule()
+                                }
                             }
                         },
-                        onCatalogStrategyChange = { packageName, strategy ->
+                        onCatalogPresetChange = { packageName, preset ->
                             val target = TargetCatalog.byPackage(packageName)
                             if (target != null) {
                                 val policy = TargetPolicy(this@MainActivity)
-                                val previous = policy.strategy(target)
+                                val previous = policy.preset(target)
                                 val row = catalog.firstOrNull {
                                     it.packageName == packageName
                                 }
+                                // Ownership-based: externally disabled or
+                                // suspended packages must not block a preset
+                                // switch, otherwise the card can be stuck on
+                                // "停用" with every other control disabled.
                                 val hasFrozenState = policy.isApplied(target) ||
-                                    row?.actual?.suspended == true ||
-                                    row?.actual?.packageEnabled == false ||
-                                    row?.componentsDisabled == true ||
-                                    row?.ownedHidden == true
-                                if (hasFrozenState &&
-                                    previous != strategy
-                                ) {
-                                    // A strategy switch leaves the old mode's
+                                    row?.ownedHidden == true ||
+                                    row?.ownedDisable == true
+                                if (hasFrozenState && previous != preset) {
+                                    // A preset switch leaves the old mode's
                                     // state behind; force an explicit restore
                                     // first instead of silently mixing modes.
                                     lastCatalogResult =
-                                        "${target.label} 已处于 ${previous.name} / " +
-                                            "实际停用状态；请先在解冻页恢复，再切换策略"
+                                        ResultReason.ALREADY_APPLIED_TARGET
+                                            .at(target.label).line()
                                     ActionLog.warn(lastCatalogResult!!)
                                 } else {
-                                    policy.setStrategy(target, strategy)
-                                    catalog = catalog.map { row ->
-                                        if (row.packageName == packageName) {
-                                            row.copy(strategy = strategy)
+                                    policy.setPreset(target, preset)
+                                    catalog = catalog.map { item ->
+                                        if (item.packageName == packageName) {
+                                            item.copy(
+                                                preset = preset,
+                                                strategy =
+                                                    com.nemu.hibernate.core
+                                                        .TargetCopy
+                                                        .baseStrategy(preset)
+                                            )
                                         } else {
-                                            row
+                                            item
                                         }
                                     }
                                     rebuildCatalog()
                                     // The restore script encodes the strategy;
                                     // regenerate it off the UI path.
                                     scheduleShutdownScriptWrite()
+                                    refreshBootFreezeSchedule()
+                                }
+                            }
+                        },
+                        onCatalogComponentsChange = { packageName, selected ->
+                            launchBusy {
+                                val target = TargetCatalog.byPackage(packageName)
+                                if (target != null) {
+                                    val policy = TargetPolicy(this@MainActivity)
+                                    // Selection is just a plan. Any owned
+                                    // component that is no longer selected is
+                                    // restored by the next Apply, together
+                                    // with the rest of the freeze operation.
+                                    if (policy.setComponentSelection(target, selected)) {
+                                        lastCatalogResult =
+                                            "已选择 ${selected.size} 个组件"
+                                        rebuildCatalog()
+                                        scheduleShutdownScriptWrite()
+                                        refreshBootFreezeSchedule()
+                                    } else {
+                                        lastCatalogResult =
+                                            ResultNote(
+                                                ResultReason.COMPONENT_SELECTION_EMPTY
+                                            ).line()
+                                        ActionLog.warn(lastCatalogResult!!)
+                                    }
                                 }
                             }
                         },
@@ -1112,35 +1274,85 @@ class MainActivity : ComponentActivity() {
                                 val policy = TargetPolicy(this@MainActivity)
                                 val targets = TargetCatalog.all.filter {
                                     it.packageName in selected &&
-                                        policy.isEnabled(it) &&
-                                        policy.strategy(it) != FreezeStrategy.OBSERVE
+                                        policy.isActive(it)
                                 }
+                                // Null means the guard marker could not be
+                                // read. With no root (Shizuku-only) a pure
+                                // SUSPEND can still run; root-marker
+                                // strategies must stay blocked.
+                                val rootBackend = manager.getRoot()
+                                val rescue = BootGuard.rescueState(rootBackend)
+                                val requiresMarkers = targets.any {
+                                    policy.strategy(it) ==
+                                        FreezeStrategy.COMPONENT ||
+                                        policy.strategy(it) ==
+                                        FreezeStrategy.DISABLE_USER ||
+                                        policy.strategy(it) ==
+                                        FreezeStrategy.HIDE
+                                }
+                                val rescueBlocks = rescue == true ||
+                                    (rescue == null &&
+                                        (rootBackend != null || requiresMarkers))
                                 when {
                                     backend == null -> {
-                                        lastCatalogResult = "失败：无可用权限"
+                                        lastCatalogResult =
+                                            ResultNote(
+                                                ResultReason.BACKEND_UNAVAILABLE
+                                            ).line()
                                         ActionLog.warn("无可用权限；无法应用冻结策略")
                                     }
                                     targets.isEmpty() -> {
-                                        lastCatalogResult = "没有已启用的目标可应用"
+                                        lastCatalogResult =
+                                            ResultNote(
+                                                ResultReason.NO_ENABLED_TARGETS
+                                            ).line()
                                         ActionLog.warn(lastCatalogResult!!)
                                     }
-                                    BootGuard.isRescue(manager.getRoot()) -> {
-                                        lastCatalogResult = "已拒绝：自动救砖模式"
-                                        ActionLog.warn("自动救砖模式：请先清除救援标记再冻结")
+                                    rescueBlocks -> {
+                                        lastCatalogResult =
+                                            ResultNote(
+                                                ResultReason.RESCUE_MODE,
+                                                detail = if (rescue == true) {
+                                                    null
+                                                } else {
+                                                    "救援状态未知"
+                                                }
+                                            ).line()
+                                        ActionLog.warn(
+                                            "自动救砖模式/状态未知：请先清除救援标记再冻结"
+                                        )
                                     }
                                     else -> {
                                         val bootCount = BootCount.current(this@MainActivity)
                                         if (!settings.dryRun) {
-                                            BootFreezeScheduler.cancel(this@MainActivity)
-                                            bootFreezeSettings.recordAttempt(
-                                                bootCount,
-                                                System.currentTimeMillis()
+                                            if (!bootFreezeSettings.recordAttempt(
+                                                    bootCount,
+                                                    System.currentTimeMillis()
+                                                )
+                                            ) {
+                                                lastCatalogResult =
+                                                    ResultNote(
+                                                        ResultReason.OWNERSHIP_WRITE_FAILED
+                                                    ).line()
+                                                ActionLog.warn(
+                                                    "冻结尝试无法持久化，未执行命令"
+                                                )
+                                                return@launchBusy
+                                            }
+                                            BootFreezeScheduler.cancel(
+                                                this@MainActivity
                                             )
                                         }
                                         val result = withContext(Dispatchers.IO) {
                                             targetService(backend).apply(targets)
                                         }
-                                        lastCatalogResult = result.summary()
+                                        val summary = result.summary()
+                                        lastCatalogResult =
+                                            if (settings.dryRun) {
+                                                "预览：$summary"
+                                            } else {
+                                                summary
+                                            }
                                         if (!settings.dryRun) {
                                             bootFreezeSettings.recordResult(
                                                 bootCount = bootCount,
@@ -1155,10 +1367,13 @@ class MainActivity : ComponentActivity() {
                                                     System.currentTimeMillis()
                                             )
                                         }
+                                        val logText =
+                                            (if (settings.dryRun) "预览：" else "") +
+                                                "应用冻结：$summary"
                                         if (result.ok) {
-                                            ActionLog.info("应用冻结：${result.summary()}")
+                                            ActionLog.info(logText)
                                         } else {
-                                            ActionLog.warn("应用冻结：${result.summary()}")
+                                            ActionLog.warn(logText)
                                         }
                                         refreshBootFreezeState()
                                         refreshTargetActual()
@@ -1176,53 +1391,98 @@ class MainActivity : ComponentActivity() {
                                 }
                                 when {
                                     backend == null -> {
-                                        lastCatalogResult = "失败：无可用权限"
+                                        lastCatalogResult =
+                                            ResultNote(
+                                                ResultReason.BACKEND_UNAVAILABLE
+                                            ).line()
                                         ActionLog.warn("无可用权限；无法解冻所选")
                                     }
                                     targets.isEmpty() -> {
-                                        lastCatalogResult = "未选择可解冻的目标"
+                                        lastCatalogResult =
+                                            ResultNote(ResultReason.NO_SELECTION).line()
                                         ActionLog.warn(lastCatalogResult!!)
                                     }
                                     else -> {
                                         val policy = TargetPolicy(this@MainActivity)
+                                        val ownedTargets = targets.filter { target ->
+                                            policy.isApplied(target) ||
+                                                policy.ownsHidden(target) ||
+                                                policy.originalEnabled(target) != null ||
+                                                policy.hasComponentOwnership(target) ||
+                                                policy.ownsAppOps(target) ||
+                                                policy.ownsStandby(target)
+                                        }
+                                        if (ownedTargets.isEmpty()) {
+                                            lastCatalogResult =
+                                                "所选目标没有 Nemu 所有权，未解冻他人暂停"
+                                            ActionLog.warn(lastCatalogResult!!)
+                                            return@launchBusy
+                                        }
+                                        val foreignCount =
+                                            targets.size - ownedTargets.size
                                         if (!settings.dryRun) {
                                             BootFreezeScheduler.cancel(this@MainActivity)
                                             val bootCount =
                                                 BootCount.current(this@MainActivity)
-                                            bootFreezeSettings.bootFreezeSkippedBootCount =
-                                                bootCount
-                                            bootFreezeSettings.lastBootFreezeBootCount =
-                                                bootCount
-                                            bootFreezeSettings.lastBootFreezeResult =
-                                                "手动选择性解冻：本次开机不再自动冻结"
-                                            bootFreezeSettings.lastBootFreezeSucceeded =
-                                                false
+                                            bootFreezeSettings.recordManualSkip(
+                                                bootCount = bootCount,
+                                                result =
+                                                    "手动选择性解冻：本次开机不再自动冻结"
+                                            )
                                         }
                                         val service = targetService(backend)
+                                        val previouslyOwned = ownedTargets.filter {
+                                            policy.isApplied(it) || policy.ownsHidden(it)
+                                        }.mapTo(mutableSetOf()) { it.packageName }
                                         // Restore with the stored strategy before
                                         // disabling the policy; otherwise a legacy
                                         // disable-user target could be treated as
                                         // suspend and left disabled.
                                         val result = withContext(Dispatchers.IO) {
-                                            service.restore(targets, force = true)
+                                            service.restore(
+                                                ownedTargets,
+                                                force = true
+                                            )
                                         }
                                         // Scope component restoration to the
                                         // selected targets: restoring A must
                                         // not silently re-enable B's
                                         // components while B stays marked.
                                         val components = withContext(Dispatchers.IO) {
-                                            service.restoreOwnedComponents(targets)
+                                            FreezeOperationLock.mutex.withLock {
+                                                service.restoreOwnedComponents(
+                                                    ownedTargets
+                                                )
+                                            }
                                         }
-                                        if (!settings.dryRun && result.ok && components.ok) {
-                                            targets.forEach {
-                                                policy.setEnabled(it, false)
+                                        // Per-target plan cleanup: a restored
+                                        // target loses its ownership markers;
+                                        // a failed one keeps them and therefore
+                                        // keeps its plan. Do not use the batch
+                                        // result, which would leave successful
+                                        // targets planned after a partial fail.
+                                        if (!settings.dryRun) {
+                                            ownedTargets.forEach { target ->
+                                                val stillOwned =
+                                                    policy.isApplied(target) ||
+                                                        policy.ownsHidden(target)
+                                                if (target.packageName in previouslyOwned &&
+                                                    !stillOwned
+                                                ) {
+                                                    policy.setEnabled(target, false)
+                                                }
                                             }
                                         }
                                         lastCatalogResult =
                                             (if (settings.dryRun) "预览：" else "") +
-                                                "解冻所选 ${targets.size} 项：" +
+                                                "解冻所选 ${ownedTargets.size} 项：" +
                                                 result.summary() +
-                                                "；组件：${components.summary()}"
+                                                "；组件：${components.summary()}" +
+                                                if (foreignCount > 0) {
+                                                    "；跳过 $foreignCount 项他人暂停"
+                                                } else {
+                                                    ""
+                                                }
                                         if (result.ok && components.ok) {
                                             ActionLog.info(lastCatalogResult!!)
                                         } else {
@@ -1240,48 +1500,52 @@ class MainActivity : ComponentActivity() {
                             launchBusy {
                                 val backend = manager.get()
                                 if (backend == null) {
-                                    lastCatalogResult = "失败：无可用权限"
+                                    lastCatalogResult =
+                                        ResultNote(
+                                            ResultReason.BACKEND_UNAVAILABLE
+                                        ).line()
                                     ActionLog.warn("无可用权限；无法全部解冻")
                                 } else {
+                                    val policy = TargetPolicy(this@MainActivity)
                                     if (!settings.dryRun) {
                                         BootFreezeScheduler.cancel(this@MainActivity)
                                         val bootCount =
                                             BootCount.current(this@MainActivity)
-                                        bootFreezeSettings.bootFreezeSkippedBootCount =
-                                            bootCount
-                                        bootFreezeSettings.lastBootFreezeBootCount =
-                                            bootCount
-                                        bootFreezeSettings.lastBootFreezeResult =
-                                            "手动全部解冻：本次开机不再自动冻结"
-                                        bootFreezeSettings.lastBootFreezeSucceeded =
-                                            false
+                                        bootFreezeSettings.recordManualSkip(
+                                            bootCount = bootCount,
+                                            result =
+                                                "手动全部解冻：本次开机不再自动冻结"
+                                        )
                                     }
                                     val service = targetService(backend)
-                                    val targets = (
-                                        service.appliedTargets() +
-                                            catalog.filter {
-                                                it.actual.suspended == true ||
-                                                    (FreezeStrategy.DISABLE_USER in
-                                                        it.target.supportedStrategies &&
-                                                        it.actual.packageEnabled == false &&
-                                                        (it.applied || it.ownedDisable))
-                                            }.map { it.target }
-                                        ).distinctBy { it.packageName }
+                                    // "全部解冻" means everything Nemu owns, not
+                                    // every package another tool suspended.
+                                    val targets = TargetCatalog.all.filter { target ->
+                                        policy.isApplied(target) ||
+                                            policy.ownsHidden(target) ||
+                                            policy.originalEnabled(target) != null ||
+                                            policy.hasComponentOwnership(target) ||
+                                            policy.ownsAppOps(target) ||
+                                            policy.ownsStandby(target)
+                                    }.distinctBy { it.packageName }
                                     val result = withContext(Dispatchers.IO) {
                                             service.restore(targets, force = true)
                                         }
-                                    // residualUnfreeze is an always-on safety
-                                    // path and ignores dryRun. Never call it
-                                    // from a dry-run user action: the preview
-                                    // must not change actual suspend state.
-                                    val residualText = if (settings.dryRun) {
-                                        "预览：安全残留清理跳过"
-                                    } else {
-                                        val residual = withContext(Dispatchers.IO) {
-                                            service.residualUnfreeze()
+                                    // A preview must not touch the device. The
+                                    // always-on residual path still runs for
+                                    // real restores, shutdown and boot recovery.
+                                    val residualText =
+                                        if (RestoreExecutionPolicy.runsResidualCleanup(
+                                                settings.dryRun
+                                            )
+                                        ) {
+                                            val residual = withContext(Dispatchers.IO) {
+                                                safetyService(backend).residualUnfreeze()
+                                            }
+                                            "${RestoreExecutionPolicy.residualLabel(false)}：${residual.summary()}"
+                                        } else {
+                                            RestoreExecutionPolicy.residualLabel(true)
                                         }
-                                        "残留清理：${residual.summary()}"
-                                    }
                                     lastCatalogResult =
                                         (if (settings.dryRun) "预览：" else "") +
                                             "全部解冻：${result.summary()}；$residualText"
@@ -1301,21 +1565,28 @@ class MainActivity : ComponentActivity() {
                             refreshTargetActual()
                             refreshDetection()
                         },
-                        onCustomTargetAdd = { packageName, label ->
-                            if (com.nemu.hibernate.core.CustomTargetGuard.isDenied(packageName)) {
-                                ActionLog.warn("拒绝添加系统关键应用：$packageName")
+                        onCustomTargetAdd = { packageName, label, risk ->
+                            if (com.nemu.hibernate.core.CustomTargetGuard.isSelf(packageName)) {
+                                ActionLog.warn("不能添加 Nemu 自身：$packageName")
                             } else if (TargetCatalog.byPackage(packageName) != null) {
                                 ActionLog.warn("已在目标目录中，不能重复添加：$packageName")
                             } else {
-                                settings.addCustomTarget(packageName, label)
+                                settings.addCustomTarget(packageName, label, risk)
                                 TargetCatalog.setCustomTargets(
-                                    settings.customTargets().map { (pkg, name) ->
-                                        TargetCatalog.customTarget(pkg, name)
+                                    settings.customTargets().map { record ->
+                                        TargetCatalog.customTarget(
+                                            record.packageName,
+                                            record.label,
+                                            record.risk
+                                        )
                                     }
                                 )
                                 TargetCatalog.byPackage(packageName)?.let { target ->
+                                    // Adding a target must never enroll it in the
+                                    // boot plan implicitly; the user enables the
+                                    // plan explicitly on the card.
                                     TargetPolicy(this@MainActivity)
-                                        .setEnabled(target, true)
+                                        .setEnabled(target, false)
                                     // Only the new package needs an actual-state
                                     // read; a full-catalog refresh plus a
                                     // detection probe here would be needless.
@@ -1324,18 +1595,32 @@ class MainActivity : ComponentActivity() {
                                         force = true
                                     )
                                 } ?: rebuildCatalog()
+                                refreshBootFreezeSchedule()
                             }
                         },
                         onCustomTargetRemove = { packageName ->
                             val target = TargetCatalog.byPackage(packageName)
                             val policy = TargetPolicy(this@MainActivity)
-                            if (target != null && policy.isApplied(target)) {
+                            val row = catalog.firstOrNull {
+                                it.packageName == packageName
+                            }
+                            val blocked = com.nemu.hibernate.core.CustomTargetGuard
+                                .shouldBlockRemoval(
+                                    owned = target != null &&
+                                        policy.isApplied(target),
+                                    hasFrozenState = row?.hasFrozenState == true
+                                )
+                            if (blocked) {
                                 ActionLog.warn("请先解冻再移除自定义目标：$packageName")
                             } else {
                                 settings.removeCustomTarget(packageName)
                                 TargetCatalog.setCustomTargets(
-                                    settings.customTargets().map { (pkg, name) ->
-                                        TargetCatalog.customTarget(pkg, name)
+                                    settings.customTargets().map { record ->
+                                        TargetCatalog.customTarget(
+                                            record.packageName,
+                                            record.label,
+                                            record.risk
+                                        )
                                     }
                                 )
                                 // Remove the row immediately; the cached
@@ -1345,32 +1630,41 @@ class MainActivity : ComponentActivity() {
                                 }
                                 rebuildCatalog()
                                 scheduleShutdownScriptWrite()
+                                refreshBootFreezeSchedule()
                             }
                         },
                         onTabSelected = { tab ->
                             // Page switches are pure UI. Only the detection
                             // page queries, and the unfreeze page reuses the
                             // cached actual snapshot unless it is stale.
+                            if (tab != DashboardTab.APPLICATIONS) {
+                                focusPackage = null
+                            }
                             when (tab) {
                                 DashboardTab.DETECTION -> refreshDetection()
                                 DashboardTab.OVERVIEW -> refreshBootFreezeState()
-                                DashboardTab.FREEZE -> rebuildCatalog()
-                                DashboardTab.UNFREEZE -> {
+                                DashboardTab.APPLICATIONS -> {
+                                    rebuildCatalog()
                                     val policy = TargetPolicy(this@MainActivity)
                                     val applied = TargetCatalog.all.filter {
                                         policy.isApplied(it)
                                     }
-                                    if (applied.isEmpty()) rebuildCatalog()
-                                    else refreshTargetActual(applied, force = false)
+                                    if (applied.isNotEmpty()) {
+                                        refreshTargetActual(applied, force = false)
+                                    }
                                 }
+                                DashboardTab.ALL_APPS -> rebuildCatalog()
                                 DashboardTab.SETTINGS -> Unit
                             }
                         }
                     ),
+                    focusPackage = focusPackage,
+                    onClearFocus = { focusPackage = null },
                     detectionContent = {
                         DetectionScreen(
                             state = detectionScreen,
-                            onRefresh = { refreshDetection() }
+                            onRefresh = { refreshDetection() },
+                            onOpenTarget = { focusPackage = it }
                         )
                     }
                 )
@@ -1394,19 +1688,46 @@ class MainActivity : ComponentActivity() {
         val policy = TargetPolicy(this)
         return TargetCatalog.all.map { target ->
             val strategy = policy.strategy(target)
-            val applied = policy.isApplied(target)
+            val options = policy.options(target)
+            val preset = options?.presetOf(strategy)
+                ?: com.nemu.hibernate.core.StrategyPreset.OBSERVE
+            val active = policy.isActive(target)
+            val effectiveComponents = policy.effectiveComponents(target)
             val componentStates = if (strategy == FreezeStrategy.COMPONENT) {
-                target.components.map { componentStateReader.state(it.className) }
+                effectiveComponents.map { componentStateReader.state(it.className) }
             } else {
                 emptyList()
             }
-            val componentsDisabled = when {
-                target.components.isEmpty() -> null
-                componentStates.isEmpty() -> null
-                componentStates.all { it == null } -> null
-                else -> componentStates.any { state ->
-                    state == 2 || state == 3 || state == 4
+            val allComponentStates = if (strategy == FreezeStrategy.COMPONENT) {
+                target.components.associate {
+                    it.className to componentStateReader.state(it.className)
                 }
+            } else {
+                emptyMap()
+            }
+            val selectedComponents = if (strategy == FreezeStrategy.COMPONENT) {
+                policy.selectedComponents(target)
+            } else {
+                emptySet()
+            }
+            // Ownership survives an app update that removes every registered
+            // component; never hide the row just because the strategy fell
+            // back to its default.
+            val ownedComponents = policy.ownedComponentNames(target).toSet()
+            val ownedComponentStates = ownedComponents.mapNotNull {
+                componentStateReader.state(it)
+            }
+            val componentsDisabled = when {
+                strategy == FreezeStrategy.COMPONENT -> when {
+                    effectiveComponents.isEmpty() -> null
+                    componentStates.all { it == null } -> null
+                    else -> componentStates.any { state ->
+                        state == 2 || state == 3 || state == 4
+                    }
+                }
+                ownedComponents.isEmpty() -> null
+                ownedComponentStates.isEmpty() -> null
+                else -> ownedComponentStates.any { it == 2 || it == 3 || it == 4 }
             }
             val actualState = actual[target.packageName] ?: TargetActualUiState()
             // Do not show "applied" when the actual state is gone (e.g. a
@@ -1427,12 +1748,25 @@ class MainActivity : ComponentActivity() {
                 target = target,
                 enabled = policy.isEnabled(target),
                 strategy = strategy,
+                preset = preset,
+                active = active,
                 applied = policy.isApplied(target) && actuallyFrozen &&
                     !preDisabledAdopted,
                 actual = actualState,
                 componentsDisabled = componentsDisabled,
+                selectedComponents = selectedComponents,
+                ownedComponents = ownedComponents,
+                componentStates = allComponentStates,
                 ownedDisable = policy.originalEnabled(target) != null,
-                ownedHidden = policy.ownsHidden(target)
+                ownedHidden = policy.ownsHidden(target),
+                appOpsOwned = policy.ownsAppOps(target),
+                standbyOwned = policy.ownsStandby(target),
+                ownershipPending = isOwnershipPending(
+                    applied = policy.isApplied(target),
+                    actuallyFrozen = actuallyFrozen,
+                    ownsAppOps = policy.ownsAppOps(target),
+                    ownsStandby = policy.ownsStandby(target)
+                )
             )
         }
     }
@@ -1505,13 +1839,7 @@ class MainActivity : ComponentActivity() {
         return DetectionReader(
             context = this,
             packageStatusReader = statusReader,
-            rootBackend = root,
-            // The hiview trio is strategy-editable on the Freeze page; render
-            // them as strategy-aware catalog rows instead of the legacy
-            // fixed-action cloud rows (their suspend is refused by the platform).
-            cloudTargets = CloudTargets.all.filterNot {
-                it.packageName in STRATEGY_CLOUD_PACKAGES
-            }
+            rootBackend = root
         ).read(settings)
     }
 
@@ -1541,15 +1869,12 @@ class MainActivity : ComponentActivity() {
             SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
     }
 
-    private val STRATEGY_CLOUD_PACKAGES = setOf(
-        "com.hihonor.hiview",
-        "com.hihonor.hiviewpush",
-        "com.hihonor.hiviewtunnel"
-    )
-
     override fun onResume() {
         super.onResume()
         SafetyService.sync(this)
+        // Returning from Stellar (or Shizuku's own UI) should update the auth
+        // card without triggering another root probe.
+        privilegeQuickRefresh?.invoke()
     }
 }
 

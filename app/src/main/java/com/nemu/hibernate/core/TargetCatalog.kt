@@ -3,14 +3,13 @@ package com.nemu.hibernate.core
 /**
  * Unified, feature-oriented target catalog for the Nemu UI.
  *
- * It is intentionally a superset of the legacy [Targets] / [AiTargets] /
- * [CloudTargets] lists: existing safety paths keep working, while the new
- * Freeze/Unfreeze pages render one catalog with strategy metadata.
+ * It includes the core [Targets] and [AiTargets] entries plus cloud, safety and
+ * thermal targets, rendered as one catalog with per-target strategy metadata.
  *
  * Package additions are conservative: entries that have not been verified on
- * this device are YELLOW/OBSERVE or default-disabled. Thermal packages are
- * never whole-package disabled; only their COTA/cloud-config receivers may be
- * offered as component targets after explicit confirmation.
+ * this device default to OBSERVE. Red/DenyList packages remain selectable for
+ * every whole-package strategy but carry an explicit high-risk warning; the
+ * platform may still refuse a command, which surfaces as a command failure.
  */
 object TargetCatalog {
     private fun component(pkg: String, cls: String, label: String, role: String) =
@@ -27,7 +26,6 @@ object TargetCatalog {
             label = "系统应用更新器",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.UPDATE,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.SUSPEND,
             components = listOf(
                 component(
@@ -55,14 +53,7 @@ object TargetCatalog {
             label = "升级引导界面",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.UPDATE,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.HIDE
-            ),
             description = "只有升级说明界面（UpgradeWizardActivity），不是后台更新服务。" +
                 "不用时可以直接停用或隐藏，不会影响系统更新检查。",
             consequences = mapOf(
@@ -129,7 +120,7 @@ object TargetCatalog {
     val ai: List<Target> = coreAi + AiTargets.all.map {
         it.copy(
             category = TargetCategory.AI,
-            components = aiComponents[it.packageName].orEmpty()
+            components = aiComponents[it.packageName].orEmpty(),
         )
     } + listOf(
         Target(
@@ -137,7 +128,6 @@ object TargetCatalog {
             label = "视觉引擎（相机/图库 AI）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.AI,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
             components = listOf(
                 component(
@@ -172,7 +162,6 @@ object TargetCatalog {
             label = "智慧翻译（候选）",
             risk = RiskLevel.GREEN,
             category = TargetCategory.AI,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.SUSPEND,
             description = "独立的翻译功能。不使用翻译时可冻结，不影响系统语言与输入法。",
             consequences = mapOf(
@@ -187,7 +176,6 @@ object TargetCatalog {
             label = "魔法形象",
             risk = RiskLevel.GREEN,
             category = TargetCategory.AI,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.SUSPEND,
             description = "独立的头像/形象功能。不用时可冻结。",
             consequences = mapOf(
@@ -202,7 +190,6 @@ object TargetCatalog {
             label = "智慧视觉（HonorLens）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.AI,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
             components = listOf(
                 component(
@@ -237,7 +224,6 @@ object TargetCatalog {
             label = "荣耀 AI 空间（Magichome）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.AI,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
             description = "AI 空间入口界面，与桌面/负一屏有入口联动。" +
                 "不用 AI 空间时可暂停、停用或隐藏。",
@@ -256,7 +242,6 @@ object TargetCatalog {
             label = "负一屏 / HiBoard（候选）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.AI,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
             components = listOf(
                 component(
@@ -306,13 +291,7 @@ object TargetCatalog {
             label = "运营商 DM（系统消息）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.DISABLE_USER,
-            supportedStrategies = setOf(
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.OBSERVE
-            ),
             description = "CMCC DM：自注册、心跳、FOTA、应用清单上报；disable-user 可逆。",
             consequences = mapOf(
                 FreezeStrategy.DISABLE_USER to
@@ -328,13 +307,7 @@ object TargetCatalog {
             label = "UEInfoCheck（电信上报）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.DISABLE_USER,
-            supportedStrategies = setOf(
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.OBSERVE
-            ),
             description = "电信 UE 信息检查/上报；disable-user 可逆。",
             consequences = mapOf(
                 FreezeStrategy.DISABLE_USER to
@@ -348,13 +321,7 @@ object TargetCatalog {
             label = "AutoRegSms（电信自注册短信）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.DISABLE_USER,
-            supportedStrategies = setOf(
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.OBSERVE
-            ),
             description = "电信自注册短信；停用后可能收不到运营商自注册短信。",
             consequences = mapOf(
                 FreezeStrategy.DISABLE_USER to
@@ -368,7 +335,6 @@ object TargetCatalog {
             label = "HiView 遥测采集",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             // The platform refuses `pm suspend` for hiview on this device
             // (reports "new suspended state: false"). COMPONENT is the
             // actionable default for a root user; SUSPEND remains selectable
@@ -420,7 +386,6 @@ object TargetCatalog {
             label = "HiView 推送",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.COMPONENT,
             components = listOf(
                 component("com.hihonor.hiviewpush", "com.hihonor.hiviewpush.PushManagerService", "PushManagerService", "推送管理服务"),
@@ -440,7 +405,6 @@ object TargetCatalog {
             label = "HiViewTunnel",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.COMPONENT,
             components = listOf(
                 component("com.hihonor.hiviewtunnel", "com.hihonor.idaptunnel.LogUploadService", "LogUploadService", "日志上传服务"),
@@ -460,12 +424,7 @@ object TargetCatalog {
             label = "CHR 上报（共享 UID）",
             risk = RiskLevel.RED,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.COMPONENT
-            ),
             components = listOf(
                 component(
                     "com.hihonor.android.chr",
@@ -505,15 +464,7 @@ object TargetCatalog {
             label = "智能检测 / 远程诊断",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.COMPONENT,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.HIDE,
-                FreezeStrategy.OBSERVE
-            ),
             components = listOf(
                 component(
                     "com.hihonor.detectrepair",
@@ -537,15 +488,10 @@ object TargetCatalog {
         ),
         Target(
             packageName = "com.hihonor.assetsync",
-            label = "COTA 参数同步调度（只读）",
+            label = "COTA 参数同步调度",
             risk = RiskLevel.RED,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND
-            ),
             description = "社区资料指向 /data/cota/para 的参数同步。暂停后云控参数不再更新，" +
                 "现有温控/功耗参数继续生效；默认只观察。",
             consequences = mapOf(
@@ -557,15 +503,10 @@ object TargetCatalog {
         ),
         Target(
             packageName = "com.hihonor.assetsyncservice",
-            label = "COTA 参数同步服务（只读）",
+            label = "COTA 参数同步服务",
             risk = RiskLevel.RED,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND
-            ),
             description = "COTA 参数同步服务。暂停后温控/反诈等云参数不再更新，" +
                 "现有配置继续生效；默认只观察。",
             consequences = mapOf(
@@ -580,14 +521,7 @@ object TargetCatalog {
             label = "HnCIPService（疑似上报）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.HIDE
-            ),
             description = "疑似 CHR/诊断上报服务，具体角色未完全确认。可以暂停或停用；" +
                 "如果遇到系统诊断/反馈异常，解冻即可。",
             consequences = mapOf(
@@ -605,15 +539,13 @@ object TargetCatalog {
             label = "HONOR 系统服务（云参数组件）",
             risk = RiskLevel.RED,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(FreezeStrategy.OBSERVE, FreezeStrategy.COMPONENT),
             components = listOf(
                 component("com.hihonor.systemserver", "com.hihonor.systemserver.booster.framework.config.CommonCloudParaUpdateReceiver", "CommonCloudParaUpdateReceiver", "通用云参数更新"),
                 component("com.hihonor.systemserver", "com.hihonor.systemserver.booster.framework.config.PowerCloudParaUpdateReceiver", "PowerCloudParaUpdateReceiver", "功耗云参数更新"),
                 component("com.hihonor.systemserver", "com.hihonor.systemserver.appmcp.AppMcpCfgUpdatedReceiver", "AppMcpCfgUpdatedReceiver", "App MCP 云配置更新")
             ),
-            description = "系统服务承载插件/运营商/热补丁；只允许组件模式阻断云参数，禁止整包冻结。",
+            description = "系统服务承载插件/运营商/热补丁；整包策略可用但高风险，建议用组件模式阻断云参数。",
             consequences = mapOf(
                 FreezeStrategy.COMPONENT to
                     "通用/功耗/App MCP 云参数更新组件停用：厂商云控参数不再更新；" +
@@ -623,13 +555,11 @@ object TargetCatalog {
         ),
         Target(
             packageName = "com.hihonor.android.pushagent",
-            label = "荣耀推送（禁止操作）",
+            label = "荣耀推送（高风险）",
             risk = RiskLevel.RED,
             category = TargetCategory.CLOUD,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(FreezeStrategy.OBSERVE),
-            description = "系统推送通道，DenyList 保护。冻结会导致通知/推送异常，因此只观察。"
+            description = "系统推送通道（敏感应用）。整包策略可用但会警告高风险；冻结可能导致通知/推送异常。"
         )
     )
 
@@ -639,15 +569,13 @@ object TargetCatalog {
             label = "系统管家（反诈组件）",
             risk = RiskLevel.RED,
             category = TargetCategory.SAFETY,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(FreezeStrategy.OBSERVE, FreezeStrategy.COMPONENT),
             components = listOf(
                 component("com.hihonor.systemmanager", "com.hihonor.aiprotection.configmanager.receiver.AntiFraudConfigReceiver", "AntiFraudConfigReceiver", "反诈云配置更新"),
                 component("com.hihonor.systemmanager", "com.hihonor.fraudnumber.provider.FraudContentProvider", "FraudContentProvider", "反诈号码 Provider"),
                 component("com.hihonor.systemmanager", "com.hihonor.securitycenter.antifraud.fakedetect.FakeDetectService", "FakeDetectService", "伪造检测服务")
             ),
-            description = "系统管家承载反诈/病毒/电池；只允许组件模式，禁止整包冻结。",
+            description = "系统管家承载反诈/病毒/电池；整包策略可用但高风险，建议用组件模式。",
             consequences = mapOf(
                 FreezeStrategy.COMPONENT to
                     "反诈云配置、反诈号码查询、伪造检测组件停用：骚扰/诈骗号码标记可能减少；" +
@@ -660,13 +588,7 @@ object TargetCatalog {
             label = "号码识别",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.SAFETY,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.SUSPEND,
-            supportedStrategies = setOf(
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.OBSERVE
-            ),
             description = "来电识别、骚扰/诈骗标记。冻结后仍能接打电话，但看不到号码标记和识别结果。",
             consequences = mapOf(
                 FreezeStrategy.SUSPEND to
@@ -678,15 +600,10 @@ object TargetCatalog {
         ),
         Target(
             packageName = "com.hihonor.securityserver",
-            label = "安全公共服务（只限制后台）",
+            label = "安全公共服务（高风险）",
             risk = RiskLevel.RED,
             category = TargetCategory.SAFETY,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND
-            ),
             description = "反诈核心服务，负责安全能力/活体/风险判断。" +
                 "直接冻结可能导致支付保护、反诈功能异常；可以暂停，但默认只观察。",
             consequences = mapOf(
@@ -701,12 +618,7 @@ object TargetCatalog {
             label = "情景感知",
             risk = RiskLevel.RED,
             category = TargetCategory.SAFETY,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND
-            ),
             description = "反诈/活体/情景判断的载体。暂停可能影响安全校验和情景功能；" +
                 "默认只观察。",
             consequences = mapOf(
@@ -721,14 +633,7 @@ object TargetCatalog {
             label = "安全插件底座",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.SAFETY,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND,
-                FreezeStrategy.DISABLE_USER,
-                FreezeStrategy.HIDE
-            ),
             description = "安全插件的基础支撑包，平时没有界面。可以暂停；" +
                 "如果停用后遇到安全/支付校验异常，请立即解冻。",
             consequences = mapOf(
@@ -749,12 +654,7 @@ object TargetCatalog {
             label = "HnAps 画面自适应",
             risk = RiskLevel.RED,
             category = TargetCategory.THERMAL,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND
-            ),
             description = "负责屏幕刷新率/画面自适应的常驻服务。暂停可能让刷新率卡住或画面异常，" +
                 "所以默认只观察；只有你明确知道风险时才暂停。",
             consequences = mapOf(
@@ -769,13 +669,11 @@ object TargetCatalog {
             label = "PowerGenie 温控/功耗（系统保护）",
             risk = RiskLevel.RED,
             category = TargetCategory.THERMAL,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
             // Device test: `pm disable` on powergenie components returns
             // "new state: default" (HONOR protects the package), so do not
             // offer a component button that cannot work. iaware's equivalent
             // receiver is disable-able and remains COMPONENT-capable.
-            supportedStrategies = setOf(FreezeStrategy.OBSERVE),
             components = listOf(
                 component(
                     "com.hihonor.powergenie",
@@ -798,7 +696,7 @@ object TargetCatalog {
             ),
             description = "负责 CPU/GPU 调频、温控和充电策略。整包冻结会导致系统大面积绑定失败、" +
                 "可能过热或无法充电；而且荣耀在系统层保护它，实测组件停用命令会被拒绝。" +
-                "因此这里只能观察，不提供冻结按钮。",
+                "整包策略已开放但高风险；组件命令实测被平台拒绝，默认观察。",
             consequences = mapOf(
                 FreezeStrategy.OBSERVE to
                     "只显示状态。Nemu 不会对 PowerGenie 下发任何命令；" +
@@ -810,15 +708,13 @@ object TargetCatalog {
             label = "iAware 云配置组件",
             risk = RiskLevel.RED,
             category = TargetCategory.THERMAL,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(FreezeStrategy.OBSERVE, FreezeStrategy.COMPONENT),
             components = listOf(
                 component("com.hihonor.iaware", "com.hihonor.iaware.CloudConfigUpdateReceiver", "CloudConfigUpdateReceiver", "iAware 云配置更新"),
                 component("com.hihonor.iaware", "com.hihonor.iaware.CloudPushContentProvider", "CloudPushContentProvider", "云推送配置 Provider")
             ),
             description = "负责 CPU/GPU 调度，与 PowerGenie 共享进程。整包冻结会拖垮温控，" +
-                "所以只允许停用两个“云配置更新”组件；日常调度继续运行。",
+                "建议只停用两个“云配置更新”组件；整包策略可用但高风险，日常调度继续运行。",
             consequences = mapOf(
                 FreezeStrategy.COMPONENT to
                     "iAware 不再接收云端下发的调度参数，现有调度策略继续运行；" +
@@ -831,12 +727,7 @@ object TargetCatalog {
             label = "MSDP 传感平台",
             risk = RiskLevel.RED,
             category = TargetCategory.THERMAL,
-            defaultEnabled = false,
             defaultStrategy = FreezeStrategy.OBSERVE,
-            supportedStrategies = setOf(
-                FreezeStrategy.OBSERVE,
-                FreezeStrategy.SUSPEND
-            ),
             description = "融合传感器数据的系统平台（抬腕、姿态等）。暂停可能影响依赖传感器的功能，" +
                 "默认只观察；可暂停，解冻后恢复。",
             consequences = mapOf(
@@ -865,19 +756,24 @@ object TargetCatalog {
     }
 
     /** Any package the user adds from the custom picker. */
-    fun customTarget(packageName: String, label: String): Target = Target(
+    fun customTarget(
+        packageName: String,
+        label: String,
+        risk: RiskLevel = RiskLevel.YELLOW
+    ): Target = Target(
         packageName = packageName,
         label = label.ifBlank { packageName },
-        risk = RiskLevel.YELLOW,
+        // Old records default to YELLOW; recovery-critical packages must still
+        // surface the high-risk warning.
+        risk = if (risk != RiskLevel.RED &&
+            CustomTargetGuard.isCriticalPackage(packageName)
+        ) {
+            RiskLevel.RED
+        } else {
+            risk
+        },
         category = TargetCategory.AUTOMATION,
-        defaultEnabled = false,
         defaultStrategy = FreezeStrategy.SUSPEND,
-        supportedStrategies = setOf(
-            FreezeStrategy.SUSPEND,
-            FreezeStrategy.DISABLE_USER,
-            FreezeStrategy.HIDE,
-            FreezeStrategy.OBSERVE
-        ),
         description = "自定义应用。建议优先用“暂停”；停用/隐藏会让它从桌面消失，" +
             "解冻后恢复。",
         consequences = mapOf(

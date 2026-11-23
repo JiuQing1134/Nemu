@@ -1,6 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Private release signing. keystore.properties + keystore/ are gitignored;
+// the same pair is backed up outside the repo. Without it the release build
+// falls back to the public debug key with a loud warning (never publish that).
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -22,6 +34,48 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // Optional ABI split for an x86_64 emulator build. The normal app is a
+    // universal APK; pass -PnemuAbiSplits=true to emit arm64-v8a/x86_64 APKs.
+    splits {
+        abi {
+            isEnable = providers.gradleProperty("nemuAbiSplits").orNull == "true"
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(
+                    keystoreProperties.getProperty("storeFile")
+                )
+                storePassword =
+                    keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Debug-only tooling must not ship in a root-capable build.
+            isDebuggable = false
+            isMinifyEnabled = false
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                project.logger.warn(
+                    "WARNING: release uses the public debug keystore. " +
+                        "Configure keystore.properties for distribution."
+                )
+                signingConfigs.getByName("debug")
+            }
+        }
     }
 
     compileOptions {

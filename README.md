@@ -24,10 +24,10 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 2026-11-21：核心 + 安全解冻已完成实机验收；**FinaSU root 后端已授权并实测**（`last_shutdown_detail` 显示 `Root`，关机解冻成功）。
 - 2026-11-22：**Nemu 重设计完成**：5 Tab、冻结/解冻分页、统一目录（41 个包 /
   64 个组件，组件全部在设备 `dumpsys` 核对）、SUSPEND/COMPONENT/DISABLE_USER/HIDE/OBSERVE、
-  所有权恢复、检测页策略感知、guard v1.5。全量单测 256 个（0 失败）。
+  所有权恢复、检测页策略感知、guard v1.5。全量单测 408 个（0 失败）。
 - 2026-11-22 第二轮（v1.1）：新增 **HIDE（伪装卸载，`pm hide/unhide`，仅 Root）**、
   每个目标的“具体会发生什么”确认弹窗、冻结页直白按钮、Material3 / M3 Expressive / MIUIX
-  三套风格 + 五套配色（深色纯黑 OLED）、Root/Shizuku/ADB 授权模式卡、
+  四套风格 + 八套配色（深色纯黑 OLED）、Root/Shizuku 授权模式卡、
   无冻结时 SafetyService 不常驻；修复 WorkManager 迟到解冻覆盖用户冻结的 P0。
   真机验证见 `docs/12-device-test-log-2026-11-22.md`。
 - 2026-11-22 真机验证：OUC dry-run/实际冻结/选择性解冻/重新冻结；dry-run 全部与
@@ -40,16 +40,19 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 首要目标：系统更新（`com.hihonor.ouc`）。
 - 已实现但默认关闭：AI 叶子组件（App 建议、YOYO 建议卡片集、智能提醒、荣耀智慧空间基础服务）、AI 深度冻结（AI 基础服务/YOYO/语音/运行时）、云控/遥测、反诈、COTA 温控。
 - 实机安装/模块写入由用户在明确授权后执行；助手不碰 ABL/分区/`fastboot flash`。
-- 当前版本：`versionCode 9` / `versionName 1.3.3`。本地/设备 APK
-  `app\build\outputs\apk\debug\app-debug.apk`，33,375,281 字节，SHA-256
-  `811c36d6a59a6321613f43a35dc8eb0588a5b7ec4776a2d2b364e4a5af105961`。
+- 当前版本：`versionCode 9` / `versionName 1.3.3`。最终四包在 `dist/`：
+  arm64-v8a debug 34,700,954 字节 `111cdb3e…c79c`；x86_64 debug 34,701,615 字节
+  `423920dd…9047`；arm64-v8a release 24,510,244 字节 `426a23f8…3e51`；
+  x86_64 release 24,510,905 字节 `0390ecfb…4d2d`。完整 SHA-256 见 `PROJECTS.md`。
+  release 已使用私有 keystore 签名（`CN=Nemu`，证书 SHA-256
+  `1f35e731…19a7`）；debug 包仍为 debug 签名。
 - 凪（`D:\win_root\nemu-update-guard`，applicationId `com.nemu.windstop`）：
   `versionCode 9` / `1.3.3`，`app\build\outputs\apk\debug\app-debug.apk`，
   2,653,436 字节，SHA-256 `d400b5165cf31760c613e69c555bb2719246e2c0c448e1b1ac3b2ef87ce7c7bb`。
 - 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  （10,043 字节；SHA-256 `e3320a28c9c1de004f782af6a94ee1258f5b402a45d17002be2d77cfa59dd89f`；
-  FinaSU 模块 v1.8 / versionCode 9；旧模块已从设备移除，新版需在 FinaSU 中安装后生效）。
-- UI：中性白/灰底 + 单色强调、M3E 大圆角、深色纯黑 OLED；App 内与桌面图标均为白底黑色几何图形：Nemu 是月亮，凪是“三道风线被竖条挡住”的凪图形；不再使用插画、字母或图标包图片。
+  （10,546 字节；SHA-256 `28aca824ed187f34809715c8f6351ba529ee5bfcbdf5b99cac5243695a23ff10`；
+  FinaSU 模块 v1.9 / versionCode 10；旧模块已从设备移除，新版需在 FinaSU 中安装后生效）。
+- UI：中性白/灰底 + 单色强调、M3E 大圆角、深色纯黑 OLED；桌面图标使用白底亮色几何图形：Nemu 为钴蓝 Tabler 雪花，凪为翠绿三角回环与中心圆点。
 - 2026-11-22 第三轮：桌面/应用信息/通知大图标统一为白底黑色月亮/凪图形；通知显式设置大图标，不再回退系统缓存图标；请求 120 Hz（实测 `mActiveModeId=3 / renderFrameRate 120.00001`）；修复返回桌面图标闪回、隐藏图标后残留旧图标、模式芯片无响应、点击跳跃、无障碍自动开启、Nemu 点击 1 秒卡顿。系统通知左侧的小头像由 MagicOS 自行缓存，重启手机后刷新（代码不再提供任何插画资源）。
 - 2026-11-22 第四轮：凪改名并改用风停图形；LSPosed 状态三态实时显示——管理器关闭 / 已启用待重启 / 已激活；激活用模块广播 + 本次开机标记，关闭用 root 只读查询 LSPosed 的 `modules_state`；覆盖安装后 LSPosed 若自动关掉模块，App 会立即显示“已在管理器中关闭”。
 
@@ -65,7 +68,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 
 - 运营商 DM 三件套（`com.hihonor.regservice`、`com.hihonor.android.UEInfoCheck`、`com.hihonor.android.AutoRegSms`）和 `com.hihonor.numberidentity` 可使用 `pm disable-user --user 0`（绿/黄目标的可逆整包停用例外）；逐项确认、不卸载，只在记录“原本启用”时 `pm enable` 回滚。
 - 遥测三件套（`com.hihonor.hiview`、`com.hihonor.hiviewpush`、`com.hihonor.hiviewtunnel`）在本机**不能 suspend**（平台返回 `state:false`），默认改用 **COMPONENT** 停用登记的 Service/Receiver/Provider；关机/开机按原始状态恢复组件，而不是只 `pm unsuspend`。
-- 冻结/解冻统一在 Freeze/Unfreeze 页操作；所选解冻会关闭策略，“临时全部解冻”会保留策略并跳过本次开机冻结。执行方式在设置里明确选择“仅预览（不修改手机）”或“实际执行”，不再用含义反直觉的 Dry run 开关。
+- 冻结/解冻统一在 Freeze/Unfreeze 页操作；所选解冻会关闭策略，“临时全部解冻”会保留策略并跳过本次开机冻结。执行方式在设置里明确选择“预览（手动操作不改手机；开机/关机安全清理仍执行）”或“实际执行”，不再用含义反直觉的 Dry run 开关。
 - `com.hihonor.cipservice`、`com.hihonor.android.hnaps` 仅展示状态；`com.hihonor.android.pushagent` 在禁止清单中，不提供操作。
 - 云控/遥测不再有单独的“恢复全部云控”按钮；使用 Unfreeze 页的“解冻所选/全部解冻”。
 - 风险：停用运营商 DM 可能影响 VoLTE 配置、运营商 FOTA、自注册短信；组件停用遥测可能影响诊断日志。
@@ -82,14 +85,14 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 
 ## 温控 / COTA（root-only，默认关闭）
 
-- 只读 `/data/cota/para` 下的厂商云控参数（`cpuconfig`、`pg_config`、`thermal_config` 及同目录文件），显示文件名、大小、SHA-256、mode/uid/gid。
+- 递归只读 `/data/cota/para` 下最多 4 层的厂商云控参数（真机为 `thermal_config/thermal_config_cloud.xml` 等子目录文件），按子系统分组，显示相对路径、大小、SHA-256、mode/uid/gid。
 - **备份优先**：必须先备份并回读校验 `manifest.tsv`，且当前文件 hash 与备份一致，才允许删除；删除只使用显式路径的 `rm -f`，没有 `rm -rf`；恢复后再次校验 SHA-256。
 - 只接受 `RootPrivilegeBackend`（uid 0）；Shizuku 是 shell 权限，不实现该接口，不存在 Shizuku 回退。
 - **不触碰** `com.hihonor.powergenie`、`com.hihonor.iaware`、vendor HAL、内核 thermal zone。
 - 风险：删除温控/功耗参数可能改变降频与充电策略，导致发热、充电变慢或系统不稳定；不保证提升性能；系统可能重新下发参数；错误文件或没有备份可能导致无法恢复。
 - 测试：`COTA1–COTA6`（见 `docs/04-test-plan.md`）；先做合成文件测试，真实参数删除是可选项。
 
-## 开机自动冻结（可选，默认开）
+## 开机自动冻结（可选，默认关）
 
 - 开机稳定后（默认 120s，可配置，最低 60s）由 `BootFreezeWorker` 自动冻结已启用的核心/AI 目标；FinaSU `service.sh` 或打开 Nemu 都会调度。
 - **开机恢复优先于冻结**：Worker 在评估守卫/执行冻结之前，先用 root 解冻全部安全目标，清掉强制断电或崩溃遗留的 suspend；清理失败则跳过本次冻结。因此守卫跳过新冻结时，残留 suspend 仍会先被清除。
@@ -112,7 +115,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 ## 安全解冻（始终开启，但只在需要时驻留）
 
 - `SafetyService` **只在至少一个目标处于冻结状态时启动**；没有冻结目标时不会常驻、不会保留前台通知，也不会有周期性唤醒。冻结/解冻后 App 会自动 `sync`：有冻结则启动，全部恢复则停止。
-- 服务运行时接收 `ACTION_SHUTDOWN`/`ACTION_REBOOT`，在关机窗口内同步执行一次 `pm unsuspend --user 0 <全部 suspend 目标>`（最多 8s），并恢复 Nemu 拥有的组件/隐藏/停用状态。
+- 服务运行时接收 `ACTION_SHUTDOWN`/`ACTION_REBOOT`，在关机窗口内同步执行一次 `pm unsuspend --user 0 <Nemu 拥有的 suspend 目标>`（最多 8s），并恢复 Nemu 拥有的组件/隐藏状态；`disable-user` 不自动逆转，只有显式解冻会 `pm enable`。
 - 开机后 `BootFreezeWorker` 在延迟（默认 120s）后自动重新冻结已启用目标；它成功冻结后才会启动安全服务。WorkManager 若在开机很久后才送达解冻任务，会检查“本次开机是否已经执行过冻结”，是则跳过，避免把用户刚冻结的应用解冻。
 - 安全集合由 `SafetyTargets` 统一维护：核心目标 + 全部 AI 目标 + hiview 三件套 + `numberidentity`。运营商 DM 三件套是 `disable-user`，安全路径**不**执行 `pm enable`，它们保持停用直到显式“恢复全部云控”。
 - 开机后 `BootFreezeWorker` 会在延迟后自动重新冻结已启用目标；bootloop 守卫跳过时保持解冻。
@@ -132,14 +135,14 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 
 ## 外观与授权（v1.1）
 
-- **图标**：白底黑色几何图形（Nemu=月亮，凪=风线+竖条），自适应图标/单色图标/通知小图标统一；不使用二次元或图标包图片。
+- **图标**：白底亮色几何图形（Nemu=钴蓝 Tabler 雪花，凪=翠绿三角回环与中心圆点），自适应图标/单色图标/通知图标/App 内标记统一。
 - **风格**：Material 3 / M3 Expressive / MIUIX 三套可切换；**配色**：松林绿（默认）、冰川蓝、暖琥珀、极光紫、石墨灰；每种配色的控件颜色都从该色系与白色之间推导；明暗跟随系统/浅色/深色。深色背景使用纯 `#000000`（OLED 省电），卡片为中性深灰，不使用褐色。
 - **授权卡**：显示当前授权模式（`Root` / `Shizuku（ADB 启动）` / `Shizuku（Root 启动）` / `未授权`），并分别列出 Root、Shizuku、ADB 调试的真实状态；“请求授权”会先尝试 Root，再请求 Shizuku 授权；提供“ADB 授权说明”（ADB 仅用于启动 Shizuku，Nemu 不能直接调用电脑 ADB）。
 - **冻结/解冻按钮**：冻结页明确区分“勾选（只加入计划）”与“立即冻结”；每个目标有“立即冻结/重新冻结”，顶部有“立即冻结已勾选的 N 个应用”，执行前逐一列出“具体会发生什么”。解冻页用“解冻所选 N 个应用 / 全部解冻”。
 
 ## 自定义冻结与关机强制解冻（v1.2）
 
-- 冻结页“添加任意应用（自定义冻结）”可搜索并冻结任意已安装应用；支持 暂停 / 停用 / 隐藏（伪装卸载）/ 只观察。系统桌面、设置、电话、输入法、权限控制器、Shizuku、Root 管理器等关键包会被拒绝，避免无法开机。
+- 冻结页“添加任意应用（自定义冻结）”可搜索并冻结任意已安装应用；支持 暂停 / 停用 / 隐藏（伪装卸载）/ 只观察。桌面、设置、电话、输入法、权限控制器、Shizuku、Root 管理器等关键包会显示高风险警告并允许用户确认后执行（不硬拒绝）；请优先使用暂停。
 - 每次冻结/解冻后生成 `/data/adb/nemu/restore_frozen.sh`；模块 v1.8 通过 KernelSU `initrc` 的 `on shutdown`、root FIFO 守护进程/LSPosed 关机 hook、`sys.powerctl` 轮询三层，在**任何正常关机/重启**前执行解冻，即使 Nemu 进程没有运行。强制断电/拔电池无法执行任何代码，这是唯一覆盖不了的场景。
 - 下次开机后 `BootFreezeWorker` 按策略重新冻结（含自定义目标）。
 - 详见 [docs/13-custom-freeze-and-shutdown.md](docs/13-custom-freeze-and-shutdown.md)。

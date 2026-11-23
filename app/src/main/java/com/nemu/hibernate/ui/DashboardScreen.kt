@@ -1,14 +1,16 @@
 package com.nemu.hibernate.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,11 +18,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
@@ -34,13 +39,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,35 +54,37 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import com.nemu.hibernate.R
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.nemu.hibernate.core.AntiFraudConfig
+import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.core.FreezeStrategy
+import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyPreset
 import com.nemu.hibernate.data.LogEntry
 import com.nemu.hibernate.privilege.PrivilegeOverview
 import com.nemu.hibernate.ui.theme.ThemeMode
 import com.nemu.hibernate.ui.theme.ThemePalette
 import com.nemu.hibernate.ui.theme.ThemeStyle
-import com.nemu.hibernate.ui.theme.swatchColorFor
+import com.nemu.hibernate.ui.theme.flClashBlock
+import com.nemu.hibernate.ui.theme.flClashCard
+import com.nemu.hibernate.ui.theme.flClashFloating
+import com.nemu.hibernate.ui.theme.flClashInset
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -90,11 +92,11 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** 底部导航的 5 个目的地：冻结与解冻是两个独立页面。 */
+/** 底部导航的 5 个目的地：应用页内用“管理/恢复”分段。 */
 enum class DashboardTab(val label: String) {
     OVERVIEW("概览"),
-    FREEZE("冻结"),
-    UNFREEZE("解冻"),
+    APPLICATIONS("应用"),
+    ALL_APPS("全部应用"),
     DETECTION("检测"),
     SETTINGS("设置")
 }
@@ -124,13 +126,6 @@ data class BootFreezeUiState(
     val plannedCount: Int = 0
 )
 
-/** 检测页摘要；详细检测内容由 caller 通过 detectionContent 槽提供。 */
-data class DetectionUiState(
-    val lastCheckedText: String? = null,
-    val mismatchCount: Int = 0,
-    val note: String? = null
-)
-
 /** 日志页所需的只读状态（文件由 Logging agent 的 PersistentLogger 持有）。 */
 data class LogUiState(
     val enabled: Boolean = false,
@@ -152,20 +147,20 @@ data class DashboardState(
     val lastShutdownResult: String = "尚未执行",
     val lastBootResult: String = "尚未执行",
     val bootFreeze: BootFreezeUiState = BootFreezeUiState(),
-    val antiFraud: AntiFraudUiState,
     val cota: CotaUiState,
     val logs: List<LogEntry> = emptyList(),
     val logSettings: LogUiState = LogUiState(),
-    val detection: DetectionUiState = DetectionUiState(),
     val rescueMode: Boolean = false,
     val catalog: List<CatalogTargetUiState> = emptyList(),
     val lastCatalogResult: String? = null,
+    /** A forced actual-state read is running; the header shows 刷新中… */
+    val catalogRefreshing: Boolean = false,
     /** Root is required for component ownership markers and whole-package disable. */
     val rootAvailable: Boolean = false,
     /** Plain-language authorization snapshot; null while the first read runs. */
     val privilege: PrivilegeOverview? = null,
-    val themeStyle: ThemeStyle = ThemeStyle.M3E2025,
-    val themePalette: ThemePalette = ThemePalette.MINT,
+    val themeStyle: ThemeStyle = ThemeStyle.VIVID,
+    val themePalette: ThemePalette = ThemePalette.BLUE,
     val themeMode: ThemeMode = ThemeMode.SYSTEM
 )
 
@@ -175,10 +170,7 @@ data class DashboardState(
  */
 data class DashboardCallbacks(
     val onDryRunChange: (Boolean) -> Unit,
-    val onRequestShizuku: () -> Unit,
     val onOpenStartupSettings: () -> Unit,
-    val onAntiFraudApply: (AntiFraudConfig) -> Unit,
-    val onAntiFraudRestore: () -> Unit,
     val cotaCallbacks: CotaCallbacks,
     val onBootFreezeEnabledChange: (Boolean) -> Unit = {},
     val onLoggingEnabledChange: (Boolean) -> Unit = {},
@@ -188,16 +180,17 @@ data class DashboardCallbacks(
     val onClearRescue: () -> Unit = {},
     val onTabSelected: (DashboardTab) -> Unit = {},
     val onCatalogToggle: (String, Boolean) -> Unit = { _, _ -> },
-    val onCatalogStrategyChange: (String, FreezeStrategy) -> Unit = { _, _ -> },
+    val onCatalogPresetChange: (String, StrategyPreset) -> Unit = { _, _ -> },
+    val onCatalogComponentsChange: (String, Set<String>) -> Unit = { _, _ -> },
     val onCatalogApply: (Set<String>) -> Unit = {},
     val onCatalogRestore: (Set<String>) -> Unit = {},
     val onCatalogRestoreAll: () -> Unit = {},
     val onCatalogRefresh: () -> Unit = {},
-    val onCustomTargetAdd: (String, String) -> Unit = { _, _ -> },
+    val onCustomTargetAdd: (String, String, RiskLevel) -> Unit =
+        { _, _, _ -> },
     val onCustomTargetRemove: (String) -> Unit = {},
-    val onRequestPrivilege: () -> Unit = {},
-    val onOpenShizuku: () -> Unit = {},
-    val onOpenDeveloperSettings: () -> Unit = {},
+    val onAuthorizeRoot: () -> Unit = {},
+    val onAuthorizeShizuku: () -> Unit = {},
     val onRefreshPrivilege: () -> Unit = {},
     val onThemeStyleChange: (ThemeStyle) -> Unit = {},
     val onThemePaletteChange: (ThemePalette) -> Unit = {},
@@ -205,11 +198,10 @@ data class DashboardCallbacks(
 )
 
 /**
- * Nemu 布局：Scaffold + TopAppBar + 5 项底部导航。
+ * Nemu 布局：Scaffold + TopAppBar + 4 项底部导航。
  *
  * 页面内容全部来自 [DashboardState]，操作只通过 [DashboardCallbacks] 触发。
- * 检测 / 设置 / 日志 / 云控 / 反诈 / COTA 都提供 composable 槽位；槽位为
- * null 时使用内置的只读展示或现有 section。
+ * 检测页可注入完整内容；其余页面使用内置 section。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -218,22 +210,30 @@ fun DashboardScreen(
     callbacks: DashboardCallbacks,
     modifier: Modifier = Modifier,
     initialTab: DashboardTab = DashboardTab.OVERVIEW,
-    detectionContent: (@Composable ColumnScope.() -> Unit)? = null,
-    settingsContent: (@Composable ColumnScope.() -> Unit)? = null,
-    logsContent: (@Composable ColumnScope.() -> Unit)? = null,
-    cloudContent: (@Composable ColumnScope.() -> Unit)? = null,
-    antiFraudContent: (@Composable ColumnScope.() -> Unit)? = null,
-    cotaContent: (@Composable ColumnScope.() -> Unit)? = null,
-    advancedContent: (@Composable ColumnScope.() -> Unit)? = null
+    /** Deep link from detection: switch to Applications and focus this package. */
+    focusPackage: String? = null,
+    onClearFocus: () -> Unit = {},
+    detectionContent: @Composable ColumnScope.() -> Unit
 ) {
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialTab.ordinal) }
-    val selectedTab = DashboardTab.entries[selectedTabIndex]
+    val selectedTab = DashboardTab.entries.getOrElse(selectedTabIndex) {
+        DashboardTab.OVERVIEW
+    }
+    // Hoisted: a deep link (detection, add-custom-target) must land on the
+    // manage page even if the user last left Applications in restore mode.
+    var applicationsMode by rememberSaveable { mutableIntStateOf(0) }
     val tabStateHolder = rememberSaveableStateHolder()
+    LaunchedEffect(focusPackage) {
+        if (focusPackage != null) {
+            selectedTabIndex = DashboardTab.APPLICATIONS.ordinal
+            applicationsMode = 0
+        }
+    }
 
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { DashboardTopBar(state) },
+        topBar = { DashboardTopBar(state, selectedTab) },
         bottomBar = {
             DashboardNavigationBar(selectedTab) { tab ->
                 selectedTabIndex = tab.ordinal
@@ -247,30 +247,34 @@ fun DashboardScreen(
         tabStateHolder.SaveableStateProvider(selectedTab.name) {
         when (selectedTab) {
             DashboardTab.OVERVIEW -> OverviewPage(state, callbacks, pageModifier)
-            DashboardTab.FREEZE -> FreezeScreen(
+            DashboardTab.APPLICATIONS -> ApplicationsScreen(
                 state = state,
                 callbacks = callbacks,
-                modifier = pageModifier
+                modifier = pageModifier,
+                mode = applicationsMode,
+                onModeChange = { applicationsMode = it },
+                focusPackage = focusPackage,
+                onClearFocus = onClearFocus
             )
-            DashboardTab.UNFREEZE -> UnfreezeScreen(
+            DashboardTab.ALL_APPS -> AllAppsScreen(
                 state = state,
                 callbacks = callbacks,
-                modifier = pageModifier
+                modifier = pageModifier,
+                onOpenApplications = {
+                    selectedTabIndex = DashboardTab.APPLICATIONS.ordinal
+                    applicationsMode = 0
+                }
             )
             DashboardTab.DETECTION -> DetectionPage(
-                state = state,
                 detectionContent = detectionContent,
                 modifier = pageModifier
             )
             DashboardTab.SETTINGS -> SettingsPage(
                 state = state,
                 callbacks = callbacks,
-                settingsContent = settingsContent,
-                logsContent = logsContent,
-                advancedContent = advancedContent,
-                cloudContent = cloudContent,
-                antiFraudContent = antiFraudContent,
-                cotaContent = cotaContent,
+                onOpenOverviewAuth = {
+                    selectedTabIndex = DashboardTab.OVERVIEW.ordinal
+                },
                 modifier = pageModifier
             )
         }
@@ -278,35 +282,49 @@ fun DashboardScreen(
     }
 }
 
+/** Backend mode shown immediately before the Root/Shizuku status chip. */
+internal fun topBarBackendModeLabel(backendStatus: String): String {
+    val text = backendStatus.trim()
+    return when {
+        text.startsWith("Root", ignoreCase = true) -> "模式：Root"
+        text.contains("Shizuku", ignoreCase = true) &&
+            !text.contains("未授权") -> "模式：Shizuku"
+        text.contains("检测中") -> "模式：检测中"
+        else -> "模式：未授权"
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DashboardTopBar(state: DashboardState) {
+private fun DashboardTopBar(state: DashboardState, tab: DashboardTab) {
+    val backendMode = topBarBackendModeLabel(state.backendStatus)
     TopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NemuMark(size = 34.dp)
-                Column(modifier = Modifier.padding(start = 10.dp)) {
-                    Text(
-                        text = "Nemu",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = topBarSubtitle(state),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+            Text(
+                text = tab.label,
+                style = MaterialTheme.typography.headlineLarge
+            )
         },
         actions = {
+            if (state.busy) {
+                StatusChip(
+                    text = "处理中…",
+                    modifier = Modifier.padding(end = 6.dp),
+                    tone = StatusChipTone.NEUTRAL
+                )
+            }
+            // One chip only: the original Root/Shizuku status with the
+            // requested authorization-mode prefix.
             StatusChip(
-                text = state.backendStatus,
+                text = backendMode,
                 modifier = Modifier
                     .padding(end = 12.dp)
-                    .widthIn(max = 176.dp),
-                tone = backendTone(state.backendStatus)
+                    .widthIn(max = 220.dp),
+                tone = when (backendMode) {
+                    "模式：Root", "模式：Shizuku" -> StatusChipTone.PRIMARY
+                    "模式：检测中" -> StatusChipTone.NEUTRAL
+                    else -> StatusChipTone.ERROR
+                }
             )
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -322,66 +340,92 @@ private fun DashboardNavigationBar(
     selected: DashboardTab,
     onSelect: (DashboardTab) -> Unit
 ) {
-    Column {
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-        )
-        NavigationBar(
-            containerColor = MaterialTheme.colorScheme.background,
-            tonalElevation = 0.dp
+    val scheme = MaterialTheme.colorScheme
+    val dark = scheme.surface.luminance() < 0.5f
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Surface(
+            color = scheme.flClashFloating(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            shadowElevation = if (dark) 0.dp else 10.dp
         ) {
-            DashboardTab.entries.forEach { tab ->
-                val isSelected = tab == selected
-                NavigationBarItem(
-                    selected = isSelected,
-                    onClick = { onSelect(tab) },
-                    icon = { DashboardNavIcon(tab, isSelected) },
-                    label = {
-                        Text(
-                            text = tab.label,
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DashboardTab.entries.forEach { tab ->
+                    val isSelected = tab == selected
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+                            .selectable(
+                                selected = isSelected,
+                                role = Role.Tab,
+                                onClick = { onSelect(tab) }
+                            )
+                            .semantics { contentDescription = tab.label }
+                            .padding(vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 38.dp, height = 28.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                                    .background(
+                                        if (isSelected) {
+                                            scheme.flClashInset()
+                                        } else {
+                                            Color.Transparent
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                DashboardNavIcon(tab)
+                            }
+                            Text(
+                                text = tab.label,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 10.sp
+                                ),
+                                color = if (isSelected) {
+                                    scheme.onSurface
+                                } else {
+                                    scheme.onSurfaceVariant
+                                },
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-private enum class NemuGlyph { HOME, SNOWFLAKE, UNLOCK, SEARCH, SETTINGS }
+private enum class NemuGlyph { HOME, SNOWFLAKE, APPS, SEARCH, SETTINGS }
 
 @Composable
-private fun NemuMark(size: Dp) {
-    // Same resource as the launcher / notification large icon, so the mark is
-    // identical everywhere instead of a separately drawn letter.
-    Image(
-        painter = painterResource(R.drawable.ic_launcher_large),
-        contentDescription = null,
-        modifier = Modifier
-            .size(size)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.22f))
-    )
-}
-
-
-@Composable
-private fun DashboardNavIcon(tab: DashboardTab, selected: Boolean) {
-    val color = if (selected) {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+private fun DashboardNavIcon(tab: DashboardTab) {
+    // The five dock glyphs stay pure black in light mode and pure white in
+    // dark mode; selection must not tint them blue/blue-black.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val color = if (dark) Color.White else Color.Black
     val glyph = when (tab) {
         DashboardTab.OVERVIEW -> NemuGlyph.HOME
-        DashboardTab.FREEZE -> NemuGlyph.SNOWFLAKE
-        DashboardTab.UNFREEZE -> NemuGlyph.UNLOCK
+        DashboardTab.APPLICATIONS -> NemuGlyph.SNOWFLAKE
+        DashboardTab.ALL_APPS -> NemuGlyph.APPS
         DashboardTab.DETECTION -> NemuGlyph.SEARCH
         DashboardTab.SETTINGS -> NemuGlyph.SETTINGS
     }
@@ -420,19 +464,33 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
             val cx = size.width / 2f
             val cy = size.height / 2f
             val radius = size.minDimension * 0.37f
+            // A ship's wheel needs a visible central hole. The old spokes
+            // started at the exact centre plus a filled hub, which collapsed
+            // into a black blob at 24dp.
+            val hubRadius = radius * 0.34f
+            val hubStroke = stroke
+            // Start the spokes on the ring's centreline so each round cap sits
+            // inside the band. Starting outside the band made six caps merge
+            // with the ring and read as a hub nearly twice as thick.
+            val spokeStart = hubRadius
+            // Keep the inward-facing handles, but start them near the rim so
+            // their caps stay clear of the hub band. At 0.58r they landed on
+            // the ring and made the centre look nearly twice as thick.
+            val branchRadius = radius * 0.74f
+            val branchLength = radius * 0.20f
             for (ray in 0 until 6) {
                 val angle = -PI / 2.0 + ray * PI / 3.0
                 val ux = cos(angle).toFloat()
                 val uy = sin(angle).toFloat()
                 drawLine(
                     color,
-                    Offset(cx, cy),
+                    Offset(cx + ux * spokeStart, cy + uy * spokeStart),
                     Offset(cx + ux * radius, cy + uy * radius),
                     stroke,
                     cap = StrokeCap.Round
                 )
-                val branchX = cx + ux * radius * 0.56f
-                val branchY = cy + uy * radius * 0.56f
+                val branchX = cx + ux * branchRadius
+                val branchY = cy + uy * branchRadius
                 for (branch in 0..1) {
                     val side = if (branch == 0) -1.0 else 1.0
                     val branchAngle = angle + PI + side * PI / 4.0
@@ -440,27 +498,35 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
                         color,
                         Offset(branchX, branchY),
                         Offset(
-                            branchX + cos(branchAngle).toFloat() * radius * 0.28f,
-                            branchY + sin(branchAngle).toFloat() * radius * 0.28f
+                            branchX + cos(branchAngle).toFloat() * branchLength,
+                            branchY + sin(branchAngle).toFloat() * branchLength
                         ),
                         stroke,
                         cap = StrokeCap.Round
                     )
                 }
             }
-            drawCircle(color, radius = stroke * 0.9f, center = Offset(cx, cy))
+            drawCircle(
+                color = color,
+                radius = hubRadius,
+                center = Offset(cx, cy),
+                style = Stroke(width = hubStroke)
+            )
         }
-        NemuGlyph.UNLOCK -> {
-            // Open padlock: body outline plus a shackle whose right leg is
-            // lifted, so Freeze (snowflake) and Unfreeze are distinguishable.
-            line(0.24f, 0.50f, 0.76f, 0.50f)
-            line(0.24f, 0.50f, 0.24f, 0.82f)
-            line(0.76f, 0.50f, 0.76f, 0.82f)
-            line(0.24f, 0.82f, 0.76f, 0.82f)
-            line(0.34f, 0.50f, 0.34f, 0.32f)
-            line(0.34f, 0.32f, 0.62f, 0.32f)
-            line(0.62f, 0.32f, 0.70f, 0.22f)
-            line(0.50f, 0.62f, 0.50f, 0.72f)
+        NemuGlyph.APPS -> {
+            val radius = size.minDimension * 0.085f
+            listOf(
+                0.30f to 0.30f,
+                0.70f to 0.30f,
+                0.30f to 0.70f,
+                0.70f to 0.70f
+            ).forEach { (x, y) ->
+                drawCircle(
+                    color = color,
+                    radius = radius,
+                    center = Offset(x * size.width, y * size.height)
+                )
+            }
         }
         NemuGlyph.SEARCH -> {
             val center = Offset(size.width * 0.43f, size.height * 0.42f)
@@ -512,86 +578,9 @@ private fun OverviewPage(
         item {
             OverviewHeroCard(state = state, callbacks = callbacks)
         }
-        item { StatusExplanationCard(state) }
         item { PrivilegeCard(state, callbacks) }
         if (state.rescueMode) item { RescueModeCard(callbacks) }
-        item { BootFreezeCard(state, callbacks) }
-        item { SafetyResultCard(state) }
-    }
-}
-
-/**
- * Plain-language answer to "what is the phone doing right now?". Written for
- * someone who has never used a freeze tool before.
- */
-@Composable
-private fun StatusExplanationCard(state: DashboardState) {
-    val frozen = state.catalog.count { it.applied }
-    val planned = state.catalog.count {
-        it.enabled && !it.observeOnly && it.strategy != FreezeStrategy.OBSERVE
-    }
-    SectionCard(
-        title = "现在的状态",
-        subtitle = "当前策略与实际状态"
-    ) {
-        StatusLine(
-            label = "现在",
-            text = if (frozen == 0) {
-                "没有应用冻结；Nemu 完全待机。"
-            } else {
-                "$frozen 个应用已冻结，不能后台运行或自动更新。"
-            },
-            dotColor = MaterialTheme.colorScheme.primary
-        )
-        StatusLine(
-            label = "计划",
-            text = "$planned 个已选；点“立即冻结”才执行。",
-            dotColor = MaterialTheme.colorScheme.tertiary
-        )
-        StatusLine(
-            label = "开机",
-            text = if (!state.bootFreeze.enabled) {
-                "已关闭；重启后需手动冻结。"
-            } else if (state.bootFreeze.plannedCount == 0) {
-                "开机不会冻结；当前没有已选目标。"
-            } else {
-                "开机 ${state.bootFreeze.delaySeconds} 秒后冻结 ${state.bootFreeze.plannedCount} 个目标。"
-            },
-            dotColor = MaterialTheme.colorScheme.secondary
-        )
-        StatusLine(
-            label = "关机",
-            text = "正常关机前自动解冻；强制断电后下次开机清理。",
-            dotColor = MaterialTheme.colorScheme.outline
-        )
-    }
-}
-
-@Composable
-private fun StatusLine(label: String, text: String, dotColor: Color) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(dotColor)
-        )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(text = label, style = MaterialTheme.typography.titleSmall)
-            Text(
-                text = text,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        item { BootFreezeCard(state) }
     }
 }
 
@@ -601,14 +590,13 @@ private fun PrivilegeCard(
     callbacks: DashboardCallbacks
 ) {
     val privilege = state.privilege
-    var showAdbHelp by remember { mutableStateOf(false) }
     SectionCard(
         title = "授权",
-        subtitle = "Root / Shizuku 执行；ADB 只启动 Shizuku。"
+        subtitle = "Root / Shizuku 执行；未授权时点“授权”。"
     ) {
         if (privilege == null) {
             Text("正在检查权限…", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(
+            NemuOutlinedButton(
                 onClick = callbacks.onRefreshPrivilege,
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth()
@@ -621,124 +609,40 @@ private fun PrivilegeCard(
             detail = if (privilege.rootAvailable) {
                 "可冻结、停用组件、隐藏应用"
             } else {
-                "未授权"
+                "未授权；点“授权”弹出 KernelSU/Magisk 窗口"
             },
             chip = if (privilege.rootAvailable) "已授权" else "未授权",
             tone = if (privilege.rootAvailable) {
-                StatusChipTone.SUCCESS
+                StatusChipTone.THEME
             } else {
                 StatusChipTone.NEUTRAL
-            }
+            },
+            actionLabel = if (privilege.rootAvailable) "检查" else "授权",
+            onAction = callbacks.onAuthorizeRoot
         )
         PrivilegeRow(
             title = "Shizuku",
             detail = when {
                 privilege.shizukuGranted -> "可执行冻结与解冻"
                 privilege.shizukuRunning -> "已运行，未授权"
-                else -> "未运行"
+                else -> "未运行；先启动 Shizuku"
             },
             chip = if (privilege.shizukuGranted) "已授权" else "未授权",
             tone = if (privilege.shizukuGranted) {
-                StatusChipTone.SUCCESS
+                StatusChipTone.THEME
             } else {
                 StatusChipTone.NEUTRAL
-            }
-        )
-        PrivilegeRow(
-            title = "ADB",
-            detail = "只用于启动 Shizuku",
-            chip = when {
-                privilege.shizukuGranted && privilege.shizukuUid == 2000 ->
-                    "Shizuku 正在使用"
-                privilege.adbEnabled || privilege.wirelessDebuggingEnabled ->
-                    "已开启"
-                else -> "未开启"
             },
-            tone = when {
-                privilege.shizukuGranted && privilege.shizukuUid == 2000 ->
-                    StatusChipTone.SUCCESS
-                privilege.adbEnabled || privilege.wirelessDebuggingEnabled ->
-                    StatusChipTone.INFO
-                else -> StatusChipTone.NEUTRAL
-            }
+            actionLabel = if (privilege.shizukuGranted) "检查" else "授权",
+            onAction = callbacks.onAuthorizeShizuku
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = callbacks.onRequestPrivilege,
-                enabled = !state.busy,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(if (privilege.canFreeze) "重新请求授权" else "请求授权")
-            }
-            OutlinedButton(
-                onClick = callbacks.onRefreshPrivilege,
-                enabled = !state.busy,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("刷新状态")
-            }
+        NemuOutlinedButton(
+            onClick = callbacks.onRefreshPrivilege,
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("刷新授权状态")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(
-                onClick = callbacks.onOpenShizuku,
-                enabled = !state.busy
-            ) { Text("打开 Shizuku") }
-            TextButton(
-                onClick = callbacks.onOpenDeveloperSettings,
-                enabled = !state.busy
-            ) { Text("开发者选项") }
-            TextButton(
-                onClick = { showAdbHelp = true },
-                enabled = !state.busy
-            ) { Text("ADB") }
-        }
-        Text(
-            "请求授权会先尝试 Root，再尝试 Shizuku；没有权限时不会假装成功。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-    if (showAdbHelp) {
-        AlertDialog(
-            onDismissRequest = { showAdbHelp = false },
-            title = { Text("用 ADB 给 Shizuku 授权") },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 460.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "ADB 是电脑上的调试工具。Nemu 不能直接调用电脑的 ADB，" +
-                            "但可以用它启动 Shizuku，再由 Shizuku 把权限借给 Nemu。",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text("步骤：", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "1. 手机：设置 → 关于手机 → 连续点版本号开启开发者选项；\n" +
-                            "2. 手机：开发者选项 → 打开“USB 调试”（或“无线调试”）；\n" +
-                            "3. 电脑：安装 adb，连接手机后执行 adb devices，确认看到设备；\n" +
-                            "4. 手机：安装并打开 Shizuku；\n" +
-                            "5. 电脑：执行下面的命令启动 Shizuku：\n\n" +
-                            "adb shell sh /storage/emulated/0/Android/data/" +
-                            "moe.shizuku.privileged.api/start.sh\n\n" +
-                            "6. 回到 Nemu，点“请求授权”，允许 Shizuku 授权。",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        "如果使用无线调试，Shizuku 里会显示配对码步骤；" +
-                            "按 Shizuku 应用内的指引操作即可。没有电脑时，Root 是更简单的办法。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAdbHelp = false }) { Text("知道了") }
-            }
-        )
     }
 }
 
@@ -747,17 +651,15 @@ private fun PrivilegeRow(
     title: String,
     detail: String,
     chip: String,
-    tone: StatusChipTone
+    tone: StatusChipTone,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        StatusChip(
-            text = chip,
-            tone = tone
-        )
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(
@@ -765,6 +667,15 @@ private fun PrivilegeRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        StatusChip(
+            text = chip,
+            tone = tone
+        )
+        if (actionLabel != null && onAction != null) {
+            TextButton(onClick = onAction) {
+                Text(actionLabel)
+            }
         }
     }
 }
@@ -774,103 +685,115 @@ private fun OverviewHeroCard(
     state: DashboardState,
     callbacks: DashboardCallbacks
 ) {
-    val frozen = state.catalog.count { it.applied }
-    val planned = state.catalog.count {
-        it.enabled && !it.observeOnly && it.strategy != FreezeStrategy.OBSERVE
+    val frozen = state.catalog.count { it.hasFrozenState || it.applied }
+    // A plan is not "planned" for boot while the master switch is off.
+    val planned = if (state.bootFreeze.enabled) {
+        state.catalog.count { it.enabled && it.active }
+    } else {
+        0
     }
     val scheme = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = Color.Transparent,
+            containerColor = scheme.flClashCard(),
             contentColor = scheme.onSurface
         ),
-        shape = MaterialTheme.shapes.large,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            scheme.outlineVariant.copy(alpha = 0.55f)
-        )
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(34.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            scheme.primaryContainer.copy(alpha = 0.55f),
-                            scheme.surfaceContainerLow
-                        )
+                .drawBehind {
+                    val radius = size.width * 0.58f
+                    val center = Offset(size.width * 0.82f, size.height * 0.18f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                scheme.primary.copy(alpha = 0.16f),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = radius
+                        ),
+                        radius = radius,
+                        center = center
                     )
-                )
+                }
         ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Text("系统状态", style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        text = "后台安静，待机更省电",
+                    "系统状态",
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp)
+                )
+                    Text(
+                        text = if (frozen == 0) {
+                            "待机中；没有已冻结的应用"
+                        } else {
+                            "$frozen 个已冻结；后台可能被系统重新拉起"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant
                     )
                 }
-                NemuMark(56.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "开机冻结",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurfaceVariant
+                    )
+                    NemuSwitch(
+                        checked = state.bootFreeze.enabled,
+                        onCheckedChange = callbacks.onBootFreezeEnabledChange,
+                        enabled = !state.busy,
+                        modifier = Modifier.semantics {
+                            contentDescription = "开机冻结"
+                        }
+                    )
+                }
             }
             Surface(
-                color = scheme.surfaceContainerHigh,
+                color = scheme.flClashInset(),
                 contentColor = scheme.onSurface,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 14.dp, horizontal = 6.dp),
+                        .padding(vertical = 6.dp, horizontal = 10.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HeroStat(value = "$frozen", label = "已冻结")
+                    InlineStat(value = "$frozen", label = "已冻结")
                     Box(
                         Modifier
                             .width(1.dp)
-                            .height(28.dp)
+                            .height(22.dp)
                             .background(scheme.outlineVariant.copy(alpha = 0.55f))
                     )
-                    HeroStat(value = "$planned", label = "计划中")
-                    Box(
-                        Modifier
-                            .width(1.dp)
-                            .height(28.dp)
-                            .background(scheme.outlineVariant.copy(alpha = 0.55f))
-                    )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Switch(
-                            checked = state.bootFreeze.enabled,
-                            onCheckedChange = callbacks.onBootFreezeEnabledChange,
-                            enabled = !state.busy,
-                            modifier = Modifier.scale(0.78f)
-                        )
-                        Text(
-                            text = "开机冻结",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = scheme.onSurfaceVariant
-                        )
-                    }
+                    InlineStat(value = "$planned", label = "计划中")
                 }
             }
             if (state.dryRun) {
                 Text(
-                    text = "预览模式：只记录命令，不修改手机。",
+                    text = "预览模式：手动冻结/解冻只记录命令；开机/关机安全解冻仍会执行。",
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant
                 )
@@ -881,16 +804,19 @@ private fun OverviewHeroCard(
 }
 
 @Composable
-private fun HeroStat(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun InlineStat(value: String, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -901,12 +827,10 @@ private fun RescueModeCard(callbacks: DashboardCallbacks) {
     var showConfirm by remember { mutableStateOf(false) }
     SectionCard(
         title = "自动救砖已触发",
-        subtitle = "连续 3 次启动未确认成功；模块已禁用，守卫已尝试恢复应用状态。"
+        subtitle = "3 次启动未确认；模块已禁用并尝试恢复。"
     ) {
         Text(
-            "系统可能处于不稳定状态。请先确认桌面、设置和 YOYO 正常，" +
-                "再清除救援标记。清除后下次开机会重新启用自启动模块，" +
-                "但不会立即重新冻结。",
+            "确认桌面、设置正常后再清除；清除不会立即重新应用。",
             style = MaterialTheme.typography.bodySmall
         )
         Button(
@@ -922,8 +846,8 @@ private fun RescueModeCard(callbacks: DashboardCallbacks) {
             title = { Text("确认清除救援模式") },
             text = {
                 Text(
-                    "清除前会再次检查冻结状态，并尝试恢复 Nemu 停用的应用。" +
-                        "任一步未确认成功都会保留救援模式。确定系统已稳定？"
+                    "先检查并恢复 Nemu 拥有的状态；任一步失败都会保留救援模式。" +
+                        "boot_guard 的清除动作还会解冻其扫描到的暂停包，可能包括其他工具暂停的应用。"
                 )
             },
             confirmButton = {
@@ -942,43 +866,41 @@ private fun RescueModeCard(callbacks: DashboardCallbacks) {
 }
 
 @Composable
-private fun BootFreezeCard(
-    state: DashboardState,
-    callbacks: DashboardCallbacks
-) {
+private fun BootFreezeCard(state: DashboardState) {
     val boot = state.bootFreeze
     SectionCard(
-        title = "开机自动冻结",
-        subtitle = "开机 ${boot.delaySeconds} 秒后只执行你已勾选的目标"
-    ) {
-        if (boot.plannedCount == 0) {
-            Text(
-                text = "当前没有勾选任何冻结目标；即使开关开启，开机也不会冻结任何应用。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            Text(
-                text = "开机只处理已勾选的 ${boot.plannedCount} 个目标，不会自动冻结其他应用。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        title = "开机与安全",
+        subtitle = when {
+            !boot.enabled -> "开机自动应用已关闭；总开关在概览首卡。"
+            state.dryRun ->
+                "开机 ${boot.delaySeconds} 秒后执行；预览只记录，不修改手机。"
+            else -> "开机 ${boot.delaySeconds} 秒后应用计划；总开关在概览首卡。"
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = "仅下次开机生效；关闭不会解冻当前应用。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = boot.enabled,
-                onCheckedChange = callbacks.onBootFreezeEnabledChange,
-                enabled = !state.busy
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatusChip(
+                text = if (boot.enabled) "开机自动应用已开启" else "开机自动应用已关闭",
+                tone = if (boot.enabled) {
+                    StatusChipTone.SUCCESS
+                } else {
+                    StatusChipTone.NEUTRAL
+                }
+            )
+            StatusChip(
+                text = when {
+                    !boot.enabled ->
+                        "计划 ${boot.plannedCount} 个 · 总开关关闭"
+                    boot.plannedCount == 0 -> "无计划"
+                    else -> "计划 ${boot.plannedCount} 个"
+                },
+                tone = if (boot.plannedCount == 0 || !boot.enabled) {
+                    StatusChipTone.NEUTRAL
+                } else {
+                    StatusChipTone.INFO
+                }
             )
         }
         Row(
@@ -1008,264 +930,334 @@ private fun BootFreezeCard(
                 )
             }
         }
-        if (boot.lastAttemptText != null) {
-            Text(
-                text = "上次尝试：${boot.lastAttemptText}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (boot.lastSuccessText != null) {
-            Text(
-                text = "上次处理：${boot.lastSuccessText}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        OutlinedButton(
-            onClick = callbacks.onOpenStartupSettings,
-            enabled = !state.busy,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("打开「应用启动管理」允许自启动")
-        }
-        Text(
-            text = "守卫：未检测到上次干净关机会跳过本次冻结。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SafetyRows(state)
     }
 }
 
+/** 关机/开机安全解冻结果；概览与设置的开机页共用。 */
 @Composable
-private fun SafetyResultCard(state: DashboardState) {
-    SectionCard(
-        title = "上次安全解冻",
-        subtitle = "关机/重启前由 Nemu 的关机保护服务执行；电脑 adb reboot 不会触发。"
+private fun SafetyRows(state: DashboardState) {
+    Text("上次安全解冻", style = MaterialTheme.typography.titleSmall)
+    val shutdown = prettyResultText(state.lastShutdownResult)
+    val boot = prettyResultText(state.lastBootResult)
+    ResultRow("关机前", shutdown, safetyTone(shutdown))
+    ResultRow("开机后", boot, safetyTone(boot))
+    Text(
+        "关机/重启前执行；adb reboot 不触发。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun ResultRow(
+    label: String,
+    value: String,
+    tone: StatusChipTone = StatusChipTone.NEUTRAL
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        ResultRow("关机前", prettyResultText(state.lastShutdownResult))
-        ResultRow("开机后", prettyResultText(state.lastBootResult))
-        Text(
-            text = "安全解冻始终开启；取消勾选只移出策略，不会解冻。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun ResultRow(label: String, value: String) {
-    Row(verticalAlignment = Alignment.Top) {
         Text(
             text = label,
             modifier = Modifier.width(56.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Text(
+        StatusChip(
             text = value,
-            style = MaterialTheme.typography.bodySmall
+            tone = tone,
+            modifier = Modifier.weight(1f, fill = false)
         )
     }
 }
 
+private fun safetyTone(value: String): StatusChipTone = when {
+    value == "尚未执行" -> StatusChipTone.NEUTRAL
+    value.contains("失败") -> StatusChipTone.ERROR
+    value.contains("成功") -> StatusChipTone.SUCCESS
+    value.startsWith("已跳过") -> StatusChipTone.WARNING
+    else -> StatusChipTone.INFO
+}
+
 @Composable
 private fun DetectionPage(
-    state: DashboardState,
-    detectionContent: (@Composable ColumnScope.() -> Unit)?,
+    detectionContent: @Composable ColumnScope.() -> Unit,
     modifier: Modifier
 ) {
-    if (detectionContent != null) {
-        // A full detection screen (with its own LazyColumn) is embedded here.
-        // Do not nest it inside the summary LazyColumn.
-        Column(modifier = modifier.fillMaxSize()) {
-            detectionContent.invoke(this)
-        }
-        return
-    }
-
-    val detection = state.detection
-    val hasSummary = detection.lastCheckedText != null ||
-        detection.mismatchCount > 0 ||
-        detection.note != null
-
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        if (hasSummary) {
-            item {
-                SectionCard(
-                    title = "检测摘要",
-                    subtitle = detection.note ?: "只读；不提供暂停/停用操作。"
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        StatusChip(
-                            text = when {
-                                detection.mismatchCount > 0 ->
-                                    "${detection.mismatchCount} 项策略与实际不一致"
-                                detection.lastCheckedText != null ->
-                                    "策略与实际一致"
-                                else -> "尚未检测"
-                            },
-                            modifier = Modifier.weight(1f),
-                            tone = when {
-                                detection.mismatchCount > 0 -> StatusChipTone.WARNING
-                                detection.lastCheckedText != null -> StatusChipTone.SUCCESS
-                                else -> StatusChipTone.NEUTRAL
-                            }
-                        )
-                        if (detection.lastCheckedText != null) {
-                            Text(
-                                text = detection.lastCheckedText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            EmptySlotCard(
-                title = "检测页",
-                message = "由主会话通过 detectionContent 槽接入 DetectionScreen。" +
-                    "此页只读展示策略与实际状态，不自动修复。"
-            )
-        }
+    Column(modifier = modifier.fillMaxSize()) {
+        detectionContent.invoke(this)
     }
 }
+
+/**
+ * 设置根页只有入口，不直接铺控件；每个入口进二级页后只做一件事。
+ * 页面选择不持久化：重新进入设置总是回到根页，避免上次停留的深页造成误解。
+ */
+private const val SETTINGS_ROOT = -1
 
 @Composable
 private fun SettingsPage(
     state: DashboardState,
     callbacks: DashboardCallbacks,
-    settingsContent: (@Composable ColumnScope.() -> Unit)?,
-    logsContent: (@Composable ColumnScope.() -> Unit)?,
-    advancedContent: (@Composable ColumnScope.() -> Unit)?,
-    cloudContent: (@Composable ColumnScope.() -> Unit)?,
-    antiFraudContent: (@Composable ColumnScope.() -> Unit)?,
-    cotaContent: (@Composable ColumnScope.() -> Unit)?,
+    onOpenOverviewAuth: () -> Unit,
     modifier: Modifier
 ) {
-    var selectedSection by rememberSaveable { mutableIntStateOf(0) }
+    // Plain remember (not rememberSaveable): leaving the Settings tab discards
+    // the secondary page, so re-entering always starts at the root list.
+    var pageIndex by remember { mutableIntStateOf(SETTINGS_ROOT) }
+    val entries = settingsEntries(state)
+    val entryId = SettingsEntryId.entries.getOrNull(pageIndex)
+    val entry = entries.firstOrNull { it.id == entryId }
+    BackHandler(enabled = entryId != null) { pageIndex = SETTINGS_ROOT }
     val listState = rememberLazyListState()
+    LaunchedEffect(entryId) {
+        listState.scrollToItem(0)
+    }
     LazyColumn(
         state = listState,
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item {
-            Text("设置", style = MaterialTheme.typography.titleLarge)
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = selectedSection == 0,
-                    onClick = { selectedSection = 0 },
-                    label = { Text("偏好设置") }
-                )
-                FilterChip(
-                    selected = selectedSection == 1,
-                    onClick = { selectedSection = 1 },
-                    label = { Text("运行日志") }
-                )
-                FilterChip(
-                    selected = selectedSection == 2,
-                    onClick = { selectedSection = 2 },
-                    label = { Text("高级控制") }
-                )
-            }
-        }
-        if (selectedSection == 0) {
+        if (entry == null) {
             item {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val slot = settingsContent
-                    if (slot != null) slot.invoke(this)
-                    else DefaultSettingsContent(state, callbacks)
-                }
-            }
-        } else if (selectedSection == 1) {
-            item {
-                SectionHeader(
-                    title = "日志",
-                    subtitle = "Nemu 操作记录与可选的启动 logcat。"
-                )
-            }
-            item {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val slot = logsContent
-                    if (slot != null) slot.invoke(this)
-                    else DefaultLogsContent(state, callbacks)
+                SectionCard {
+                    Column {
+                        entries.forEachIndexed { index, item ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant
+                                )
+                            }
+                            SettingsEntryRow(item) {
+                                pageIndex = item.id.ordinal
+                            }
+                        }
+                    }
                 }
             }
         } else {
             item {
-                SectionHeader(
-                    title = "高级控制",
-                    subtitle = "反诈后台限制（AppOps/待机）与 COTA 厂商云控参数；" +
-                        "包级冻结/云控策略统一在“冻结/解冻”页。"
-                )
-            }
-            item {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val slot = advancedContent
-                    if (slot != null) {
-                        slot.invoke(this)
-                    } else {
-                        // The legacy fixed-action cloud controls are
-                        // intentionally not shown: cloud packages are now
-                        // configured on the unified Freeze page, and the old
-                        // controls would conflict with the selected
-                        // FreezeStrategy.
-                        val antiFraud = antiFraudContent
-                        if (antiFraud != null) {
-                            antiFraud.invoke(this)
-                        } else {
-                            AntiFraudSection(
-                                state = state.antiFraud,
-                                busy = state.busy,
-                                onApply = callbacks.onAntiFraudApply,
-                                onRestore = callbacks.onAntiFraudRestore
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        TextButton(
+                            onClick = { pageIndex = SETTINGS_ROOT },
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Text("‹ 返回")
                         }
-                        val cota = cotaContent
-                        if (cota != null) {
-                            cota.invoke(this)
-                        } else {
-                            CotaSection(
-                                state = state.cota,
-                                callbacks = callbacks.cotaCallbacks
-                            )
-                        }
+                        Text(entry.title, style = MaterialTheme.typography.titleLarge)
                     }
+                    Text(
+                        text = settingsPageSubtitle(entry.id),
+                        modifier = Modifier.padding(start = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            when (entry.id) {
+                SettingsEntryId.EXECUTION -> item {
+                    ExecutionSettingsContent(
+                        state,
+                        callbacks,
+                        onOpenOverviewAuth
+                    )
+                }
+                SettingsEntryId.BOOT -> {
+                    if (state.rescueMode) {
+                        item { RescueModeCard(callbacks) }
+                    }
+                    item { BootStatusContent(state, callbacks) }
+                }
+                SettingsEntryId.APPEARANCE -> item {
+                    AppearanceCard(state, callbacks)
+                }
+                SettingsEntryId.LOGS -> item {
+                    DefaultLogsContent(state, callbacks)
+                }
+                SettingsEntryId.ADVANCED -> {
+                    item {
+                        CotaSection(
+                            state = state.cota,
+                            callbacks = callbacks.cotaCallbacks
+                        )
+                    }
+                    item { ProtectionRulesCard() }
                 }
             }
         }
     }
 }
 
+/** 根页的一行；箭头只是提示可进入，点击区域包含整行。 */
 @Composable
-private fun DefaultSettingsContent(
+private fun SettingsEntryRow(
+    entry: SettingsEntry,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(entry.title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = entry.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = "›",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * 开机页只读展示：总开关留在概览，避免两个开关同时改同一设置。
+ */
+@Composable
+private fun BootStatusContent(
     state: DashboardState,
     callbacks: DashboardCallbacks
 ) {
-    AppearanceCard(state, callbacks)
+    val boot = state.bootFreeze
+    SectionCard(
+        title = "开机自动应用",
+        subtitle = when {
+            !boot.enabled -> "开机自动应用已关闭；总开关在概览页。"
+            state.dryRun ->
+                "开机 ${boot.delaySeconds} 秒后执行；预览只记录，不修改手机。"
+            else -> "开机 ${boot.delaySeconds} 秒后执行；总开关在概览页。"
+        }
+    ) {
+        ResultRow(
+            label = "总开关",
+            value = if (boot.enabled) "已开启" else "已关闭",
+            tone = if (boot.enabled) {
+                StatusChipTone.SUCCESS
+            } else {
+                StatusChipTone.NEUTRAL
+            }
+        )
+        ResultRow(
+            label = "计划",
+            value = when {
+                !boot.enabled -> "计划 ${boot.plannedCount} 个 · 总开关关闭"
+                boot.plannedCount == 0 -> "无计划"
+                else -> "计划 ${boot.plannedCount} 个"
+            },
+            tone = if (boot.plannedCount == 0 || !boot.enabled) {
+                StatusChipTone.NEUTRAL
+            } else {
+                StatusChipTone.INFO
+            }
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "上次结果",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            StatusChip(
+                text = boot.lastResult ?: "尚未执行",
+                tone = bootResultTone(boot)
+            )
+        }
+        if (boot.lastSkippedReason != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Text(
+                    text = "本次开机已跳过：${boot.lastSkippedReason}",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        val attempt = boot.lastAttemptText
+        val success = boot.lastSuccessText
+        if (attempt != null && attempt == success) {
+            Text(
+                text = "上次执行：$attempt",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            if (attempt != null) {
+                Text(
+                    text = "上次尝试：$attempt",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (success != null) {
+                Text(
+                    text = "上次处理：$success",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        NemuOutlinedButton(
+            onClick = callbacks.onOpenStartupSettings,
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("打开「应用启动管理」允许自启动")
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SafetyRows(state)
+    }
+}
 
+/** 固定的安全边界说明；具体不可用原因仍由应用页按目标给出。 */
+@Composable
+private fun ProtectionRulesCard() {
+    SectionCard(
+        title = "保护规则",
+        subtitle = "不可关闭；无此能力时会置灰并说明原因。"
+    ) {
+        Text(
+            text = "敏感应用 / 红色风险：整包操作只提示高风险，仍可执行。",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            text = "组件缺失或平台明确拒绝时才会置灰并说明；其余策略由用户决定。",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun ExecutionSettingsContent(
+    state: DashboardState,
+    callbacks: DashboardCallbacks,
+    onOpenOverviewAuth: () -> Unit
+) {
+    var showActualConfirm by remember { mutableStateOf(false) }
     SectionCard(title = "冻结与权限") {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1279,11 +1271,11 @@ private fun DefaultSettingsContent(
                 Text("实际执行", style = MaterialTheme.typography.titleSmall)
                 Text(
                     text = if (state.dryRun) {
-                        "关闭：只预览，不修改手机"
+                        "关闭：手动操作只预览；开机/关机安全清理仍执行"
                     } else {
                         "开启：点击后会修改手机"
                     },
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = if (state.dryRun) {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
@@ -1291,49 +1283,106 @@ private fun DefaultSettingsContent(
                     }
                 )
             }
-            Switch(
+            NemuSwitch(
                 checked = !state.dryRun,
-                onCheckedChange = { callbacks.onDryRunChange(!it) },
-                enabled = !state.busy
+                onCheckedChange = { actual ->
+                    if (actual) {
+                        // Turning execution on is the only direction that can
+                        // change the phone; confirm before leaving preview mode.
+                        if (state.dryRun) showActualConfirm = true
+                    } else {
+                        callbacks.onDryRunChange(true)
+                    }
+                },
+                enabled = !state.busy,
+                modifier = Modifier.semantics {
+                    contentDescription = "实际执行"
+                }
             )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("授权状态", style = MaterialTheme.typography.titleSmall)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("授权状态", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = state.privilege?.let { privilege ->
-                        privilege.activeBackendLabel + if (privilege.canFreeze) {
-                            " · 可执行"
+                val privilege = state.privilege
+                if (privilege == null) {
+                    StatusChip(state.backendStatus)
+                } else {
+                    StatusChip(
+                        text = privilege.activeBackendLabel,
+                        tone = if (privilege.canFreeze) {
+                            StatusChipTone.SUCCESS
                         } else {
-                            " · 需授权"
+                            StatusChipTone.NEUTRAL
                         }
-                    } ?: state.backendStatus,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    )
+                    StatusChip(
+                        text = if (privilege.canFreeze) "可执行" else "需授权",
+                        tone = if (privilege.canFreeze) {
+                            StatusChipTone.SUCCESS
+                        } else {
+                            StatusChipTone.WARNING
+                        }
+                    )
+                }
             }
-            TextButton(
-                onClick = callbacks.onRequestPrivilege,
-                enabled = !state.busy
-            ) {
-                Text("请求授权")
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "授权在概览页的“授权”卡中管理。",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = onOpenOverviewAuth) {
+                Text(
+                    "去授权",
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
         Text(
-            text = "不卸载系统应用，所有操作可在“解冻”页恢复。",
-            style = MaterialTheme.typography.bodySmall,
+            text = "注：不卸载系统应用；手动冻结/解冻可在“恢复”页撤销，强停的应用首次打开后恢复后台。",
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    if (showActualConfirm) {
+        AlertDialog(
+            onDismissRequest = { showActualConfirm = false },
+            title = { Text("切换到实际执行？") },
+            text = {
+                Text("关闭预览后，执行操作会真实修改手机；恢复记录仍会保留。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showActualConfirm = false
+                        callbacks.onDryRunChange(false)
+                    }
+                ) { Text("确认切换") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showActualConfirm = false }) {
+                    Text("取消")
+                }
+            }
         )
     }
 }
 
 /**
- * Theme picker: three visual styles, five palettes, three light/dark modes.
- * All choices persist immediately and apply without restarting the app.
+ * FlClash's theme picker, adapted to Nemu: eight iOS system colours as
+ * swatches, four ColourStyle options and the three theme modes. Choices apply
+ * and persist immediately.
  */
 @Composable
 private fun AppearanceCard(
@@ -1342,65 +1391,173 @@ private fun AppearanceCard(
 ) {
     SectionCard(
         title = "外观",
-        subtitle = "即时生效；深色为纯黑。"
+        subtitle = "FlClash 配色 · 即时生效"
     ) {
-        Text("界面风格", style = MaterialTheme.typography.titleSmall)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ThemeStyle.entries.forEach { style ->
-                FilterChip(
-                    selected = state.themeStyle == style,
-                    onClick = { callbacks.onThemeStyleChange(style) },
-                    label = { Text(style.label) }
-                )
-            }
-        }
         Text("配色", style = MaterialTheme.typography.titleSmall)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ThemePalette.entries.forEach { palette ->
-                FilterChip(
-                    selected = state.themePalette == palette,
-                    onClick = { callbacks.onThemePaletteChange(palette) },
-                    leadingIcon = {
-                        Surface(
-                            shape = CircleShape,
-                            color = swatchColorFor(palette),
-                            modifier = Modifier.size(16.dp)
-                        ) {}
-                    },
-                    label = { Text(palette.label) }
-                )
-            }
-        }
-        Text("明暗模式", style = MaterialTheme.typography.titleSmall)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ThemeMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = state.themeMode == mode,
-                    onClick = { callbacks.onThemeModeChange(mode) },
-                    label = { Text(mode.label) }
-                )
-            }
-        }
+        PaletteSwatches(
+            selected = state.themePalette,
+            onSelected = callbacks.onThemePaletteChange
+        )
         Text(
-            "风格和配色即时生效；深色模式为纯黑。",
+            state.themePalette.label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Text("配色风格", style = MaterialTheme.typography.titleSmall)
+        SegmentedChoiceRow(
+            options = ThemeStyle.entries,
+            selected = state.themeStyle,
+            label = { it.label },
+            onSelected = callbacks.onThemeStyleChange
+        )
+
+        Text("明暗模式", style = MaterialTheme.typography.titleSmall)
+        SegmentedChoiceRow(
+            options = ThemeMode.entries,
+            selected = state.themeMode,
+            label = { it.label },
+            onSelected = callbacks.onThemeModeChange
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PaletteSwatches(
+    selected: ThemePalette,
+    onSelected: (ThemePalette) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.flClashInset(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        FlowRow(
+            modifier = Modifier
+                .padding(12.dp)
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ThemePalette.entries.forEach { palette ->
+                val isSelected = palette == selected
+                val fill = palette.swatchColor
+                val checkColor = if (fill.luminance() < 0.5f) {
+                    Color.White
+                } else {
+                    Color.Black
+                }
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .selectable(
+                            selected = isSelected,
+                            role = Role.RadioButton,
+                            onClick = { onSelected(palette) }
+                        )
+                        .semantics {
+                            contentDescription = "配色：${palette.label}"
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .border(2.dp, fill, CircleShape)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(fill)
+                    )
+                    if (isSelected) {
+                        Canvas(Modifier.size(16.dp)) {
+                            val unit = size.minDimension / 24f
+                            val path = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(9f * unit, 16.17f * unit)
+                                lineTo(4.83f * unit, 12f * unit)
+                                lineTo(3.41f * unit, 13.41f * unit)
+                                lineTo(9f * unit, 19f * unit)
+                                lineTo(21f * unit, 7f * unit)
+                                lineTo(19.59f * unit, 5.59f * unit)
+                                close()
+                            }
+                            drawPath(path, color = checkColor)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T> SegmentedChoiceRow(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelected: (T) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        options.forEachIndexed { index, option ->
+            val isSelected = option == selected
+            val first = index == 0
+            val last = index == options.lastIndex
+            val outer = 26.dp
+            val inner = 10.dp
+            val shape = if (isSelected) {
+                androidx.compose.foundation.shape.RoundedCornerShape(outer)
+            } else {
+                androidx.compose.foundation.shape.RoundedCornerShape(
+                    topStart = if (first) outer else inner,
+                    bottomStart = if (first) outer else inner,
+                    topEnd = if (last) outer else inner,
+                    bottomEnd = if (last) outer else inner
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 40.dp)
+                    .clip(shape)
+                    .background(
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.flClashBlock()
+                        }
+                    )
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelected(option) }
+                    )
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label(option),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
@@ -1423,9 +1580,13 @@ private fun DefaultLogsContent(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
+                StatusChip(
                     text = if (state.logSettings.enabled) "日志已开启" else "日志已关闭",
-                    style = MaterialTheme.typography.titleSmall
+                    tone = if (state.logSettings.enabled) {
+                        StatusChipTone.SUCCESS
+                    } else {
+                        StatusChipTone.NEUTRAL
+                    }
                 )
                 Text(
                     text = "开关控制常规 Nemu 日志；启动 logcat 抓取会单独写入原始系统日志。",
@@ -1433,10 +1594,13 @@ private fun DefaultLogsContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Switch(
+            NemuSwitch(
                 checked = state.logSettings.enabled,
                 onCheckedChange = callbacks.onLoggingEnabledChange,
-                enabled = !state.logSettings.busy
+                enabled = !state.logSettings.busy,
+                modifier = Modifier.semantics {
+                    contentDescription = "Nemu 日志"
+                }
             )
         }
         val path = state.logSettings.filePath
@@ -1462,25 +1626,23 @@ private fun DefaultLogsContent(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            NemuOutlinedButton(
                 onClick = callbacks.onRefreshLogs,
                 enabled = !state.logSettings.busy,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("刷新")
             }
-            OutlinedButton(
+            NemuOutlinedButton(
                 onClick = { showClearConfirm = true },
                 enabled = !state.logSettings.busy,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
+                contentColor = MaterialTheme.colorScheme.error
             ) {
                 Text("清空")
             }
         }
-        OutlinedButton(
+        NemuOutlinedButton(
             onClick = { showCaptureConfirm = true },
             enabled = !state.logSettings.busy,
             modifier = Modifier.fillMaxWidth()
@@ -1595,34 +1757,6 @@ private fun LogLine(
         maxLines = 6,
         overflow = TextOverflow.Ellipsis
     )
-}
-
-@Composable
-private fun EmptySlotCard(title: String, message: String) {
-    SectionCard(title = title) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-private fun topBarSubtitle(state: DashboardState): String = buildString {
-    append("睡眠管理")
-    val bootCount = state.bootFreeze.bootCount
-    if (bootCount != null) {
-        append(" · boot #")
-        append(bootCount)
-    }
-}
-
-private fun backendTone(status: String): StatusChipTone = when {
-    status.contains("Root") -> StatusChipTone.SUCCESS
-    status.contains("Shizuku") && status.contains("未授权") -> StatusChipTone.WARNING
-    status.contains("Shizuku") -> StatusChipTone.INFO
-    status.contains("未授权") || status.contains("无可用") -> StatusChipTone.ERROR
-    else -> StatusChipTone.NEUTRAL
 }
 
 private fun bootResultTone(boot: BootFreezeUiState): StatusChipTone {

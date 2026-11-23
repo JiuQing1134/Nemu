@@ -56,7 +56,7 @@ object BootFreezeScheduler {
         // find nothing and exit. Do not schedule that pointless wakeup.
         val policy = TargetPolicy(appContext)
         val hasActionableTarget = TargetCatalog.all.any {
-            policy.isEnabled(it) && policy.strategy(it) != FreezeStrategy.OBSERVE
+            policy.isEnabled(it) && policy.isActive(it)
         }
         if (!hasActionableTarget) {
             runCatching { workManager.cancelUniqueWork(UNIQUE_WORK_NAME) }
@@ -64,29 +64,34 @@ object BootFreezeScheduler {
         }
 
         val bootCount = BootCount.current(appContext)
-        if (settings.lastBootFreezeBootCount == bootCount ||
-            settings.lastBootFreezeAttemptBootCount == bootCount ||
-            settings.bootFreezeSkippedBootCount == bootCount
+        if (bootCount >= 0 &&
+            (settings.lastBootFreezeBootCount == bootCount ||
+                settings.lastBootFreezeAttemptBootCount == bootCount ||
+                settings.bootFreezeSkippedBootCount == bootCount)
         ) {
             return
         }
 
-        if (hasWorkForBoot(workManager, bootCount)) {
+        if (bootCount >= 0 && hasWorkForBoot(workManager, bootCount)) {
             return
         }
 
         val delaySeconds = settings.bootFreezeDelaySeconds
             .coerceAtLeast(BootFreezeSettings.MIN_DELAY_SECONDS)
-        // A user opening the app long after boot must not trigger a freeze
-        // 120s later while the phone is in active use. The worker is only
-        // meaningful inside the boot window.
+        // The deadline is boot-relative (`开机 X 秒后`), not relative to the
+        // moment the user flips the switch. If the window already passed,
+        // do not run a freeze during active use.
         val uptimeSeconds = SystemClock.elapsedRealtime() / 1000L
-        if (uptimeSeconds > delaySeconds + 120L) {
-            ActionLog.info("已过本次开机冻结窗口；开关只对下次开机生效")
+        val remaining = remainingBootDelaySeconds(
+            delaySeconds = delaySeconds.toLong(),
+            uptimeSeconds = uptimeSeconds
+        )
+        if (remaining == null) {
+            ActionLog.info("已过本次开机冻结窗口；本次开机不再安排")
             return
         }
         val request = OneTimeWorkRequestBuilder<BootFreezeWorker>()
-            .setInitialDelay(delaySeconds.toLong(), TimeUnit.SECONDS)
+            .setInitialDelay(remaining, TimeUnit.SECONDS)
             .setInputData(
                 workDataOf(
                     BootFreezeWorker.KEY_SCHEDULED_BOOT_COUNT to bootCount
@@ -137,13 +142,20 @@ object BootFreezeScheduler {
 
     private fun bootTag(bootCount: Int): String =
         "${UNIQUE_WORK_NAME}_boot_$bootCount"
+
+    /** Boot-relative delay, or null when the configured window already passed. */
+    internal fun remainingBootDelaySeconds(
+        delaySeconds: Long,
+        uptimeSeconds: Long
+    ): Long? = (delaySeconds - uptimeSeconds).takeIf { it > 0L }
 }
 
 /**
  * Boot-count reader shared by the scheduler and worker.
  *
  * Primary source is `Settings.Global.BOOT_COUNT`. When that read fails, the
- * elapsedRealtime hour bucket is a coarse replacement (design docs/07 §5.2).
+ * first 8 hex digits of `/proc/sys/kernel/random/boot_id` identify the boot;
+ * -1 means unknown and makes every same-boot guard fail open.
  */
 internal object BootCount {
     fun current(context: Context): Int {
@@ -159,6 +171,18 @@ internal object BootCount {
         // Do not log here: this getter is also read during Compose
         // composition, and an ActionLog write would trigger recomposition and
         // loop when BOOT_COUNT is unavailable.
-        return (SystemClock.elapsedRealtime() / 1000L / 3600L).toInt()
+        val bootId = runCatching {
+            java.io.File("/proc/sys/kernel/random/boot_id")
+                .readText()
+                .trim()
+                .replace("-", "")
+        }.getOrNull()
+        if (!bootId.isNullOrBlank()) {
+            val value = bootId.take(8).toLongOrNull(16)
+            if (value != null) {
+                return (value and 0x7fffffffL).toInt()
+            }
+        }
+        return -1
     }
 }

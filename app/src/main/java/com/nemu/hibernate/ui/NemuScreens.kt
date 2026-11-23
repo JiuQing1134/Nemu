@@ -1,28 +1,41 @@
 package com.nemu.hibernate.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,52 +43,43 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
-import android.content.pm.PackageManager
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.nemu.hibernate.core.CustomTargetGuard
 import com.nemu.hibernate.core.FreezeStrategy
-import com.nemu.hibernate.core.FreezeStrategyPolicy
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyPreset
 import com.nemu.hibernate.core.TargetCategory
-
-@Composable
-private fun FreezeStep(number: String, label: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        androidx.compose.material3.Surface(
-            shape = androidx.compose.foundation.shape.CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Text(
-                text = number,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.titleSmall
-            )
-        }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
+import com.nemu.hibernate.core.TargetCopy
+import com.nemu.hibernate.ui.theme.flClashCard
+import com.nemu.hibernate.ui.theme.flClashInset
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class CategoryFilter(val label: String, val category: TargetCategory?) {
     ALL("全部", null),
     UPDATE("系统更新", TargetCategory.UPDATE),
     AI("AI 功能", TargetCategory.AI),
-    CLOUD("云控与遥测", TargetCategory.CLOUD),
-    SAFETY("反诈", TargetCategory.SAFETY),
+    CLOUD("云控", TargetCategory.CLOUD),
+    SAFETY("安全", TargetCategory.SAFETY),
     THERMAL("温控", TargetCategory.THERMAL),
     CUSTOM("自定义", TargetCategory.AUTOMATION)
 }
@@ -85,8 +89,230 @@ private enum class PendingKind { ENABLE, STRATEGY, FREEZE_ONE }
 private data class PendingAction(
     val target: CatalogTargetUiState,
     val kind: PendingKind,
-    val strategy: FreezeStrategy? = null
+    val preset: StrategyPreset? = null
 )
+
+/** Unified Applications tab: manage policies or restore applied targets. */
+@Composable
+fun ApplicationsScreen(
+    state: DashboardState,
+    callbacks: DashboardCallbacks,
+    modifier: Modifier,
+    mode: Int = 0,
+    onModeChange: (Int) -> Unit = {},
+    focusPackage: String? = null,
+    onClearFocus: () -> Unit = {}
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        if (mode == 0) {
+            FreezeScreen(
+                state,
+                callbacks,
+                Modifier.weight(1f),
+                focusPackage = focusPackage,
+                onClearFocus = onClearFocus,
+                onOpenRestore = { onModeChange(1) }
+            )
+        } else {
+            UnfreezeScreen(
+                state,
+                callbacks,
+                Modifier.weight(1f),
+                onOpenManage = { onModeChange(0) }
+            )
+        }
+    }
+}
+
+/**
+ * Shared applications header: mode chips plus a green text refresh action.
+ */
+@Composable
+private fun ApplicationsHeader(
+    manageCount: Int,
+    restoreCount: Int,
+    mode: Int,
+    onModeChange: (Int) -> Unit,
+    onRefresh: () -> Unit,
+    busy: Boolean,
+    refreshing: Boolean = false
+) {
+    val headerLabel = MaterialTheme.typography.labelLarge.copy(fontSize = 15.sp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NemuFilterChip(
+            selected = mode == 0,
+            onClick = { onModeChange(0) },
+            label = { Text("管理 $manageCount", style = headerLabel) }
+        )
+        NemuFilterChip(
+            selected = mode == 1,
+            onClick = { onModeChange(1) },
+            label = { Text("恢复 $restoreCount", style = headerLabel) }
+        )
+        Spacer(Modifier.weight(1f))
+        Box(
+            modifier = Modifier.height(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (refreshing) "刷新中…" else "刷新",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (busy || refreshing) {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                maxLines = 1,
+                modifier = Modifier
+                    .clickable(enabled = !busy && !refreshing) { onRefresh() }
+                    .padding(horizontal = 8.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Search field with the batch label on its right. Clicking 批量 keeps the
+ * label in place and adds a small 全选 checkbox directly below it; the search
+ * field never changes width or shifts sideways.
+ */
+@Composable
+internal fun CatalogSearchRow(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String,
+    batchExpanded: Boolean,
+    onBatchToggle: () -> Unit,
+    busy: Boolean,
+    allSelected: Boolean,
+    selectedCount: Int,
+    selectAllEnabled: Boolean,
+    onSelectAll: () -> Unit,
+    onClearAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        CompactSearchField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = placeholder,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .width(72.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "批量",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (busy) {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                maxLines = 1,
+                modifier = Modifier
+                    .clickable(enabled = !busy) { onBatchToggle() }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+            if (batchExpanded) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    NemuSmallCheckbox(
+                        checked = allSelected,
+                        enabled = !busy && selectAllEnabled,
+                        onCheckedChange = { checked ->
+                            if (checked) onSelectAll() else onClearAll()
+                        },
+                        contentDescription = if (allSelected) "取消全选" else "全选"
+                    )
+                    Text(
+                        text = "全选",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp
+                        ),
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clickable(enabled = !busy && selectAllEnabled) {
+                                if (allSelected) onClearAll() else onSelectAll()
+                            }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 44dp compact search field; the old 56dp OutlinedTextField was too tall. */
+@Composable
+private fun CompactSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.height(44.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.flClashInset()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (value.isEmpty()) {
+                            Text(
+                                text = placeholder,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 15.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            )
+            if (value.isNotEmpty()) {
+                Text(
+                    text = "清除",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { onValueChange("") }
+                        .padding(start = 8.dp)
+                )
+            }
+        }
+    }
+}
 
 /**
  * Freeze page: choose targets, choose a strategy, then press a clearly
@@ -97,183 +323,282 @@ private data class PendingAction(
 fun FreezeScreen(
     state: DashboardState,
     callbacks: DashboardCallbacks,
-    modifier: Modifier
+    modifier: Modifier,
+    focusPackage: String? = null,
+    onClearFocus: () -> Unit = {},
+    onOpenRestore: () -> Unit = {}
 ) {
     var selectedFilter by rememberSaveable { mutableIntStateOf(0) }
+    var query by rememberSaveable { mutableStateOf("") }
     val filter = CategoryFilter.entries.getOrElse(selectedFilter) { CategoryFilter.ALL }
-    val visible = remember(state.catalog, filter) {
+    val baseVisible = remember(state.catalog, filter) {
         if (filter.category == null) state.catalog
         else state.catalog.filter { it.category == filter.category }
     }
+    val visible = remember(baseVisible, state.catalog, focusPackage, query) {
+        val focused = if (focusPackage == null) {
+            baseVisible
+        } else {
+            state.catalog.filter { it.packageName == focusPackage }
+        }
+        // A deep link must not be hidden by a search query saved from an
+        // earlier visit to this tab.
+        if (focusPackage != null || query.isBlank()) {
+            focused
+        } else {
+            focused.filter {
+                it.label.contains(query, ignoreCase = true) ||
+                    it.packageName.contains(query, ignoreCase = true)
+            }
+        }
+    }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
     var showFreezeAll by remember { mutableStateOf(false) }
-    var showAddCustom by remember { mutableStateOf(false) }
-    val selectedTargets = state.catalog.filter {
-        it.enabled && !it.observeOnly && it.strategy != FreezeStrategy.OBSERVE &&
-            (state.rootAvailable ||
-                (it.strategy != FreezeStrategy.COMPONENT &&
-                    it.strategy != FreezeStrategy.DISABLE_USER &&
-                    it.strategy != FreezeStrategy.HIDE))
+    // Normal browsing has no checkboxes. Batch mode is explicit and its
+    // selection is session-only, independent from the boot plan. The batch
+    // toggle lives in the applications header row; leaving batch clears the
+    // session selection.
+    var selection by remember { mutableStateOf(emptySet<String>()) }
+    var batchMode by remember { mutableStateOf(false) }
+    LaunchedEffect(batchMode) {
+        if (!batchMode) selection = emptySet()
     }
-    val frozenCount = state.catalog.count { it.applied }
-
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    // Expanding another card must not collapse one above it: that would
+    // shift the tapped card upward under the finger.
+    var expandedPackages by rememberSaveable(
+        stateSaver = Saver<Set<String>, String>(
+            save = { it.joinToString("|") },
+            restore = { raw ->
+                raw.split('|').filter { it.isNotEmpty() }.toSet()
+            }
+        )
+    ) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(focusPackage) {
+        if (focusPackage != null) {
+            expandedPackages = expandedPackages + focusPackage
+        }
+    }
+    val canFreeze = state.privilege?.canFreeze == true
+    val selectableVisible = visible.filter {
+        SelectionRules.isSelectable(it, state.rootAvailable, canFreeze)
+    }
+    val selectedTargets = SelectionRules.selectedForApply(
+        visible,
+        selection,
+        state.rootAvailable,
+        canFreeze
+    )
+    val planCount = SelectionRules.planCount(state.catalog)
+    val bootPlanEnabled = state.bootFreeze.enabled
+    val listState = rememberLazyListState()
+    LaunchedEffect(
+        selectedFilter,
+        focusPackage,
+        query,
+        selectableVisible.map { it.packageName }
     ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("冻结应用", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "勾选 → 选方式 → 立即冻结；恢复去“解冻”页。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        item {
-            SectionCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FreezeStep("1", "勾选", Modifier.weight(1f))
-                    FreezeStep("2", "选方式", Modifier.weight(1f))
-                    FreezeStep("3", "立即冻结", Modifier.weight(1f))
-                }
-                Text(
-                    text = "勾选只加入计划，不会改变手机。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        item {
-            SectionCard {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    StatusChip(
-                        text = "已勾选 ${selectedTargets.size}",
-                        tone = if (selectedTargets.isNotEmpty()) {
-                            StatusChipTone.PRIMARY
-                        } else {
-                            StatusChipTone.NEUTRAL
-                        }
-                    )
-                    StatusChip(
-                        text = "已冻结 $frozenCount",
-                        tone = if (frozenCount > 0) {
-                            StatusChipTone.SUCCESS
-                        } else {
-                            StatusChipTone.NEUTRAL
-                        }
-                    )
-                    if (state.dryRun) {
-                        StatusChip("预览模式", tone = StatusChipTone.WARNING)
-                    }
-                }
-                if (state.lastCatalogResult != null) {
+        selection = SelectionRules.prune(
+            selection,
+            selectableVisible.map { it.packageName }
+        )
+    }
+    // Only a filter/search change should jump to the top. A strategy switch
+    // can change `active` and restart the prune effect; scrolling then would
+    // yank the list away from the card the user just edited.
+    LaunchedEffect(selectedFilter, focusPackage, query) {
+        listState.scrollToItem(0)
+    }
+
+    Column(modifier = modifier) {
+        ApplicationsHeader(
+            manageCount = state.catalog.size,
+            restoreCount = state.catalog.count {
+                it.hasFrozenState || it.applied
+            },
+            mode = 0,
+            onModeChange = { if (it == 1) onOpenRestore() },
+            onRefresh = callbacks.onCatalogRefresh,
+            busy = state.busy,
+            refreshing = state.catalogRefreshing
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 4.dp,
+                end = 16.dp,
+                bottom = 12.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+        if (focusPackage != null) {
+            item {
+                SectionCard {
+                    val focusedLabel = visible.firstOrNull()?.label
+                        ?: focusPackage
                     Text(
-                        "上次结果：${state.lastCatalogResult}",
+                        "已定位：$focusedLabel",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        focusPackage,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-                Button(
-                    onClick = { showFreezeAll = true },
-                    enabled = !state.busy && selectedTargets.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (selectedTargets.isEmpty()) {
-                            "先勾选要冻结的应用"
-                        } else {
-                            "立即冻结已勾选的 ${selectedTargets.size} 个应用"
-                        }
-                    )
-                }
-                OutlinedButton(
-                    onClick = callbacks.onCatalogRefresh,
-                    enabled = !state.busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("刷新实际状态")
-                }
-                OutlinedButton(
-                    onClick = { showAddCustom = true },
-                    enabled = !state.busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("添加任意应用（自定义冻结）")
-                }
-                Text(
-                    "冻结立即执行；重启后按开机计划重跑。无冻结目标时完全待机。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (!state.rootAvailable) {
-                    Text(
-                        "无 Root：仅支持暂停和观察。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CategoryFilter.entries.forEachIndexed { index, option ->
-                    val count = if (option.category == null) {
-                        state.catalog.size
-                    } else {
-                        state.catalog.count { it.category == option.category }
+                    TextButton(onClick = onClearFocus) {
+                        Text("显示全部")
                     }
-                    FilterChip(
-                        selected = selectedFilter == index,
-                        onClick = { selectedFilter = index },
-                        label = { Text("${option.label} $count") }
-                    )
                 }
             }
         }
-        if (filter == CategoryFilter.CUSTOM) {
+        if (planCount > 0 || !state.rootAvailable) {
             item {
-                SectionCard(
-                    title = "自定义冻结",
-                    subtitle = "可以添加任意已安装应用；优先用“暂停”，停用/隐藏会让它从桌面消失。"
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Button(
-                        onClick = { showAddCustom = true },
-                        enabled = !state.busy,
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("添加任意应用")
+                        if (planCount > 0) {
+                            StatusChip(
+                                text = if (bootPlanEnabled) {
+                                    "开机计划 $planCount"
+                                } else {
+                                    "开机计划 $planCount · 总开关关闭"
+                                },
+                                tone = if (bootPlanEnabled) {
+                                    StatusChipTone.INFO
+                                } else {
+                                    StatusChipTone.NEUTRAL
+                                }
+                            )
+                        }
                     }
+                    if (!state.rootAvailable) {
+                        val privilege = state.privilege
+                        val text = when {
+                            privilege == null -> "正在检查权限…"
+                            privilege.canFreeze ->
+                                "Shizuku：可暂停/冻结；组件/停用/隐藏需 Root。"
+                            else -> "无可用权限：仅支持观察。"
+                        }
+                        Text(
+                            text = text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (privilege?.canFreeze == true) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        if (focusPackage == null) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CategoryFilter.entries.forEachIndexed { index, option ->
+                        val count = if (option.category == null) {
+                            state.catalog.size
+                        } else {
+                            state.catalog.count { it.category == option.category }
+                        }
+                        if (option.category != null && count == 0 &&
+                            index != selectedFilter
+                        ) {
+                            return@forEachIndexed
+                        }
+                        NemuFilterChip(
+                            selected = selectedFilter == index,
+                            onClick = { selectedFilter = index },
+                            label = {
+                                Text(
+                                    option.label,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+            item {
+                CatalogSearchRow(
+                    query = query,
+                    onQueryChange = { query = it },
+                    placeholder = "搜索应用或包名",
+                    batchExpanded = batchMode,
+                    onBatchToggle = { batchMode = !batchMode },
+                    busy = state.busy,
+                    allSelected = selectableVisible.isNotEmpty() &&
+                        selectableVisible.all { it.packageName in selection },
+                    selectedCount = selectedTargets.size,
+                    selectAllEnabled = selectableVisible.isNotEmpty(),
+                    onSelectAll = {
+                        selection = selection +
+                            selectableVisible.map { it.packageName }
+                    },
+                    onClearAll = { selection = emptySet() }
+                )
+                state.lastCatalogResult?.let { lastResult ->
                     Text(
-                        "不要添加系统桌面、设置、电话、输入法、权限控制器、Shizuku、Root 管理器或 Nemu 自己；" +
-                            "隐藏这些应用可能导致无法开机或无法恢复。",
+                        "上次结果：$lastResult",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+        }
+        if (filter == CategoryFilter.CUSTOM && focusPackage == null) {
+            item {
+                Text(
+                    "优先用“暂停”；停用/隐藏会让应用从桌面消失。\n" +
+                        "不要添加桌面、设置、电话、输入法、权限控制器、Shizuku、" +
+                        "Root 管理器或 Nemu 自己，可能无法开机或无法恢复。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
         if (visible.isEmpty()) {
             item {
-                SectionCard(title = "没有目标") {
+                SectionCard(
+                    title = when {
+                        query.isNotBlank() -> "没有匹配的应用"
+                        focusPackage != null -> "目录中没有此包"
+                        else -> "没有目标"
+                    }
+                ) {
                     Text(
-                        "设备上没有该分类的软件包，或目录尚未加载。",
+                        when {
+                            query.isNotBlank() ->
+                                "没有名称或包名包含“$query”的目标。"
+                            focusPackage != null -> "包名：$focusPackage"
+                            else -> "设备上没有该分类的软件包，或目录尚未加载。"
+                        },
                         style = MaterialTheme.typography.bodySmall
                     )
+                    when {
+                        query.isNotBlank() -> TextButton(
+                            onClick = { query = "" }
+                        ) { Text("清除搜索") }
+                        focusPackage != null -> TextButton(
+                            onClick = onClearFocus
+                        ) { Text("显示全部") }
+                    }
                 }
             }
         }
@@ -282,48 +607,104 @@ fun FreezeScreen(
                 target = target,
                 busy = state.busy,
                 rootAvailable = state.rootAvailable,
-                onToggle = { value ->
-                    val strategy = target.strategy
-                    if (value && needsConfirm(target, strategy)) {
-                        pending = PendingAction(target, PendingKind.ENABLE, strategy)
+                canFreeze = canFreeze,
+                bootPlanEnabled = bootPlanEnabled,
+                batchMode = batchMode,
+                expanded = target.packageName in expandedPackages,
+                onToggleExpanded = {
+                    expandedPackages = if (target.packageName in expandedPackages) {
+                        expandedPackages - target.packageName
+                    } else {
+                        expandedPackages + target.packageName
+                    }
+                },
+                selected = target.packageName in selection,
+                onSelect = { checked ->
+                    selection = if (checked) {
+                        selection + target.packageName
+                    } else {
+                        selection - target.packageName
+                    }
+                },
+                onPlanChange = { value ->
+                    if (value && needsConfirm(target, target.preset)) {
+                        pending = PendingAction(
+                            target,
+                            PendingKind.ENABLE,
+                            target.preset
+                        )
                     } else {
                         callbacks.onCatalogToggle(target.packageName, value)
                     }
                 },
-                onStrategy = { strategy ->
-                    if (needsConfirm(target, strategy)) {
+                onPreset = { preset ->
+                    if (needsConfirm(target, preset)) {
                         pending = PendingAction(
                             target,
                             PendingKind.STRATEGY,
-                            strategy
+                            preset
                         )
                     } else {
-                        callbacks.onCatalogStrategyChange(target.packageName, strategy)
+                        callbacks.onCatalogPresetChange(
+                            target.packageName,
+                            preset
+                        )
                     }
                 },
                 onFreeze = {
                     pending = PendingAction(
                         target,
                         PendingKind.FREEZE_ONE,
-                        target.strategy
+                        target.preset
+                    )
+                },
+                onComponentsChange = { selected ->
+                    callbacks.onCatalogComponentsChange(
+                        target.packageName,
+                        selected
                     )
                 },
                 onRemove = { callbacks.onCustomTargetRemove(target.packageName) }
             )
         }
     }
+        if (batchMode && selectedTargets.isNotEmpty()) {
+            Surface(tonalElevation = 3.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "已选 ${selectedTargets.size}",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = { showFreezeAll = true },
+                        enabled = !state.busy
+                    ) { Text("应用") }
+                }
+            }
+        }
+    }
 
     val action = pending
     if (action != null) {
-        val strategy = action.strategy ?: action.target.strategy
+        val preset = action.preset ?: action.target.preset
         AlertDialog(
             onDismissRequest = { pending = null },
             title = {
                 Text(
                     when (action.kind) {
-                        PendingKind.FREEZE_ONE -> "冻结「${action.target.label}」？"
-                        PendingKind.ENABLE -> "启用「${action.target.label}」的冻结计划？"
-                        PendingKind.STRATEGY -> "改用「${strategy.label()}」？"
+                        PendingKind.FREEZE_ONE ->
+                            "${TargetCopy.label(preset)}「${action.target.label}」？"
+                        PendingKind.ENABLE ->
+                            "把「${action.target.label}」加入开机计划？"
+                        PendingKind.STRATEGY ->
+                            "改用「${TargetCopy.label(preset)}」？"
                     }
                 )
             },
@@ -334,34 +715,26 @@ fun FreezeScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        "冻结方式：${strategy.label()}",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        strategy.explain(),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        "具体会发生什么：",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        action.target.target.consequenceFor(strategy)
-                            ?: strategy.genericConsequence(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (action.target.risk == RiskLevel.RED) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                    if (state.dryRun) {
+                    TargetCopy.confirmLines(
+                        target = action.target.target,
+                        preset = preset,
+                        enableOnly = action.kind == PendingKind.ENABLE,
+                        dryRun = state.dryRun,
+                        bootPlanEnabled = state.bootFreeze.enabled
+                    ).forEach { line ->
                         Text(
-                            "当前是预览模式：这次只会记录命令，不会真正冻结。",
+                            text = line,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
+                            color = if (line.startsWith("影响") &&
+                                TargetCopy.riskWarning(
+                                    action.target.target,
+                                    preset
+                                ) != null
+                            ) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
                         )
                     }
                 }
@@ -374,9 +747,9 @@ fun FreezeScreen(
                             PendingKind.ENABLE ->
                                 callbacks.onCatalogToggle(action.target.packageName, true)
                             PendingKind.STRATEGY ->
-                                callbacks.onCatalogStrategyChange(
+                                callbacks.onCatalogPresetChange(
                                     action.target.packageName,
-                                    strategy
+                                    preset
                                 )
                             PendingKind.FREEZE_ONE ->
                                 callbacks.onCatalogApply(
@@ -387,8 +760,9 @@ fun FreezeScreen(
                 ) {
                     Text(
                         when (action.kind) {
-                            PendingKind.FREEZE_ONE -> "确认冻结"
-                            PendingKind.ENABLE -> "启用计划"
+                            PendingKind.FREEZE_ONE ->
+                                "确认${TargetCopy.label(preset)}"
+                            PendingKind.ENABLE -> "加入计划"
                             PendingKind.STRATEGY -> "确认切换"
                         }
                     )
@@ -403,7 +777,7 @@ fun FreezeScreen(
     if (showFreezeAll) {
         AlertDialog(
             onDismissRequest = { showFreezeAll = false },
-            title = { Text("冻结 ${selectedTargets.size} 个应用？") },
+            title = { Text("应用 ${selectedTargets.size} 个目标？") },
             text = {
                 Column(
                     modifier = Modifier
@@ -412,28 +786,47 @@ fun FreezeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     selectedTargets.forEach { target ->
+                        val warning = TargetCopy.riskWarning(
+                            target.target,
+                            target.preset
+                        )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                "${target.label} · ${target.strategy.label()}",
+                                "${target.label} · " +
+                                    TargetCopy.label(target.preset),
                                 style = MaterialTheme.typography.titleSmall
                             )
                             Text(
-                                target.target.consequenceFor(target.strategy)
-                                    ?: target.strategy.genericConsequence(),
+                                "影响：" + if (warning != null) {
+                                    "$warning；" +
+                                        TargetCopy.impactFor(
+                                            target.target,
+                                            target.preset
+                                        )
+                                } else {
+                                    TargetCopy.impactFor(
+                                        target.target,
+                                        target.preset
+                                    )
+                                },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (warning != null) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                             )
                         }
                     }
                     if (state.dryRun) {
                         Text(
-                            "当前是预览模式：只记录命令，不会真正冻结。",
+                            "预览：只记录，不修改手机。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
                     } else {
                         Text(
-                            "不会解冻任何应用。执行后可在“解冻”页撤销。",
+                            "不会解冻其他应用；可在“恢复”分段撤销。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -447,241 +840,332 @@ fun FreezeScreen(
                         callbacks.onCatalogApply(
                             selectedTargets.map { it.packageName }.toSet()
                         )
+                        selection = emptySet()
+                        batchMode = false
                     }
-                ) { Text("确认冻结全部") }
+                ) { Text("确认应用") }
             },
             dismissButton = {
                 TextButton(onClick = { showFreezeAll = false }) { Text("取消") }
             }
         )
     }
-
-    if (showAddCustom) {
-        CustomAppPickerDialog(
-            onDismiss = { showAddCustom = false },
-            onPick = { packageName, label ->
-                showAddCustom = false
-                callbacks.onCustomTargetAdd(packageName, label)
-            }
-        )
-    }
 }
-
-@Composable
-private fun CustomAppPickerDialog(
-    onDismiss: () -> Unit,
-    onPick: (String, String) -> Unit
-) {
-    val context = LocalContext.current
-    var query by rememberSaveable { mutableStateOf("") }
-    val apps = remember {
-        val pm = context.packageManager
-        pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            .asSequence()
-            .filter {
-                CustomTargetGuard.denyReason(it.packageName) == null &&
-                    (it.flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or
-                        android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0
-            }
-            .map { info ->
-                val label = runCatching {
-                    pm.getApplicationLabel(info).toString()
-                }.getOrDefault(info.packageName)
-                label to info.packageName
-            }
-            .sortedBy { it.first.lowercase() }
-            .toList()
-    }
-    val visible = remember(apps, query) {
-        if (query.isBlank()) apps
-        else apps.filter {
-            it.first.contains(query, ignoreCase = true) ||
-                it.second.contains(query, ignoreCase = true)
-        }
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加自定义应用") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    singleLine = true,
-                    label = { Text("搜索应用名称或包名") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    "共 ${visible.size} 个。系统关键应用已从列表排除。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    items(visible, key = { it.second }) { (label, packageName) ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(packageName, label) }
-                                .padding(vertical = 8.dp, horizontal = 4.dp)
-                        ) {
-                            Text(label, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                packageName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        }
-    )
-}
-
 
 @Composable
 private fun FreezeTargetCard(
     target: CatalogTargetUiState,
     busy: Boolean,
     rootAvailable: Boolean,
-    onToggle: (Boolean) -> Unit,
-    onStrategy: (FreezeStrategy) -> Unit,
+    canFreeze: Boolean,
+    bootPlanEnabled: Boolean,
+    batchMode: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    selected: Boolean,
+    onSelect: (Boolean) -> Unit,
+    onPlanChange: (Boolean) -> Unit,
+    onPreset: (StrategyPreset) -> Unit,
     onFreeze: () -> Unit,
+    onComponentsChange: (Set<String>) -> Unit,
     onRemove: () -> Unit
 ) {
+    var showComponents by remember { mutableStateOf(false) }
+    val status = when {
+        target.actual.processRunning == true &&
+            target.actual.suspended == true ->
+            if (target.preset == StrategyPreset.FREEZE) {
+                "已冻结·进程仍在"
+            } else {
+                "已暂停·进程存活"
+            }
+        target.applied -> when (target.preset) {
+            StrategyPreset.FREEZE -> "已冻结"
+            StrategyPreset.PAUSE -> "已暂停"
+            StrategyPreset.OBSERVE -> "已恢复"
+            else -> "已应用"
+        }
+        target.appOpsOwned || target.standbyOwned -> "已限制"
+        target.enabled -> "已加入计划"
+        else -> target.actualText()
+    }
+    val statusTone = when {
+        target.actual.processRunning == true &&
+            target.actual.suspended == true -> StatusChipTone.WARNING
+        target.applied -> StatusChipTone.SUCCESS
+        target.appOpsOwned || target.standbyOwned -> StatusChipTone.SUCCESS
+        target.enabled -> StatusChipTone.PRIMARY
+        else -> actualTone(target)
+    }
+    // Only Nemu-owned state blocks a strategy switch. A package disabled or
+    // suspended by another tool must not trap the card on "停用" forever.
+    val hasFrozenState = target.applied ||
+        target.ownedHidden ||
+        target.ownedDisable ||
+        target.appOpsOwned ||
+        target.standbyOwned ||
+        (target.strategy == FreezeStrategy.COMPONENT &&
+            target.ownedComponents.isNotEmpty())
+    val selectable = SelectionRules.isSelectable(
+        target,
+        rootAvailable,
+        canFreeze
+    )
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
+            containerColor = MaterialTheme.colorScheme.flClashCard()
+        ),
+        shape = MaterialTheme.shapes.small,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        enabled = !batchMode || (!busy && selectable)
+                    ) {
+                        if (batchMode) {
+                            // A disabled checkbox must also make the whole
+                            // row inert; otherwise an observe/unavailable
+                            // target can still enter the batch silently.
+                            if (selectable) onSelect(!selected)
+                        } else {
+                            onToggleExpanded()
+                        }
+                    },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Checkbox(
-                    checked = target.enabled,
-                    onCheckedChange = onToggle,
-                    enabled = !busy && !target.observeOnly
-                )
-                AppIcon(packageName = target.packageName, size = 42.dp)
+                if (batchMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = onSelect,
+                        enabled = !busy && selectable,
+                        colors = nemuCheckboxColors()
+                    )
+                }
+                AppIcon(packageName = target.packageName, size = 38.dp)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(target.label, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        target.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Text(
                         target.packageName,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                RiskChip(target.risk)
+                if (target.risk == RiskLevel.RED) {
+                    RiskChip(target.risk)
+                }
+                Text(
+                    text = if (expanded) "收起" else "展开",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { onToggleExpanded() }
+                        .padding(4.dp)
+                )
             }
-            val status = when {
-                target.actual.processRunning == true &&
-                    target.actual.suspended == true -> "已冻结 · 进程仍在"
-                target.applied -> "已冻结"
-                target.enabled -> "已勾选 · 待冻结"
-                else -> target.actualText()
-            }
-            val statusTone = when {
-                target.actual.processRunning == true &&
-                    target.actual.suspended == true -> StatusChipTone.WARNING
-                target.applied -> StatusChipTone.SUCCESS
-                target.enabled -> StatusChipTone.PRIMARY
-                else -> actualTone(target)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 StatusChip(text = status, tone = statusTone)
+                StatusChip(
+                    text = "策略 " + TargetCopy.label(target.preset),
+                    tone = StatusChipTone.NEUTRAL
+                )
+                if (target.enabled) {
+                    StatusChip(
+                        text = if (bootPlanEnabled) {
+                            "开机"
+                        } else {
+                            "开机（总开关关闭）"
+                        },
+                        tone = if (bootPlanEnabled) {
+                            StatusChipTone.INFO
+                        } else {
+                            StatusChipTone.NEUTRAL
+                        }
+                    )
+                }
             }
-            if (target.target.description.isNotBlank()) {
+            if (expanded) {
                 Text(
-                    "这个应用是做什么的：${target.target.description}",
+                    "软件功能：${TargetCopy.functionLine(target.packageName)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-            if (target.observeOnly) {
-                Text(
-                    "为什么只能观察：",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Text(
-                    target.target.consequenceFor(FreezeStrategy.OBSERVE)
-                        ?: "系统保护或风险太高，Nemu 不对它下发冻结命令。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Text("选择冻结方式：", style = MaterialTheme.typography.titleSmall)
+                Text("策略", style = MaterialTheme.typography.titleSmall)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FreezeStrategy.entries
-                        .filter {
-                            FreezeStrategyPolicy.validate(target.target, it) == null &&
-                                (rootAvailable ||
-                                    (it != FreezeStrategy.COMPONENT &&
-                                        it != FreezeStrategy.DISABLE_USER &&
-                                        it != FreezeStrategy.HIDE))
-                        }
-                        .forEach { strategy ->
-                            FilterChip(
-                                selected = target.strategy == strategy,
-                                onClick = { onStrategy(strategy) },
-                                enabled = !busy,
-                                label = { Text(strategy.label()) }
-                            )
-                        }
+                    TargetCopy.presetsFor(target.target).forEach { preset ->
+                        val reason = TargetCopy.unavailableReason(
+                            target.target,
+                            preset,
+                            rootAvailable
+                        )
+                        NemuFilterChip(
+                            selected = target.preset == preset,
+                            onClick = { onPreset(preset) },
+                            enabled = !busy && reason == null &&
+                                (!hasFrozenState || target.preset == preset),
+                            label = { Text(TargetCopy.label(preset)) }
+                        )
+                    }
                 }
-                if (target.target.components.isNotEmpty()) {
+                if (hasFrozenState) {
                     Text(
-                        "会停用 ${target.target.components.size} 个组件：" +
-                            target.target.components.joinToString("、") { it.label },
+                        "已生效；切换策略前先在“恢复”页解冻。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    target.strategy.explain(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                val selectedReason = TargetCopy.unavailableReason(
+                    target.target,
+                    target.preset,
+                    rootAvailable
                 )
+                Text(
+                    if (selectedReason != null) {
+                        "${TargetCopy.label(target.preset)}：不可用（$selectedReason）"
+                    } else {
+                        "${TargetCopy.label(target.preset)}：" +
+                            TargetCopy.impactFor(target.target, target.preset)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selectedReason != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                if (selectedReason == null) {
+                    val warning = TargetCopy.riskWarning(target.target, target.preset)
+                    if (warning != null) {
+                        Text(
+                            text = warning,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                val reasons = TargetCopy.presetsFor(target.target).mapNotNull { preset ->
+                    if (preset == target.preset) return@mapNotNull null
+                    TargetCopy.unavailableReason(
+                        target.target,
+                        preset,
+                        rootAvailable
+                    )?.let { "${TargetCopy.label(preset)}（$it）" }
+                }
+                if (reasons.isNotEmpty()) {
+                    Text(
+                        "不可用：" + reasons.joinToString("、"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "点按钮后会先显示“具体会发生什么”，确认后才执行。",
+                        "开机计划",
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Button(
-                        onClick = onFreeze,
-                        enabled = !busy &&
-                            target.enabled &&
-                            !target.observeOnly &&
-                            target.strategy != FreezeStrategy.OBSERVE &&
-                            (rootAvailable ||
-                                (target.strategy != FreezeStrategy.COMPONENT &&
-                                    target.strategy != FreezeStrategy.DISABLE_USER &&
-                                    target.strategy != FreezeStrategy.HIDE))
+                    NemuSwitch(
+                        checked = target.enabled,
+                        onCheckedChange = onPlanChange,
+                        enabled = !busy && target.active &&
+                            TargetCopy.unavailableReason(
+                                target.target,
+                                target.preset,
+                                rootAvailable
+                            ) == null,
+                        modifier = Modifier.semantics {
+                            contentDescription = "开机计划：${target.label}"
+                        }
+                    )
+                }
+                if (target.preset == StrategyPreset.COMPONENT &&
+                    target.target.components.isNotEmpty()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(if (target.applied) "重新冻结" else "立即冻结")
+                        Text(
+                            "组件：已选 ${target.selectedComponents.size}/" +
+                                target.target.components.size,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(
+                            onClick = { showComponents = true },
+                            enabled = !busy
+                        ) { Text("选择") }
+                    }
+                }
+                if (showComponents) {
+                    ComponentPickerDialog(
+                        target = target,
+                        busy = busy,
+                        onDismiss = { showComponents = false },
+                        onConfirm = { selected ->
+                            showComponents = false
+                            onComponentsChange(selected)
+                        }
+                    )
+                }
+                if (!batchMode) {
+                    if (target.preset == StrategyPreset.OBSERVE) {
+                        Text(
+                            "仅观察：不会执行冻结。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Button(
+                            onClick = onFreeze,
+                            enabled = !busy && canFreeze &&
+                                TargetCopy.unavailableReason(
+                                    target.target,
+                                    target.preset,
+                                    rootAvailable
+                                ) == null,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (target.applied) "重新应用" else "应用")
+                        }
+                        if (!canFreeze) {
+                            Text(
+                                "需要先授权 Root 或 Shizuku 才能应用。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
                 if (target.category == TargetCategory.AUTOMATION) {
@@ -705,6 +1189,127 @@ private fun FreezeTargetCard(
     }
 }
 
+@Composable
+private fun ComponentPickerDialog(
+    target: CatalogTargetUiState,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit
+) {
+    val components = target.target.components
+    var selected by remember(target.packageName, target.selectedComponents) {
+        mutableStateOf(target.selectedComponents)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择组件 · ${target.label}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "已选 ${selected.size}/${components.size} · 只停用勾选组件",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            selected = components.mapTo(mutableSetOf()) {
+                                it.className
+                            }
+                        },
+                        enabled = !busy
+                    ) { Text("全选") }
+                    TextButton(
+                        onClick = { selected = emptySet() },
+                        enabled = !busy && selected.isNotEmpty()
+                    ) { Text("清空") }
+                }
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(components, key = { it.className }) { component ->
+                        val checked = component.className in selected
+                        val state = target.componentStates[component.className]
+                        val owned = component.className in target.ownedComponents
+                        val stateText = when {
+                            state == 2 || state == 3 || state == 4 ->
+                                if (owned) "已停用（本应用）" else "已停用（他人）"
+                            state == 1 -> "启用"
+                            state == 0 -> "默认"
+                            else -> "未知"
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !busy) {
+                                    selected = if (checked) {
+                                        selected - component.className
+                                    } else {
+                                        selected + component.className
+                                    }
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { value ->
+                                    selected = if (value) {
+                                        selected + component.className
+                                    } else {
+                                        selected - component.className
+                                    }
+                                },
+                                enabled = !busy,
+                                colors = nemuCheckboxColors()
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    component.label,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    buildString {
+                                        if (component.role.isNotBlank()) {
+                                            append(component.role)
+                                            append(" · ")
+                                        }
+                                        append(stateText)
+                                        if (owned && !checked) append(" · 应用时恢复")
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "只保存选择，不会立即改动手机。取消勾选的组件会在下次应用时恢复。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (selected.isEmpty()) {
+                    Text(
+                        "至少选择 1 个组件",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(selected) },
+                enabled = !busy && selected.isNotEmpty()
+            ) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
 /**
  * Unfreeze page: show what is actually frozen and how it will be restored.
  */
@@ -712,52 +1317,140 @@ private fun FreezeTargetCard(
 fun UnfreezeScreen(
     state: DashboardState,
     callbacks: DashboardCallbacks,
-    modifier: Modifier
+    modifier: Modifier,
+    onOpenManage: () -> Unit = {}
 ) {
     val frozen = remember(state.catalog) {
         state.catalog.filter { it.hasFrozenState || it.applied }
     }
-    var selection by remember { mutableStateOf(emptySet<String>()) }
-    var showAll by remember { mutableStateOf(false) }
-    var showSelected by remember { mutableStateOf(false) }
-    LaunchedEffect(frozen.map { it.packageName }) {
-        selection = selection.intersect(frozen.map { it.packageName }.toSet())
-    }
-
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("解冻与恢复", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "恢复冻结或隐藏的应用。解冻所选会同时关闭计划。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+    var query by rememberSaveable { mutableStateOf("") }
+    val visibleFrozen = remember(frozen, query) {
+        if (query.isBlank()) {
+            frozen
+        } else {
+            frozen.filter {
+                it.label.contains(query, ignoreCase = true) ||
+                    it.packageName.contains(query, ignoreCase = true)
             }
         }
-        if (state.lastCatalogResult != null) {
+    }
+    var selection by remember { mutableStateOf(emptySet<String>()) }
+    var batchMode by remember { mutableStateOf(false) }
+    var showAll by remember { mutableStateOf(false) }
+    var showSelected by remember { mutableStateOf(false) }
+    LaunchedEffect(visibleFrozen.map { it.packageName }) {
+        // Search/catalog changes must not leave an invisible package selected
+        // in the restore action.
+        selection = SelectionRules.prune(
+            selection,
+            visibleFrozen.map { it.packageName }
+        )
+    }
+
+    Column(modifier = modifier) {
+        ApplicationsHeader(
+            manageCount = state.catalog.size,
+            restoreCount = frozen.size,
+            mode = 1,
+            onModeChange = { if (it == 0) onOpenManage() },
+            onRefresh = callbacks.onCatalogRefresh,
+            busy = state.busy,
+            refreshing = state.catalogRefreshing
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 4.dp,
+                end = 16.dp,
+                bottom = 12.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+        item {
+            CatalogSearchRow(
+                query = query,
+                onQueryChange = { query = it },
+                placeholder = "搜索已冻结应用",
+                batchExpanded = batchMode,
+                onBatchToggle = { batchMode = !batchMode },
+                busy = state.busy,
+                allSelected = visibleFrozen.isNotEmpty() &&
+                    visibleFrozen.all { it.packageName in selection },
+                selectedCount = selection.size,
+                selectAllEnabled = visibleFrozen.isNotEmpty(),
+                onSelectAll = {
+                    selection = visibleFrozen.mapTo(mutableSetOf()) {
+                        it.packageName
+                    }
+                },
+                onClearAll = { selection = emptySet() }
+            )
+        }
+        if (frozen.isEmpty()) {
             item {
-                SectionCard(title = "上次操作结果") {
+                SectionCard(title = "当前没有冻结的应用") {
                     Text(
-                        state.lastCatalogResult,
+                        "没有检测到暂停、停用、隐藏、组件停用或后台限制的目标。",
                         style = MaterialTheme.typography.bodySmall
+                    )
+                    if (state.lastCatalogResult != null) {
+                        Text(
+                            "上次结果：${state.lastCatalogResult}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    NemuOutlinedButton(
+                        onClick = callbacks.onCatalogRefresh,
+                        enabled = !state.busy && !state.catalogRefreshing,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (state.catalogRefreshing) {
+                                "刷新中…"
+                            } else {
+                                "刷新实际状态"
+                            }
+                        )
+                    }
+                }
+            }
+        } else if (visibleFrozen.isEmpty()) {
+            item {
+                SectionCard(title = "没有匹配的冻结应用") {
+                    Text(
+                        "没有名称或包名包含“$query”的冻结目标。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    TextButton(onClick = { query = "" }) {
+                        Text("清除搜索")
+                    }
+                }
+            }
+        } else {
+        item {
+            SectionCard(title = "恢复范围") {
+                if (state.lastCatalogResult != null) {
+                    Text(
+                        "上次结果：${state.lastCatalogResult}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (state.dryRun) {
                         Text(
-                            "当前是预览模式：恢复只记录命令，不改变实际状态。",
+                            "预览模式：恢复只记录命令，不改变实际状态。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
                     }
                 }
-            }
-        }
-        item {
-            SectionCard(title = "恢复范围") {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -792,26 +1485,12 @@ fun UnfreezeScreen(
                         }
                     )
                 }
-                OutlinedButton(
+                NemuOutlinedButton(
                     onClick = { showAll = true },
                     enabled = !state.busy && frozen.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("临时全部解冻（保留开机冻结计划）")
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        onClick = callbacks.onCatalogRefresh,
-                        enabled = !state.busy
-                    ) { Text("刷新实际状态") }
-                    TextButton(
-                        onClick = { selection = frozen.map { it.packageName }.toSet() },
-                        enabled = !state.busy && frozen.isNotEmpty()
-                    ) { Text("全选") }
-                    TextButton(
-                        onClick = { selection = emptySet() },
-                        enabled = selection.isNotEmpty()
-                    ) { Text("清除选择") }
                 }
                 Text(
                     "“解冻所选”会同时关闭这些应用的冻结计划，防止下次开机又被冻结；" +
@@ -828,33 +1507,33 @@ fun UnfreezeScreen(
                 }
             }
         }
-        if (frozen.isEmpty()) {
-            item {
-                SectionCard(title = "当前没有冻结的应用") {
-                    Text(
-                        "没有检测到暂停、停用、隐藏或组件停用的目标。" +
-                            "如果刚执行过冻结，请点“刷新实际状态”。",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
         }
-        items(frozen, key = { it.packageName }) { target ->
+        items(visibleFrozen, key = { it.packageName }) { target ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                    containerColor = MaterialTheme.colorScheme.flClashCard()
+                ),
+                shape = MaterialTheme.shapes.small,
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
+                val rowSelected = target.packageName in selection
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
+                        .clickable(enabled = !state.busy) {
+                            selection = if (rowSelected) {
+                                selection - target.packageName
+                            } else {
+                                selection + target.packageName
+                            }
+                        }
+                        .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Checkbox(
-                        checked = target.packageName in selection,
+                        checked = rowSelected,
                         onCheckedChange = { checked ->
                             selection = if (checked) {
                                 selection + target.packageName
@@ -862,21 +1541,29 @@ fun UnfreezeScreen(
                                 selection - target.packageName
                             }
                         },
-                        enabled = !state.busy
+                        enabled = !state.busy,
+                        colors = nemuCheckboxColors()
                     )
                     AppIcon(packageName = target.packageName, size = 38.dp)
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Text(target.label, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            target.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(
                             target.packageName,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            "恢复后会怎样：${target.strategy.restoreExplain()}",
+                            "恢复：${TargetCopy.restoreLine(target.preset)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -885,7 +1572,9 @@ fun UnfreezeScreen(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        RiskChip(target.risk)
+                        if (target.risk == RiskLevel.RED) {
+                            RiskChip(target.risk)
+                        }
                         StatusChip(
                             text = target.actualText(),
                             tone = actualTone(target)
@@ -895,20 +1584,52 @@ fun UnfreezeScreen(
             }
         }
     }
+    }
 
     if (showSelected) {
         AlertDialog(
             onDismissRequest = { showSelected = false },
             title = { Text("解冻所选 ${selection.size} 个并关闭计划？") },
             text = {
-                Text(
-                    if (state.dryRun) {
-                        "预览：只记录恢复命令，不会真正解冻，也不会关闭冻结计划。"
-                    } else {
-                        "将恢复所选应用，并关闭它们的冻结计划（下次开机不再自动冻结）。" +
-                            "停用/隐藏的应用会重新启用或解除隐藏；组件会按冻结前的状态恢复。"
+                val selectedRows = state.catalog.filter {
+                    it.packageName in selection
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (state.dryRun) {
+                            "预览：只记录恢复命令，不会真正解冻，也不会关闭冻结计划。"
+                        } else {
+                            "将恢复所选应用；本次开机不再自动冻结。" +
+                                "只处理 Nemu 拥有所有权的状态，他人暂停不会接管。" +
+                                "已恢复且不再有所有权的目标会关闭计划；" +
+                                "若应用曾被强制停止，首次打开后会恢复后台。"
+                        }
+                    )
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 180.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        selectedRows.forEach { row ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    row.label,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (row.risk == RiskLevel.RED) {
+                                    RiskChip(row.risk)
+                                }
+                            }
+                        }
                     }
-                )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -933,8 +1654,9 @@ fun UnfreezeScreen(
                         "预览：只记录恢复计划，不取消暂停、不恢复组件，" +
                             "也不写本次开机的跳过标记。"
                     } else {
-                        "将取消所有暂停、恢复所有由 Nemu 停用/隐藏的应用，" +
-                            "并跳过本次开机自动冻结。冻结计划会保留，下次开机会重新冻结。"
+                        "将取消所有由 Nemu 暂停的应用、恢复由 Nemu 停用/隐藏的应用；" +
+                            "其他工具暂停的应用不会接管。并跳过本次开机自动冻结，" +
+                            "冻结计划会保留，下次开机会重新冻结。"
                     }
                 )
             },
@@ -954,79 +1676,17 @@ fun UnfreezeScreen(
     }
 }
 
-private fun needsConfirm(target: CatalogTargetUiState, strategy: FreezeStrategy): Boolean =
-    strategy == FreezeStrategy.DISABLE_USER ||
+private fun needsConfirm(
+    target: CatalogTargetUiState,
+    preset: StrategyPreset
+): Boolean {
+    val strategy = TargetCopy.baseStrategy(preset)
+    return strategy == FreezeStrategy.DISABLE_USER ||
         strategy == FreezeStrategy.HIDE ||
         (target.risk == RiskLevel.RED &&
-            (strategy == FreezeStrategy.COMPONENT || strategy == FreezeStrategy.SUSPEND))
-
-private fun FreezeStrategy.label(): String = when (this) {
-    FreezeStrategy.SUSPEND -> "暂停"
-    FreezeStrategy.COMPONENT -> "只禁后台组件"
-    FreezeStrategy.DISABLE_USER -> "停用（伪装卸载）"
-    FreezeStrategy.HIDE -> "隐藏（彻底伪装）"
-    FreezeStrategy.OBSERVE -> "只观察"
-}
-
-private fun FreezeStrategy.explain(): String = when (this) {
-    FreezeStrategy.SUSPEND ->
-        "让系统暂停这个应用：它不能启动、不能后台运行，但数据和桌面图标都保留。" +
-            "最温和，解冻即可恢复。"
-    FreezeStrategy.COMPONENT ->
-        "只停用这个应用里负责后台/云更新的几个组件，应用本身还能打开；需要 Root。"
-    FreezeStrategy.DISABLE_USER ->
-        "把整个应用停用：桌面图标消失，设置里显示“已停用”，数据保留。" +
-            "需要 Root，解冻可恢复。这就是常说的“伪装卸载”。"
-    FreezeStrategy.HIDE ->
-        "把整个应用从系统隐藏，看起来像已经卸载；APK 和数据仍在。" +
-            "需要 Root，解冻可恢复。比停用更彻底。"
-    FreezeStrategy.OBSERVE ->
-        "不下发任何命令，只显示这个应用当前在做什么。"
-}
-
-private fun FreezeStrategy.restoreExplain(): String = when (this) {
-    FreezeStrategy.SUSPEND -> "应用会取消暂停，可以重新启动和在后台运行。"
-    FreezeStrategy.COMPONENT -> "被停用的后台组件会恢复，相关服务/更新重新工作。"
-    FreezeStrategy.DISABLE_USER -> "应用重新启用，桌面图标和入口回来，数据不丢。"
-    FreezeStrategy.HIDE -> "应用解除隐藏，桌面图标和入口回来，数据不丢。"
-    FreezeStrategy.OBSERVE -> "不需要恢复。"
-}
-
-private fun FreezeStrategy.genericConsequence(): String = when (this) {
-    FreezeStrategy.SUSPEND ->
-        "这个应用在解冻前无法启动或后台运行；依赖它的功能会暂时不可用。"
-    FreezeStrategy.COMPONENT ->
-        "这个应用的后台服务/云更新组件会停止工作；应用本身仍可打开。"
-    FreezeStrategy.DISABLE_USER ->
-        "这个应用会被停用，桌面图标消失；数据保留，可在解冻页恢复。"
-    FreezeStrategy.HIDE ->
-        "这个应用会从系统隐藏，看起来像卸载了；数据保留，可在解冻页恢复。"
-    FreezeStrategy.OBSERVE -> "不会改动任何东西。"
-}
-
-private fun CatalogTargetUiState.plainActualText(): String = when {
-    observeOnly -> "只观察，不执行冻结。"
-    actual.hidden == true && ownedHidden ->
-        "已对系统隐藏（伪装卸载状态），解冻后恢复。"
-    actual.hidden == true ->
-        "已被隐藏，但不是 Nemu 设置的；本应用不会去解除它。"
-    strategy == FreezeStrategy.HIDE -> if (applied) {
-        "已记录隐藏操作，但还没有确认实际状态，点“刷新实际状态”。"
-    } else {
-        "仍可见，尚未隐藏。"
-    }
-    strategy == FreezeStrategy.COMPONENT -> when (componentsDisabled) {
-        true -> "至少一个后台组件已停用，应用本身可能还能打开。"
-        false -> "所有登记的组件都处于启用状态。"
-        null -> "暂时读不到组件状态，点“刷新实际状态”再试。"
-    }
-    actual.packageEnabled == false -> "应用已被停用（设置中显示为“已停用”）。"
-    actual.suspended == true && actual.processRunning == true ->
-        "已暂停，但进程还没有退出；系统可能会短暂保留进程。"
-    actual.suspended == true -> "已暂停，当前没有检测到它的进程。"
-    actual.suspended == null && actual.packageEnabled == null ->
-        "读不到这个应用的状态（可能不存在，或已隐藏）。"
-    else -> "当前没有被冻结。"
+            (strategy == FreezeStrategy.COMPONENT ||
+                strategy == FreezeStrategy.SUSPEND)) ||
+        TargetCopy.riskWarning(target.target, preset) != null
 }
 
 private fun actualTone(target: CatalogTargetUiState): StatusChipTone = when {

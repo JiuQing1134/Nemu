@@ -1,6 +1,6 @@
 id=nemu_boot_autostart
 name=Nemu Boot Guard
-version=1.8
-versionCode=9
+version=1.9
+versionCode=10
 author=Nemu
-description=Auto-unbrick guard (3 failed boots): verified clean shutdowns reset the counter; bounded suspend/component recovery with verification; only Nemu-owned disable-user packages and components are restored. v1.8 adds the shutdown ACK used by the LSPosed hook, initrc/FIFO restore hooks, and custom-target support.
+description=Auto-unbrick guard (3 failed boots): verified clean shutdowns reset the counter; bounded suspend/component recovery with verification; only Nemu-owned disable-user packages and components are restored. v1.9 adds owned hidden-package, AppOps-mode and standby-bucket recovery for rescue/clear.

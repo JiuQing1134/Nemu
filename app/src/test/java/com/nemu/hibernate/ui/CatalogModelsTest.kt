@@ -5,6 +5,7 @@ import com.nemu.hibernate.core.RiskLevel
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetCategory
 import com.nemu.hibernate.core.TargetComponent
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -65,6 +66,52 @@ class CatalogModelsTest {
             ownedDisable = true
         )
         assertTrue(row.hasFrozenState)
+    }
+
+    @Test
+    fun ownedRestrictionIsListedAndShownAsLimited() {
+        val row = CatalogTargetUiState(
+            target = suspendTarget,
+            strategy = FreezeStrategy.OBSERVE,
+            actual = TargetActualUiState(suspended = false, packageEnabled = true),
+            appOpsOwned = true
+        )
+        assertTrue(row.hasFrozenState)
+        assertEquals("已限制", row.actualText())
+    }
+
+    @Test
+    fun ownedRestrictionIsNotReportedAsPendingOwnership() {
+        // Live AppOps/standby ownership is not a stale marker: the Unfreeze
+        // page must show "已限制", not "所有权待清理".
+        assertFalse(
+            isOwnershipPending(
+                applied = true,
+                actuallyFrozen = false,
+                ownsAppOps = true,
+                ownsStandby = false
+            )
+        )
+        assertFalse(
+            isOwnershipPending(
+                applied = true,
+                actuallyFrozen = false,
+                ownsAppOps = false,
+                ownsStandby = true
+            )
+        )
+    }
+
+    @Test
+    fun appliedMarkerWithoutAnyLiveStateIsPending() {
+        assertTrue(
+            isOwnershipPending(
+                applied = true,
+                actuallyFrozen = false,
+                ownsAppOps = false,
+                ownsStandby = false
+            )
+        )
     }
 
     @Test

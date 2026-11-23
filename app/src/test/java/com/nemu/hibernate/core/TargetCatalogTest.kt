@@ -3,6 +3,7 @@ package com.nemu.hibernate.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,22 +20,8 @@ class TargetCatalogTest {
      * freeze targets the user explicitly selected.
      */
     @Test
-    fun noTargetIsEnabledByDefault() {
+    fun everyDefaultStrategyIsValid() {
         TargetCatalog.all.forEach { target ->
-            assertFalse(
-                "${target.packageName} must not be enabled on a fresh install",
-                target.defaultEnabled
-            )
-        }
-    }
-
-    @Test
-    fun everyDefaultStrategyIsSupportedAndValid() {
-        TargetCatalog.all.forEach { target ->
-            assertTrue(
-                "${target.packageName} default ${target.defaultStrategy}",
-                target.defaultStrategy in target.supportedStrategies
-            )
             assertTrue(
                 "${target.packageName} default invalid",
                 FreezeStrategyPolicy.validate(target, target.defaultStrategy) == null ||
@@ -86,16 +73,22 @@ class TargetCatalogTest {
     }
 
     @Test
-    fun redTargetsNeverSupportWholePackageDisable() {
+    fun redWholePackageStrategiesRequireHighRiskWarning() {
+        val whole = setOf(
+            FreezeStrategy.SUSPEND,
+            FreezeStrategy.DISABLE_USER,
+            FreezeStrategy.HIDE
+        )
         TargetCatalog.all.filter { it.risk == RiskLevel.RED }.forEach { target ->
-            assertTrue(
-                "${target.packageName} red disable-user",
-                FreezeStrategy.DISABLE_USER !in target.supportedStrategies
-            )
-            assertTrue(
-                "${target.packageName} red hide",
-                FreezeStrategy.HIDE !in target.supportedStrategies
-            )
+            whole.forEach { strategy ->
+                assertTrue(
+                    "${target.packageName} $strategy 缺少高风险提醒",
+                    FreezeStrategyPolicy.requiresHighRiskWarning(
+                        target,
+                        strategy
+                    )
+                )
+            }
         }
     }
 
@@ -108,15 +101,80 @@ class TargetCatalogTest {
     }
 
     @Test
-    fun powerGenieStaysObserveOnlyAndExplainsWhy() {
-        val powergenie = TargetCatalog.byPackage("com.hihonor.powergenie")
-        assertNotNull(powergenie)
-        assertEquals(
-            setOf(FreezeStrategy.OBSERVE),
-            powergenie!!.supportedStrategies
+    fun denyListGateAllowsRegisteredAiSuspendException() {
+        val ai = TargetCatalog.byPackage("com.hihonor.aipluginengine")
+        assertNotNull(ai)
+        assertNull(
+            FreezeStrategyPolicy.validate(ai!!, FreezeStrategy.SUSPEND)
+        )
+    }
+
+    @Test
+    fun denyListGateAllowsNumberIdentityDisableException() {
+        val numberIdentity = TargetCatalog.byPackage("com.hihonor.numberidentity")
+        assertNotNull(numberIdentity)
+        assertNull(
+            FreezeStrategyPolicy.validate(
+                numberIdentity!!,
+                FreezeStrategy.DISABLE_USER
+            )
+        )
+    }
+
+    @Test
+    fun securityServerSuspendIsAllowedWithWarning() {
+        val securityServer = TargetCatalog.byPackage("com.hihonor.securityserver")
+        assertNotNull(securityServer)
+        assertNull(
+            FreezeStrategyPolicy.validate(
+                securityServer!!,
+                FreezeStrategy.SUSPEND
+            )
         )
         assertTrue(
-            powergenie.consequenceFor(FreezeStrategy.OBSERVE)!!.contains("不会")
+            FreezeStrategyPolicy.requiresHighRiskWarning(
+                securityServer,
+                FreezeStrategy.SUSPEND
+            )
         )
+    }
+
+    @Test
+    fun securityPluginBaseWholePackageIsAllowedWithWarning() {
+        val pluginBase = TargetCatalog.byPackage("com.hihonor.securitypluginbase")
+        assertNotNull(pluginBase)
+        listOf(
+            FreezeStrategy.SUSPEND,
+            FreezeStrategy.DISABLE_USER,
+            FreezeStrategy.HIDE
+        ).forEach { strategy ->
+            assertNull(
+                "${pluginBase!!.packageName} $strategy 应可用",
+                FreezeStrategyPolicy.validate(pluginBase, strategy)
+            )
+            assertTrue(
+                "${pluginBase.packageName} $strategy 需要高风险提醒",
+                FreezeStrategyPolicy.requiresHighRiskWarning(
+                    pluginBase,
+                    strategy
+                )
+            )
+        }
+    }
+
+    @Test
+    fun powerGenieWholePackageStrategiesAreAvailableButHighRisk() {
+        val powergenie = TargetCatalog.byPackage("com.hihonor.powergenie")
+        assertNotNull(powergenie)
+        listOf(
+            FreezeStrategy.SUSPEND,
+            FreezeStrategy.DISABLE_USER,
+            FreezeStrategy.HIDE
+        ).forEach { strategy ->
+            assertNull(
+                TargetCopy.unavailableReason(powergenie!!, strategy)
+            )
+            assertNotNull(TargetCopy.riskWarning(powergenie, strategy))
+        }
     }
 }

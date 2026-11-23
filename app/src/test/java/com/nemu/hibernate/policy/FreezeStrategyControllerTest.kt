@@ -52,7 +52,6 @@ class FreezeStrategyControllerTest {
         label = "Example",
         risk = RiskLevel.RED,
         category = TargetCategory.AI,
-        supportedStrategies = FreezeStrategyPolicy.redSupported,
         components = listOf(
             ownedComponent,
             enabledComponent,
@@ -111,6 +110,40 @@ class FreezeStrategyControllerTest {
     }
 
     @Test
+    fun componentApplyHonorsSelectedSubset() = runBlocking {
+        var disabled = false
+        val backend = FakeBackend(onExec = { command ->
+            if (command.contains("pm disable")) disabled = true
+        })
+        val persisted = mutableMapOf<TargetComponent, Int?>()
+        val controller = FreezeStrategyController(
+            backend = backend,
+            dryRun = false,
+            componentStateReader = { if (disabled) 2 else 0 },
+            onComponentOriginalState = { component, state ->
+                persisted[component] = state
+            }
+        )
+
+        val result = controller.apply(
+            target,
+            FreezeStrategy.COMPONENT,
+            componentsOverride = listOf(ownedComponent)
+        )
+
+        assertTrue(result.ok)
+        assertTrue(
+            backend.commands.any {
+                it.contains("pm disable") && it.contains("OwnedReceiver")
+            }
+        )
+        assertFalse(
+            backend.commands.any { it.contains("EnabledService") }
+        )
+        assertEquals(setOf(ownedComponent), persisted.keys)
+    }
+
+    @Test
     fun componentRestoreUsesExactOriginalState() = runBlocking {
         val backend = FakeBackend()
         val controller = FreezeStrategyController(
@@ -166,7 +199,6 @@ class FreezeStrategyControllerTest {
         val yellow = target.copy(
             packageName = "com.example.yellow",
             risk = RiskLevel.YELLOW,
-            supportedStrategies = FreezeStrategyPolicy.yellowSupported,
             components = emptyList()
         )
         val controller = FreezeStrategyController(
@@ -183,6 +215,34 @@ class FreezeStrategyControllerTest {
 
         assertFalse(result.ok)
         assertTrue(backend.commands.isEmpty())
+    }
+
+    @Test
+    fun disableUserApplyNullReadbackFailsClosed() = runBlocking {
+        val backend = FakeBackend()
+        val yellow = target.copy(
+            packageName = "com.example.disable",
+            risk = RiskLevel.YELLOW,
+            components = emptyList()
+        )
+        val controller = FreezeStrategyController(
+            backend = backend,
+            dryRun = false,
+            enabledStateReader = { null }
+        )
+
+        val result = controller.apply(
+            yellow,
+            FreezeStrategy.DISABLE_USER,
+            originalEnabled = true
+        )
+
+        assertFalse(result.ok)
+        assertTrue(
+            result.reasons.any {
+                it.reason == com.nemu.hibernate.core.ResultReason.PACKAGE_NOT_CONFIRMED
+            }
+        )
     }
 
     @Test
@@ -223,6 +283,38 @@ class FreezeStrategyControllerTest {
         // The component is already disabled and owned; re-apply is idempotent
         // even though marker rewriting failed.
         assertEquals(0, persisted[ownedComponent])
+    }
+
+    @Test
+    fun componentApplyUnknownReadbackKeepsBaseline() = runBlocking {
+        var disabled = false
+        val backend = FakeBackend(onExec = { command ->
+            if (command.contains("pm disable")) disabled = true
+        })
+        val persisted = mutableMapOf<TargetComponent, Int?>()
+        val controller = FreezeStrategyController(
+            backend = backend,
+            dryRun = false,
+            componentStateReader = { if (disabled) null else 0 },
+            onComponentOriginalState = { component, state ->
+                persisted[component] = state
+            }
+        )
+
+        val result = controller.apply(target, FreezeStrategy.COMPONENT)
+
+        assertFalse(result.ok)
+        assertTrue(
+            "读回未知时不能删除唯一可恢复的原始状态",
+            persisted[ownedComponent] == 0
+        )
+        assertEquals(
+            "读回未知应报告状态未知",
+            true,
+            result.reasons.any {
+                it.reason == com.nemu.hibernate.core.ResultReason.COMPONENT_STATE_UNKNOWN
+            }
+        )
     }
 
     @Test
@@ -269,7 +361,6 @@ class FreezeStrategyControllerTest {
         val yellow = target.copy(
             packageName = "com.example.yellow",
             risk = RiskLevel.YELLOW,
-            supportedStrategies = FreezeStrategyPolicy.yellowSupported,
             components = emptyList()
         )
         val backend = HideBackend()
@@ -293,7 +384,6 @@ class FreezeStrategyControllerTest {
         val yellow = target.copy(
             packageName = "com.example.yellow",
             risk = RiskLevel.YELLOW,
-            supportedStrategies = FreezeStrategyPolicy.yellowSupported,
             components = emptyList()
         )
         val backend = HideBackend()
@@ -314,7 +404,6 @@ class FreezeStrategyControllerTest {
         val yellow = target.copy(
             packageName = "com.example.yellow",
             risk = RiskLevel.YELLOW,
-            supportedStrategies = FreezeStrategyPolicy.yellowSupported,
             components = emptyList()
         )
         val backend = HideBackend()

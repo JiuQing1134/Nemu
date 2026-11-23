@@ -7,10 +7,9 @@ import android.content.Context
  * [Settings] but its own keys (design docs/07 §5.1), so the core settings
  * contract stays untouched.
  *
- * `last_shutdown_time` / `last_shutdown_result` are written by the core
- * shutdown safety path; they are exposed here read-only for the bootloop
- * guard. When `last_shutdown_time` is absent (older installs, or the main
- * session has not integrated the field yet) it reads as 0, which makes the
+ * `last_shutdown_time` / `last_shutdown_result` are written here by the core
+ * shutdown safety path (`markShutdownStarted/Finished`) for the bootloop
+ * guard. When absent (older installs) the time reads as 0, which makes the
  * guard fail closed.
  */
 class BootFreezeSettings(context: Context) {
@@ -18,10 +17,9 @@ class BootFreezeSettings(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     /**
-     * Master switch. Defaults to on, but that can never freeze anything on a
-     * fresh install: every target's enabled setting defaults to false, the
-     * scheduler refuses to enqueue work with no actionable target (see
-     * BootFreezeScheduler.ensureScheduled) and the worker re-filters with
+     * Master switch, off by default. Even when on, nothing freezes until the
+     * user enables individual targets: the scheduler refuses to enqueue work
+     * with no actionable target and the worker re-filters with
      * TargetPolicy.isEnabled before running any command.
      */
     var bootFreezeEnabled: Boolean
@@ -39,12 +37,6 @@ class BootFreezeSettings(context: Context) {
                 KEY_BOOT_FREEZE_DELAY_SECONDS,
                 value.coerceAtLeast(MIN_DELAY_SECONDS)
             )
-            .apply()
-
-    var aiDeepFreezeEnabled: Boolean
-        get() = prefs.getBoolean(KEY_AI_DEEP_FREEZE_ENABLED, false)
-        set(value) = prefs.edit()
-            .putBoolean(KEY_AI_DEEP_FREEZE_ENABLED, value)
             .apply()
 
     fun isAiTargetEnabled(packageName: String): Boolean =
@@ -125,15 +117,46 @@ class BootFreezeSettings(context: Context) {
             ?.let { it.startsWith("成功") || it.contains("安全解冻成功") } == true
 
     /**
+     * Starts the shutdown safety pass. The sentinel is written in the same
+     * transaction as the timestamp, so a process killed mid-unfreeze can never
+     * leave yesterday's "成功" paired with a fresh timestamp.
+     */
+    fun markShutdownStarted(timestampMillis: Long = System.currentTimeMillis()) {
+        prefs.edit()
+            .putString(KEY_LAST_SHUTDOWN_RESULT, SHUTDOWN_IN_PROGRESS)
+            .putLong(KEY_LAST_SHUTDOWN_TIME, timestampMillis)
+            .commit()
+    }
+
+    fun markShutdownFinished(result: String) {
+        prefs.edit()
+            .putString(KEY_LAST_SHUTDOWN_RESULT, result)
+            .commit()
+    }
+
+    /**
      * Durably records that freeze commands are about to run. Written before
      * applying so a crash/reboot mid-freeze is caught on the next boot.
      */
-    fun recordAttempt(bootCount: Int, timestampMillis: Long) {
+    fun recordAttempt(bootCount: Int, timestampMillis: Long): Boolean =
         prefs.edit()
             .putInt(KEY_LAST_ATTEMPT_BOOT_COUNT, bootCount)
             .putLong(KEY_LAST_ATTEMPT_TIME, timestampMillis)
             .commit()
-    }
+
+    /**
+     * One atomic record for a manual unfreeze that must suppress this boot's
+     * automatic freeze. Separate commits could lose the skip on power loss and
+     * let a late worker re-freeze the user's selection.
+     */
+    fun recordManualSkip(bootCount: Int, result: String): Boolean =
+        prefs.edit()
+            .putInt(KEY_SKIPPED_BOOT_COUNT, bootCount)
+            .putInt(KEY_LAST_FREEZE_BOOT_COUNT, bootCount)
+            .putString(KEY_LAST_RESULT, result)
+            .putBoolean(KEY_LAST_SUCCEEDED, false)
+            .putLong(KEY_LAST_FREEZE_TIME, System.currentTimeMillis())
+            .commit()
 
     /**
      * Durably records the outcome for this boot. [lastBootFreezeBootCount] is
@@ -162,10 +185,10 @@ class BootFreezeSettings(context: Context) {
         const val PREFS_NAME = "nemu"
         const val MIN_DELAY_SECONDS = 60
         const val DEFAULT_DELAY_SECONDS = 120
+        const val SHUTDOWN_IN_PROGRESS = "进行中"
 
         const val KEY_BOOT_FREEZE_ENABLED = "boot_freeze_enabled"
         const val KEY_BOOT_FREEZE_DELAY_SECONDS = "boot_freeze_delay_seconds"
-        const val KEY_AI_DEEP_FREEZE_ENABLED = "ai_deep_freeze_enabled"
         const val KEY_AI_TARGET_PREFIX = "ai_target_"
         const val KEY_LAST_FREEZE_BOOT_COUNT = "last_boot_freeze_boot_count"
         const val KEY_LAST_ATTEMPT_BOOT_COUNT =

@@ -12,12 +12,19 @@ object CotaParsers {
         var skipped = 0
         val names = linkedSetOf<String>()
         val prefix = CotaPaths.SOURCE_DIR + "/"
-        output.lineSequence().forEach { raw ->
+        // `find -print0` keeps a hostile newline inside one record; line mode
+        // is kept for tests and old backups.
+        val entries = if ('\u0000' in output) {
+            output.split('\u0000')
+        } else {
+            output.lineSequence().toList()
+        }
+        entries.forEach { raw ->
             val line = raw.trimEnd('\r')
             if (line.isBlank()) return@forEach
             if (line.startsWith(prefix)) {
                 val name = line.removePrefix(prefix)
-                if (CotaPaths.isSafeName(name)) names += name else skipped++
+                if (CotaPaths.isSafeRelativePath(name)) names += name else skipped++
             } else {
                 skipped++
             }
@@ -80,21 +87,30 @@ object CotaParsers {
             val line = raw.trimEnd('\r')
             val parts = line.split('|')
             if (parts.size != 5) return@mapNotNull null
+            val prefix = CotaPaths.SOURCE_DIR + "/"
             val path = parts[0]
-            val name = path.substringAfterLast('/')
+            if (!path.startsWith(prefix)) return@mapNotNull null
+            val name = path.removePrefix(prefix)
             val size = parts[1].toLongOrNull() ?: return@mapNotNull null
             val mode = parts[2]
             val uid = parts[3].toIntOrNull() ?: return@mapNotNull null
             val gid = parts[4].toIntOrNull() ?: return@mapNotNull null
-            if (!path.startsWith(CotaPaths.SOURCE_DIR + "/") ||
-                !CotaPaths.isSafeName(name) ||
+            if (!CotaPaths.isSafeRelativePath(name) ||
                 !CotaPaths.isSafeMode(mode) ||
                 uid < 0 || gid < 0
             ) return@mapNotNull null
             CotaStat(name, size, mode, uid, gid)
         }.toList()
 
-    fun parseSha256(output: String): Map<String, String> {
+    /**
+     * Parse `sha256sum` output. [prefix] is the root the relative names are
+     * measured from: the live source directory for listings, or a specific
+     * backup directory when verifying copies.
+     */
+    fun parseSha256(
+        output: String,
+        prefix: String = CotaPaths.SOURCE_DIR + "/"
+    ): Map<String, String> {
         val result = linkedMapOf<String, String>()
         output.lineSequence().forEach { raw ->
             val line = raw.trimEnd('\r')
@@ -104,8 +120,9 @@ object CotaParsers {
             val marker = line.substring(64, 66)
             if (marker != "  " && marker != " *") return@forEach
             val path = line.substring(66)
-            val name = path.substringAfterLast('/')
-            if (!CotaPaths.isSafeName(name)) return@forEach
+            if (!path.startsWith(prefix)) return@forEach
+            val name = path.removePrefix(prefix)
+            if (!CotaPaths.isSafeRelativePath(name)) return@forEach
             result[name] = hash
         }
         return result
@@ -134,17 +151,21 @@ object CotaParsers {
             if (parts.size != 6) return@mapNotNull null
             val name = parts[0]
             val sha = parts[1]
-            val size = parts[2].toLongOrNull() ?: return@mapNotNull null
+            val size = parts[2].toLongOrNull()?.takeIf { it >= 0L }
+                ?: return@mapNotNull null
             val mode = parts[3]
             val uid = parts[4].toIntOrNull() ?: return@mapNotNull null
             val gid = parts[5].toIntOrNull() ?: return@mapNotNull null
-            if (!CotaPaths.isSafeName(name) ||
+            if (!CotaPaths.isSafeRelativePath(name) ||
                 !SHA256.matches(sha) ||
                 !CotaPaths.isSafeMode(mode) ||
                 uid < 0 || gid < 0
             ) return@mapNotNull null
             CotaBackupFile(name, sha, size, mode, uid, gid)
         }
-        return files.takeIf { it.size == lines.size - 1 }
+        if (files.size != lines.size - 1) return null
+        if (files.any { it.sizeBytes < 0L }) return null
+        if (files.map { it.name }.toSet().size != files.size) return null
+        return files
     }
 }

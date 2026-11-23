@@ -1,6 +1,6 @@
 # 两个项目的地址与产物
 
-> 更新：2026-11-22  
+> 更新：2026-11-23（审计修复后重新构建）  
 > 设备：HONOR AAP-AN00，MagicOS 10.0.0.102（Android 16，SDK 36），当前槽位 `a`  
 > 远程仓库：https://github.com/JiuQing1134/Nemu 与 https://github.com/JiuQing1134/Nagi（公开）。
 
@@ -11,18 +11,24 @@
 - **applicationId**：`com.nemu.dream`
 - **源码命名空间**：`com.nemu.hibernate`
 - **版本**：`1.3.3` / `versionCode 9`
-- **APK**：`D:\win_root\nemu\app\build\outputs\apk\debug\app-debug.apk`
-  - 33,375,281 字节
-  - SHA-256：`811c36d6a59a6321613f43a35dc8eb0588a5b7ec4776a2d2b364e4a5af105961`
+- **最终四包**（`dist/`，debug/release × arm64-v8a/x86_64）：
+  - `Nemu-1.3.3-arm64-v8a-debug.apk` — 34,700,954 字节 — `111cdb3eb168791cf5d9f04fca9d83f0382815a9943d026cb424fa70e604c79c`
+  - `Nemu-1.3.3-x86_64-debug.apk` — 34,701,615 字节 — `423920dd87b941ed73082bd397deda4d67b304967cd50020f1ec319532129047`
+  - `Nemu-1.3.3-arm64-v8a-release.apk` — 24,510,244 字节 — `426a23f8d43cec2bb080d5c2196d2eddc9cffecb85f12a29a1d8cf4027973e51`
+  - `Nemu-1.3.3-x86_64-release.apk` — 24,510,905 字节 — `0390ecfb10503a9d5340c4f9ac9977dc70a40199288a1644e1b2c40ded274d2d`
+  - ABI 已校验：arm64 只含 `lib/arm64-v8a`，x86_64 只含 `lib/x86_64`；release 已用私有
+    keystore 签名（`CN=Nemu`，证书 SHA-256 `1f35e73171516428dc80cf8e5645efe10f41bde510a4e1cb705409adcebf19a7`），
+    备份在 `D:\win_root\nemu-signing-backup\`。
 - **自启动模块**：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  - 10,043 字节
-  - SHA-256：`e3320a28c9c1de004f782af6a94ee1258f5b402a45d17002be2d77cfa59dd89f`
-  - 模块 ID：`nemu_boot_autostart`，v1.8；尚未安装到 FinaSU
+  - 10,546 字节
+  - SHA-256：`28aca824ed187f34809715c8f6351ba529ee5bfcbdf5b99cac5243695a23ff10`
+  - 模块 ID：`nemu_boot_autostart`，v1.9/versionCode 10；尚未安装到 FinaSU
 - **文档**：
   - `D:\win_root\nemu\README.md`
   - `D:\win_root\nemu\PROJECT.md`
   - `D:\win_root\nemu\docs\README.md`
 - **用途**：冻结/解冻系统更新、AI、云控/遥测、反诈、COTA 温控；不卸载系统应用。
+- **外观**：FlClash 配色/外观移植；默认蓝色鲜明，深色纯黑；详见 `docs/22-flclash-theme-2026-11-23.md`。
 - **图标**：白底黑色月亮。
 
 ## 2. 凪

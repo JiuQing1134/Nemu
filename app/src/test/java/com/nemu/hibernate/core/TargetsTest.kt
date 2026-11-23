@@ -8,11 +8,10 @@ import org.junit.Test
 
 class TargetsTest {
     @Test
-    fun updatePackage_is_first_and_disabled_by_default() {
+    fun updatePackage_is_first() {
         val update = Targets.all.first()
         assertEquals("com.hihonor.ouc", update.packageName)
         assertEquals(RiskLevel.YELLOW, update.risk)
-        assertTrue(!update.defaultEnabled)
     }
 
     @Test
@@ -44,14 +43,4 @@ class TargetsTest {
         assertFalse(DenyList.isProtected(ai.packageName))
     }
 
-    @Test
-    fun genericTargets_doNotIncludeAntiFraudPackages() {
-        val antiFraud = AntiFraudTargets.all.map { it.packageName }.toSet()
-        Targets.all.forEach { target ->
-            assertFalse(
-                "anti-fraud package must stay out of Targets.all: ${target.packageName}",
-                target.packageName in antiFraud
-            )
-        }
-    }
 }

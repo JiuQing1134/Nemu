@@ -1,6 +1,7 @@
 package com.nemu.hibernate
 
 import android.app.Application
+import android.content.Context
 import com.nemu.hibernate.core.TargetCatalog
 import com.nemu.hibernate.data.Settings
 import com.nemu.hibernate.logging.PersistentLogger
@@ -12,16 +13,41 @@ import com.nemu.hibernate.logging.PersistentLogger
 class NemuApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Custom targets must exist before any worker/safety path reads the
-        // catalog. SharedPreferences are available here (post-unlock).
-        runCatching {
-            TargetCatalog.setCustomTargets(
-                Settings(this).customTargets().map { (pkg, label) ->
-                    TargetCatalog.customTarget(pkg, label)
-                }
-            )
-        }
-        PersistentLogger.init(this)
+        // Direct boot can start this process for LOCKED_BOOT_COMPLETED while
+        // credential-encrypted prefs are unavailable. All Settings access is
+        // inside reloadAfterUnlock's runCatching and runs again on unlock.
+        reloadAfterUnlock(this)
         PersistentLogger.startup(this)
+        // Cold start after a process kill between locked boot and unlock:
+        // resume the boot-safety pass the runtime receiver never saw.
+        runCatching { com.nemu.hibernate.policy.BootReceiver.ensureBootSafetyIfPending(this) }
+    }
+
+    companion object {
+        /**
+         * Loads credential-encrypted state. Application.onCreate can run in
+         * direct boot, before the user unlocks; USER_UNLOCKED and
+         * BOOT_COMPLETED call this again before the boot worker reads the
+         * catalog or logging settings. All reads fail soft.
+         */
+        fun reloadAfterUnlock(context: Context) {
+            val appContext = context.applicationContext ?: context
+            runCatching {
+                val settings = Settings(appContext)
+                // Seed before any screen reads dryRun; old builds never
+                // persisted the key, so an upgrade must keep real execution.
+                settings.ensureDryRunDefault()
+                TargetCatalog.setCustomTargets(
+                    settings.customTargets().map { record ->
+                        TargetCatalog.customTarget(
+                            record.packageName,
+                            record.label,
+                            record.risk
+                        )
+                    }
+                )
+            }
+            PersistentLogger.init(appContext)
+        }
     }
 }

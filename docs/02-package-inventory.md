@@ -32,7 +32,7 @@
 | `com.honor.yoyoappsug` | App 建议 | 9.0.1.202 | 应用建议 | 绿 | 可 suspend |
 | `com.honor.yoyocards` | YOYO 建议卡片集 | 9.0.1.202 | YOYO 卡片 | 绿 | 可 suspend |
 | `com.hihonor.sceneservice` | 荣耀智慧空间基础服务 | 10.0.8.301 | AI 空间/场景服务 | 黄 | 可测试 suspend |
-| `com.hihonor.awareness` | 情景感知 | 10.0.0.375 | 情景感知、反诈、人脸活体/深伪 | **红** | 不整包冻结（见反诈节） |
+| `com.hihonor.awareness` | 情景感知 | 10.0.0.375 | 情景感知、反诈、人脸活体/深伪 | **红** | 默认观察；用户确认后可整包操作（见反诈节） |
 
 **结论**：v1 的 AI 冻结只做绿色叶子包；红色基础服务保持完整，最多做网络/后台/组件级限制。红色包整包冻结很可能就是用户之前“系统 AI 一禁用就崩”的来源（待用户确认具体包）。
 
@@ -42,10 +42,10 @@
 
 | 包 | 中文标签 | 版本 | 作用 | 风险 | 建议 |
 |---|---|---|---|---|---|
-| `com.hihonor.securityserver` | **安全公共服务** | 12.1.0.1 | 反诈核心：采集/上报通话、短信、位置、应用列表等；uid=system | **红** | Nemu 反诈模块只做 `appops RUN_ANY_IN_BACKGROUND ignore` + `standby restricted`；永不整包暂停/停用/强停 |
-| `com.hihonor.awareness` | **情景感知** | 10.0.0.375 | 41 处 fraud 逻辑 + 独立上报；人脸活体/深伪载体 | **红** | 同 securityserver：只做 AppOps/standby，永不整包操作 |
-| `com.hihonor.numberidentity` | **号码识别** | 18.0.10.305 | 在线识别骚扰/诈骗号码；上传未知来电去电号码 | 黄 | Nemu 提供 `suspend` 或 `disable-user`（用户选择、可恢复）；会失去号码识别/标记 |
-| `com.hihonor.securitypluginbase` | HnSecurityPluginBase | 16.0.0.101 | 安全插件底座（疑似） | 黄 | Nemu 仅观察，不提供操作 |
+| `com.hihonor.securityserver` | **安全公共服务** | 12.1.0.1 | 反诈核心：采集/上报通话、短信、位置、应用列表等；uid=system | **红** | 默认只观察；通用目标模型允许用户明确选择暂停/停用，但会破坏支付保护/反诈，需自行确认后果 |
+| `com.hihonor.awareness` | **情景感知** | 10.0.0.375 | 41 处 fraud 逻辑 + 独立上报；人脸活体/深伪载体 | **红** | 默认只观察；整包操作同样可破坏活体/情景功能 |
+| `com.hihonor.numberidentity` | **号码识别** | 18.0.10.305 | 在线识别骚扰/诈骗号码；上传未知来电去电号码 | 黄 | Nemu 提供 `suspend`/`disable-user`/`hide`（用户选择、可恢复）；会失去号码识别/标记 |
+| `com.hihonor.securitypluginbase` | HnSecurityPluginBase | 16.0.0.101 | 安全插件底座（疑似） | 黄 | 默认观察；通用目标模型可选，风险自负 |
 | `com.hihonor.systemmanager` | 系统管家 | （125 MB） | 安全扫描、隐私助手 UI | 红 | 不要停用 |
 | `com.hihonor.trustspace` | **支付保护中心** | 16.0.0.001 | 识别支付应用、支付保护 | 黄 | 不是反诈；不用支付保护可停 |
 | `com.hihonor.contactscamcard` | **扫名片** | 17.0.0.5 | 名片扫描（Camcard = business card） | 绿/无关 | 与反诈无关，不要误杀 |
@@ -58,7 +58,7 @@
 - `numberidentity` APK 字符串明确写着在线号码识别会上传未知来电/去电号码，并标记 scam/fraud。
 - 社区反馈：反诈相关开关在系统更新后可能默认重新开启。
 
-**Nemu 实现（2026-11-21）**：`AntiFraudTargets` 与通用 `Targets.all` 分离；`DenyList` 保护四个反诈包，防止通用冻结误操作。`AntiFraudPolicy` 只允许上述矩阵内的命令，并拒绝任何整包暂停/停用 `securityserver`/`awareness` 的尝试。`numberidentity` 纳入 `SafetyTargets` 关机/开机安全解冻。
+**Nemu 实现（2026-11-23 更新）**：反诈包的独立 `AntiFraudPolicy`/`DenyList` 硬阻断已移除，统一进入通用目标模型（用户此前明确要求所有已安装应用都可冻结）。`securityserver`/`awareness` 默认 `OBSERVE`、红色风险提示；用户明确选择后可执行通用策略。`numberidentity` 的 legacy mode 仍映射 SUSPEND/DISABLE_USER/HIDE，并纳入关机/开机安全解冻。
 
 ## 4. 云控 / 遥测 / 运营商
 
@@ -74,7 +74,7 @@
 | `com.hihonor.android.pushagent` | 荣耀推送服务 | 11.0.11.313 | Honor Push 通道 | 黄 | Nemu 不提供操作；在 `DenyList` 中 |
 | `com.hihonor.systemserver` | 系统服务 | 70.1.0.1 | HONOR 核心系统服务 | **红** | 绝对不要动 |
 | `com.hihonor.devicemanager` | 系统管家 | 16.0.0.340 | 系统管理 UI；拥有 `com.hihonor.permission.sec.MDM.v2`、`ACCESS_UDID` | 红 | 不要动 |
-| `/data/cota/para` | （目录） | - | 云控性能/温控参数：`cpuconfig`、`pg_config`、`thermal_config` | **红（root 操作）** | Nemu 只读清单；备份后逐项删除；不要盲目删除 |
+| `/data/cota/para` | （目录） | - | 云控性能/温控参数：`cpuconfig`、`pg_config`、`thermal_config`；真机 102 上为子目录，例如 `thermal_config/thermal_config_cloud.xml` | **红（root 操作）** | Nemu 递归只读清单并按子系统分组；备份后逐项删除；不要盲目删除 |
 
 **Nemu 实现（2026-11-21）**：`CloudTargets` / `CloudController`。运营商 DM 三件套是云控模块中唯一允许 `pm disable-user` 的目标（静态白名单 + 逐项确认 + `pm enable` 回滚）；遥测三项固定用 `suspend` + `force-stop`，不使用 `disable-user`；`cipservice` 仅观察；`pushagent` 不提供操作。遥测三项纳入 `SafetyTargets` 关机/开机安全解冻。
 
@@ -109,7 +109,7 @@
 
 结论：**停用 powergenie/iaware 会造成大面积绑定失败，并失去温控/充电保护**。如果目标是阻断云端性能/温控参数，只能走 COTA 参数清理（root，备份后逐项），并接受发热/充电风险。
 
-**Nemu COTA 实现（2026-11-21）**：只读 `/data/cota/para` 清单；备份到 `/storage/emulated/0/Nemu/cota-backup/<timestamp>/` 并写 `manifest.tsv`（SHA-256/大小/mode/uid/gid）；删除前校验备份存在、备份副本与清单一致、当前 hash 与备份一致；只对选中文件执行 `rm -f`；恢复前校验备份副本，恢复后重新校验 SHA-256。只接受 `RootPrivilegeBackend`，无 Shizuku 回退；默认关闭。**不触碰** powergenie/iaware/vendor HAL/内核 thermal zone。
+**Nemu COTA 实现（2026-11-23 更新）**：递归只读 `/data/cota/para`（相对路径最多 4 层，拒绝绝对路径、空段与 `..`），按子系统分组显示；备份到 App 私有 `filesDir/cota-backup/<timestamp>/`，保留子目录并写 `manifest.tsv`（相对路径/SHA-256/大小/mode/uid/gid）；删除前校验备份存在、备份副本与清单一致、当前 hash 与备份一致；只对选中文件执行 `rm -f`（不删目录）；恢复前校验备份副本，必要时重建目标子目录，恢复后重新校验 SHA-256。只接受 `RootPrivilegeBackend`，无 Shizuku 回退；默认关闭。**不触碰** powergenie/iaware/vendor HAL/内核 thermal zone。
 
 ## 6. 风险分级汇总
 

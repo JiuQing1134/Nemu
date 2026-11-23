@@ -150,13 +150,13 @@ com.hihonor.android.pushagent
 
 ### 4.5 安全设计
 
-1. **Never uninstall / never disable（运营商 DM 例外）**：代码中不存在 `pm uninstall`；`pm disable-user` 只出现在 `CloudController`（运营商 DM 三件套，静态白名单 + 逐项确认 + `pm enable` 回滚）与 `AntiFraudPolicy`（仅 `numberidentity`，用户选择）中。`securityserver` / `awareness` 永不整包暂停/停用/强停。
-2. **硬性禁止清单**：UI 与后端双重校验，拒绝冻结红色包。
+1. **Never uninstall**：代码中不存在 `pm uninstall`。所有已安装应用（含系统核心）都进入通用目标模型，`pm disable-user`/`suspend`/`hide` 仅在用户明确选择并确认后执行；运营商 DM 三件套仍走独立白名单与 `pm enable` 回滚。
+2. **红色风险不硬阻断**：红色目标显示高风险警告，默认观察；用户确认后可执行。反诈 `securityserver`/`awareness` 的整包操作可能破坏支付保护/活体/反诈，风险自负。
 3. **Dry run**：首次运行可只显示将执行的命令，不实际执行。
 4. **Restore all**：一键对所有目标 `unsuspend`；如检测到目标被外部工具 disable，提示用户手动 `pm enable`（不自动执行）。
 5. **安全解冻（必须）**：见 4.4；`SafetyUnfreezer` 不受 Dry run 影响。安全集合由 `SafetyTargets` 统一维护：核心目标 + hiview 三件套 + `numberidentity`；运营商 DM 三件套是 `disable-user`，安全路径不执行 `pm enable`。因为不再自动重新冻结，不需要 bootloop guard；用户手动重新应用后重启，由关机安全解冻负责恢复。
 6. **日志**：每次操作记录时间、包、后端、命令、结果；App 内可查看，导出推迟到 P4。
-7. **确认（已实现）**：运营商 DM 三件套停用、COTA 删除/恢复均有二次确认；反诈 `numberidentity` 停用有确认；`securityserver` / `awareness` 只允许 AppOps/standby 限制。
+7. **确认（已实现）**：运营商 DM 三件套停用、COTA 删除/恢复均有二次确认；`numberidentity` 停用有确认；`securityserver` / `awareness` 默认 `OBSERVE`，红色警告后允许用户选择的通用整包策略。
 
 ### 4.6 UI
 
@@ -253,35 +253,35 @@ nemu/
 | 目标 | 默认操作 | 风险 |
 |---|---|---|
 | `com.hihonor.numberidentity`（号码识别） | 可选 `disable-user` / `suspend` | 失去号码识别/诈骗标记 |
-| `com.hihonor.securityserver`（安全公共服务） | **不整包停用**；仅提供 `appops RUN_ANY_IN_BACKGROUND ignore` + `standby restricted` | 反诈核心 + 安全服务 |
-| `com.hihonor.awareness`（情景感知） | **不整包停用**；仅提供 `appops RUN_ANY_IN_BACKGROUND ignore` + `standby restricted` | 反诈 + 人脸活体/深伪 |
-| `com.hihonor.securitypluginbase` | 观察，不提供一键停用 | 关联安全服务 |
+| `com.hihonor.securityserver`（安全公共服务） | 默认 `OBSERVE`；用户确认可选通用 SUSPEND/DISABLE/HIDE/限制 | 反诈核心 + 安全服务 |
+| `com.hihonor.awareness`（情景感知） | 默认 `OBSERVE`；用户确认可选通用策略 | 反诈 + 人脸活体/深伪 |
+| `com.hihonor.securitypluginbase` | 默认观察；通用模型可选 | 关联安全服务 |
 
-说明：`securityserver` / `awareness` 的反诈逻辑与安全/生物识别耦合，组件级禁用或整包停用都可能导致功能异常。v1 只做 `numberidentity` 的可逆停用 + 对两个核心包的后台/待机限制（AppOps/standby），不提供“一键反诈关闭”。如果后续要更彻底，需要独立模块 + 逐项实机验证。
+说明：`securityserver` / `awareness` 的反诈逻辑与安全/生物识别耦合，组件级禁用或整包停用都可能导致功能异常。默认策略是 `OBSERVE`；通用目标模型允许用户在红色警告后选择暂停/停用/隐藏。任何“永不整包操作”的旧承诺已失效。
 
-**实现（2026-11-21）**：
+**实现（2026-11-23 更新）**：
 
-- `AntiFraudPolicy` 是命令矩阵的唯一来源：`numberidentity` 允许 `suspend` / `disable-user`；`securityserver` / `awareness` 只允许 `appops RUN_ANY_IN_BACKGROUND ignore|allow` 与 `standby restricted|active`；`securitypluginbase` 无操作。
-- `AntiFraudTargets` 不加入 `Targets.all`，`DenyList` 保护全部四个反诈包，防止通用冻结误操作。
-- `Securityserver` / `awareness` 的 `appops` 与 `standby` 命令不保证在所有 MagicOS 构建上生效；失败只记录日志，不重试为整包操作。
-- `numberidentity` 纳入 `SafetyTargets`；`pm unsuspend` 幂等，且不会自动取消 `disable-user`。
-- 设置键：`antifraud_numberidentity_mode`、`antifraud_securityserver_restrict`、`antifraud_awareness_restrict`、`antifraud_last_result`；默认关闭。
+- 旧 `AntiFraudPolicy`/`AntiFraudTargets`/`DenyList` 硬阻断已移除，反诈包进入 `TargetCatalog` 通用模型；`numberidentity` 的 legacy mode 映射 SUSPEND/DISABLE_USER/HIDE。
+- `securityserver`/`awareness` 默认 `OBSERVE`，`RiskLevel.RED`；用户明确选择后才执行通用策略，整包操作可能导致支付/活体/反诈异常。
+- `numberidentity` 纳入关机/开机安全解冻；`pm unsuspend` 幂等，且不会自动取消 `disable-user`。
+- 设置键：`antifraud_numberidentity_mode` 仍兼容旧值；`antifraud_*_restrict` 旧键不再驱动独立命令矩阵。
 
 ### 7.3 温控 / COTA 模块（root-only）
 
-- 读取 `/data/cota/para` 下的 `cpuconfig`、`pg_config`、`thermal_config`（以及同目录其他文件）的文件名、大小、SHA-256。
-- **备份**到 App 外部目录或 `/sdcard/Nemu/cota-backup/<timestamp>/`。
+- 递归读取 `/data/cota/para` 下最多 4 层的文件（真机 102 的 `thermal_config/thermal_config_cloud.xml` 等在子系统子目录内），记录相对路径、大小、SHA-256；UI 按子系统分组，温控组默认展开。
+- **备份**到 App 私有 `filesDir/cota-backup/<timestamp>/`，保留相对目录结构。
 - 用户确认后删除选中的云控参数文件；支持从备份恢复。
 - **不触碰** `com.hihonor.powergenie`、`com.hihonor.iaware`、vendor HAL、内核 thermal zone。
 - UI 必须显示风险确认：删除温控参数可能导致发热、充电变慢、降频策略改变；不保证提升性能；系统可能重新下发。
 - 该模块默认关闭；只在 Root 后端可用。
 
-**实现（2026-11-21）**：
+**实现（2026-11-23 更新）**：
 
 - `CotaController` 的构造参数是 `RootPrivilegeBackend?`；`ShizukuBackend` 不实现该 marker，因此不存在 Shizuku 回退。
-- 备份目录：`/storage/emulated/0/Nemu/cota-backup/<yyyyMMdd-HHmmss>/`；每个备份包含副本与 `manifest.tsv`（SHA-256/大小/mode/uid/gid），写入后回读校验。
-- 删除前置条件：备份清单存在、备份副本 hash 与清单一致、当前文件 hash 与备份一致、文件名通过安全字符校验；只对选中文件执行 `rm -f`，没有 `rm -rf`。
-- 恢复前先校验备份副本 hash；恢复后重新计算 SHA-256 并校验；mode/uid/gid 由 `chown`/`chmod` 恢复，SELinux context 不单独保存（风险见测试计划）。
+- 文件标识是相对 `/data/cota/para` 的路径：1–4 段，每段必须匹配 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`；拒绝绝对路径、空段、`.`/`..` 与超长路径。
+- 备份目录：`filesDir/cota-backup/<yyyyMMdd-HHmmss>/`；每个备份保留子目录副本与 `manifest.tsv`（相对路径/SHA-256/大小/mode/uid/gid），写入后回读校验。
+- 删除前置条件：备份清单存在、备份副本 hash 与清单一致、当前文件 hash 与备份一致、相对路径通过安全校验；只对选中文件执行 `rm -f`，没有 `rm -rf`，不删除目录。
+- 恢复前先校验备份副本 hash；必要时 `mkdir -p` 目标子目录，恢复后重新计算 SHA-256 并校验；mode/uid/gid 由 `chown`/`chmod` 恢复，SELinux context 不单独保存（风险见测试计划）。
 - 不触碰 `com.hihonor.powergenie`、`com.hihonor.iaware`、vendor HAL、内核 thermal zone；COTA 模块不执行 `pm` 命令。
 - 默认关闭（`Settings.cotaEnabled=false`）；开关状态持久化，但每次操作都重新检查 Root。
 

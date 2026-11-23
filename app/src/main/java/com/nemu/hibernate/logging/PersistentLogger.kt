@@ -9,6 +9,8 @@ import java.io.File
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 文件日志（docs/07 §7）。
@@ -43,9 +45,16 @@ object PersistentLogger {
     private val STARTUP_FILE_NAME = Regex("""startup-\d{8}-\d{6}\.txt""")
 
     private val writeLock = Any()
+    private val writer = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "nemu-log").apply { isDaemon = true }
+    }
 
     @Volatile
     private var enabled = false
+
+    /** Production writes are serialized off the UI thread. */
+    @Volatile
+    private var asyncWrites = false
 
     @Volatile
     private var dirs: List<File> = emptyList()
@@ -62,14 +71,20 @@ object PersistentLogger {
         synchronized(writeLock) {
             dirs = candidates
             enabled = loggingEnabled
+            asyncWrites = true
         }
     }
 
     /** JVM 测试入口：直接指定日志根目录与开关，不触碰 Android API。 */
-    fun initForTest(root: File, enabled: Boolean) {
+    fun initForTest(
+        root: File,
+        enabled: Boolean,
+        asyncWrites: Boolean = false
+    ) {
         synchronized(writeLock) {
             dirs = listOf(root)
             this.enabled = enabled
+            this.asyncWrites = asyncWrites
         }
     }
 
@@ -87,6 +102,17 @@ object PersistentLogger {
     /** 追加一行日志；关闭、目录不可写或任何 IO 失败时静默返回。 */
     fun log(level: String, tag: String, message: String) {
         if (!enabled) return
+        if (dirs.isEmpty()) return
+        if (asyncWrites) {
+            // Do not make a UI callback wait on logcat/file IO. A single
+            // daemon writer preserves ordering; readers call flushWrites().
+            runCatching { writer.execute { writeLine(level, tag, message) } }
+        } else {
+            writeLine(level, tag, message)
+        }
+    }
+
+    private fun writeLine(level: String, tag: String, message: String) {
         val candidates = dirs
         if (candidates.isEmpty()) return
         synchronized(writeLock) {
@@ -111,6 +137,13 @@ object PersistentLogger {
         }
     }
 
+    private fun flushWrites() {
+        if (!asyncWrites) return
+        runCatching {
+            writer.submit {}.get(2, TimeUnit.SECONDS)
+        }
+    }
+
     /** 记录启动信息：版本、pid、boot count、进程名（docs/07 §7.3）。 */
     fun startup(context: Context) {
         val version = appVersion(context)
@@ -132,22 +165,38 @@ object PersistentLogger {
     }
 
     /** 最近日志行（按时间正序），跨轮转文件读取，最多 [max] 行。 */
-    fun recentLines(max: Int): List<String> = recentLinesIn(dirs, max)
+    fun recentLines(max: Int): List<String> {
+        flushWrites()
+        return recentLinesIn(dirs, max)
+    }
 
     /** 同上，但目录从 [context] 解析（UI 可在未依赖内存状态时使用）。 */
-    fun recentLines(context: Context, max: Int): List<String> =
-        recentLinesIn(candidateDirs(context), max)
+    fun recentLines(context: Context, max: Int): List<String> {
+        flushWrites()
+        return recentLinesIn(candidateDirs(context), max)
+    }
 
     /** 日志目录内的 `nemu-*.log` 与 `startup-*.txt`，按修改时间倒序。 */
-    fun files(): List<File> = listLogFiles(dirs)
+    fun files(): List<File> {
+        flushWrites()
+        return listLogFiles(dirs)
+    }
 
-    fun files(context: Context): List<File> =
-        listLogFiles(candidateDirs(context))
+    fun files(context: Context): List<File> {
+        flushWrites()
+        return listLogFiles(candidateDirs(context))
+    }
 
     /** 删除本工具生成的日志文件（不删除其它文件）。 */
-    fun clear() = deleteLogFiles(dirs)
+    fun clear() {
+        flushWrites()
+        deleteLogFiles(dirs)
+    }
 
-    fun clear(context: Context) = deleteLogFiles(candidateDirs(context))
+    fun clear(context: Context) {
+        flushWrites()
+        deleteLogFiles(candidateDirs(context))
+    }
 
     /**
      * 用给定后端抓取启动 logcat（`logcat -b all -d -t 3000`），写入

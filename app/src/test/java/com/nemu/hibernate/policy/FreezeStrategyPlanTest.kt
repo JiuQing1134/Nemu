@@ -2,10 +2,12 @@ package com.nemu.hibernate.policy
 
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyOptions
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetCategory
 import com.nemu.hibernate.core.TargetComponent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,7 +27,6 @@ class FreezeStrategyPlanTest {
         label = "Red",
         risk = RiskLevel.RED,
         category = TargetCategory.AI,
-        supportedStrategies = com.nemu.hibernate.core.FreezeStrategyPolicy.redSupported,
         components = listOf(component)
     )
 
@@ -41,6 +42,32 @@ class FreezeStrategyPlanTest {
     }
 
     @Test
+    fun suspendWithoutForceStopEmitsOnlySuspend() {
+        val plan = FreezeStrategyPlanner.apply(
+            green,
+            FreezeStrategy.SUSPEND,
+            options = StrategyOptions(forceStop = false)
+        )
+
+        assertEquals(1, plan.commands.size)
+        assertTrue(plan.commands[0].contains("pm suspend"))
+        assertTrue(plan.commands.none { it.contains("force-stop") })
+    }
+
+    @Test
+    fun suspendWithExplicitForceStopEmitsBoth() {
+        val plan = FreezeStrategyPlanner.apply(
+            green,
+            FreezeStrategy.SUSPEND,
+            options = StrategyOptions(forceStop = true)
+        )
+
+        assertEquals(2, plan.commands.size)
+        assertTrue(plan.commands.any { it.contains("pm suspend") })
+        assertTrue(plan.commands.any { it.contains("force-stop") })
+    }
+
+    @Test
     fun componentPlanDisablesOnlyRegisteredComponentsAndRestoresDefaultState() {
         val plan = FreezeStrategyPlanner.apply(red, FreezeStrategy.COMPONENT)
 
@@ -52,13 +79,17 @@ class FreezeStrategyPlanTest {
     }
 
     @Test
-    fun redPackageCannotBeDisabledAsWholePackage() {
+    fun redPackageCanBeDisabledWithWarning() {
         val error = com.nemu.hibernate.core.FreezeStrategyPolicy.validate(
             red,
             FreezeStrategy.DISABLE_USER
         )
 
-        assertTrue(error != null)
+        assertNull(error)
+        assertTrue(
+            com.nemu.hibernate.core.FreezeStrategyPolicy
+                .requiresHighRiskWarning(red, FreezeStrategy.DISABLE_USER)
+        )
     }
 
     @Test
@@ -80,13 +111,17 @@ class FreezeStrategyPlanTest {
     }
 
     @Test
-    fun redPackageCannotBeHidden() {
+    fun redPackageCanBeHiddenWithWarning() {
         val error = com.nemu.hibernate.core.FreezeStrategyPolicy.validate(
             red,
             FreezeStrategy.HIDE
         )
 
-        assertTrue(error != null)
+        assertNull(error)
+        assertTrue(
+            com.nemu.hibernate.core.FreezeStrategyPolicy
+                .requiresHighRiskWarning(red, FreezeStrategy.HIDE)
+        )
     }
 
     @Test

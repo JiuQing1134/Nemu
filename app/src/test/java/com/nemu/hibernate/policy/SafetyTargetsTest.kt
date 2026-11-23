@@ -1,8 +1,6 @@
 package com.nemu.hibernate.policy
 
 import com.nemu.hibernate.core.AiTargets
-import com.nemu.hibernate.core.AntiFraudTargets
-import com.nemu.hibernate.core.CloudTargets
 import com.nemu.hibernate.core.Targets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,12 +19,9 @@ class SafetyTargetsTest {
     }
 
     @Test
-    fun includesCloudSuspendTargetsAndNumberIdentity() {
-        CloudTargets.suspendPackageNames.forEach {
-            assertTrue(it, it in SafetyTargets.suspendPackageNames)
-        }
+    fun includesNumberIdentityAndEveryAiTarget() {
         assertTrue(
-            AntiFraudTargets.NUMBER_IDENTITY in SafetyTargets.suspendPackageNames
+            "com.hihonor.numberidentity" in SafetyTargets.suspendPackageNames
         )
         AiTargets.all.forEach {
             assertTrue(
@@ -37,12 +32,16 @@ class SafetyTargetsTest {
     }
 
     @Test
-    fun includesCarrierDmBecauseTheCatalogAllowsSuspendForThem() {
-        CloudTargets.disableUserAllowed.forEach {
-            assertTrue(it, it in SafetyTargets.suspendPackageNames)
-        }
+    fun includesCloudCategoryTargetsBecauseSuspendIsSelectable() {
         // Suspend-capable catalog targets are included so shutdown can always
         // clear them, even when their default strategy is OBSERVE.
+        listOf(
+            "com.hihonor.regservice",
+            "com.hihonor.android.UEInfoCheck",
+            "com.hihonor.android.AutoRegSms"
+        ).forEach {
+            assertTrue(it, it in SafetyTargets.suspendPackageNames)
+        }
         assertTrue(
             "com.hihonor.cipservice" in SafetyTargets.suspendPackageNames
         )
@@ -81,14 +80,14 @@ class SafetyTargetsTest {
     }
 
     @Test
-    fun excludesCatalogTargetsThatAreOnlyComponentOrObserve() {
+    fun includesEveryCatalogTargetForOwnedSafetyCleanup() {
         listOf(
             "com.hihonor.systemserver",
             "com.hihonor.powergenie",
             "com.hihonor.iaware",
             "com.hihonor.android.pushagent"
         ).forEach {
-            assertFalse(it, it in SafetyTargets.suspendPackageNames)
+            assertTrue(it, it in SafetyTargets.suspendPackageNames)
         }
     }
 }

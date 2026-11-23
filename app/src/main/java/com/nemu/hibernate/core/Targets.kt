@@ -6,11 +6,6 @@ object Targets {
         label = "软件更新",
         risk = RiskLevel.YELLOW,
         category = TargetCategory.UPDATE,
-        supportedStrategies = setOf(
-            FreezeStrategy.SUSPEND,
-            FreezeStrategy.COMPONENT,
-            FreezeStrategy.OBSERVE
-        ),
         components = listOf(
             // CotaService is deliberately NOT listed: HnStartupGuide/system
             // bind it during setup and disabling it can break the first-run

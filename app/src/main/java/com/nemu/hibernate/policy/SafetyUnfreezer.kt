@@ -6,9 +6,10 @@ import com.nemu.hibernate.data.ActionLog
 import com.nemu.hibernate.privilege.PrivilegeBackend
 
 /**
- * Always-on safety path: unsuspend every known target in one shell command.
- * This deliberately ignores [com.nemu.hibernate.data.Settings.dryRun] — safety
- * must never be disabled by the dry-run setting.
+ * Always-on safety path: unsuspend every known target, one package per root
+ * command so a removed package cannot abort the rest. This deliberately
+ * ignores [com.nemu.hibernate.data.Settings.dryRun] — safety must never be
+ * disabled by the dry-run setting.
  */
 data class SafetyResult(
     val ok: Boolean,
@@ -50,9 +51,14 @@ object SafetyUnfreezer {
             commands += command
             val result = backend.exec(command)
             val text = result.output
-            val unknown = text.contains("Unknown target package", ignoreCase = true) ||
-                text.contains("Unknown package", ignoreCase = true) ||
-                text.contains("not found", ignoreCase = true)
+            // Only pm's explicit package-not-found text with exit 0 counts as
+            // "already resolved". A backend failure such as "su not found"
+            // must never clear ownership or satisfy the bootloop guard.
+            // exit -1 means the backend itself failed (e.g. su disappeared);
+            // a real pm failure has a non-negative exit code.
+            val unknown = result.exitCode >= 0 &&
+                (text.contains("Unknown target package", ignoreCase = true) ||
+                    text.contains("Unknown package", ignoreCase = true))
             // pm unsuspend exits 0 even when it cannot clear a suspension owned
             // by a different suspendingPackage. Treat remaining "state: true"
             // as failure so the bootloop guard fails closed.

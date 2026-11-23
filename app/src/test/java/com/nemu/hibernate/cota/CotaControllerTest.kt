@@ -32,6 +32,14 @@ class CotaControllerTest {
 
         override suspend fun isAvailable(): Boolean = true
 
+        private fun sourceRelative(path: String): String =
+            path.removePrefix(CotaPaths.SOURCE_DIR + "/")
+
+        private fun backupRelative(path: String): String =
+            path.removePrefix(
+                "/storage/emulated/0/Nemu/cota-backup/20261121-183000/"
+            )
+
         override suspend fun exec(command: String): ShellResult {
             commands += command
             return when {
@@ -45,12 +53,24 @@ class CotaControllerTest {
                         ShellResult(0, CotaPaths.DIR_MISSING)
                     }
 
+                command.startsWith("stat -c %s ") -> {
+                    val text = manifest
+                    if (text == null) {
+                        ShellResult(1, "missing")
+                    } else {
+                        ShellResult(
+                            0,
+                            text.toByteArray(Charsets.UTF_8).size.toString()
+                        )
+                    }
+                }
+
                 command.startsWith("stat -c") -> {
                     val paths = command.substringAfter("'%n|%s|%a|%u|%g' ")
                         .split(" ")
                         .map { it.trim('\'') }
                     val lines = paths.map { path ->
-                        val file = files[path.substringAfterLast('/')]
+                        val file = files[sourceRelative(path)]
                             ?: return ShellResult(1, "missing")
                         "$path|${file.size}|${file.mode}|${file.uid}|${file.gid}"
                     }
@@ -62,11 +82,19 @@ class CotaControllerTest {
                         .split(" ")
                         .map { it.trim('\'') }
                     val lines = paths.map { path ->
-                        val file = files[path.substringAfterLast('/')]
+                        val file = files[sourceRelative(path)]
                             ?: return ShellResult(1, "missing")
                         "${file.sha}  $path"
                     }
                     ShellResult(0, lines.joinToString("\n"))
+                }
+
+                command.contains("[ -f '") &&
+                    command.contains(" cp -p ") -> {
+                    backupHashes.forEach { (name, sha) ->
+                        files[name] = FakeFile(1024, sha, "644", 1000, 1000)
+                    }
+                    ShellResult(0, "")
                 }
 
                 command.startsWith("mkdir -p") -> ShellResult(0, "")
@@ -76,7 +104,7 @@ class CotaControllerTest {
                         .split(" ")
                         .map { it.trim('\'') }
                     val lines = paths.map { path ->
-                        val name = path.substringAfterLast('/')
+                        val name = backupRelative(path)
                         val sha = backupHashes[name]
                             ?: return ShellResult(1, "missing backup")
                         "$sha  $path"
@@ -99,16 +127,24 @@ class CotaControllerTest {
                     if (text == null) ShellResult(1, "missing") else ShellResult(0, text)
                 }
 
-                command.startsWith("rm -f ") -> {
-                    command.removePrefix("rm -f ")
+                command.contains("rm -f ") -> {
+                    command.substringAfterLast("rm -f ")
                         .split(" ")
                         .map { it.trim('\'') }
-                        .forEach { files.remove(it.substringAfterLast('/')) }
+                        .filter { it.isNotEmpty() }
+                        .forEach { files.remove(sourceRelative(it)) }
                     ShellResult(0, "")
                 }
 
                 command.startsWith("[ -d '/data/cota/para' ]") ->
                     ShellResult(0, if (dirExists) "yes" else "no")
+
+                command.startsWith("[ -f '") -> {
+                    backupHashes.forEach { (name, sha) ->
+                        files[name] = FakeFile(1024, sha, "644", 1000, 1000)
+                    }
+                    ShellResult(0, "")
+                }
 
                 command.startsWith("cp -p '/storage/emulated/0/Nemu") -> {
                     backupHashes.forEach { (name, sha) ->
@@ -170,6 +206,17 @@ class CotaControllerTest {
     }
 
     @Test
+    fun backup_rejects_a_root_manifest_name_before_touching_disk() = runBlocking {
+        val backend = FakeRootBackend()
+        backend.files["manifest.tsv"] = FakeFile(10, hashA, "644", 0, 0)
+
+        val result = controller(backend).backup(setOf("manifest.tsv"))
+
+        assertTrue(result is CotaResult.Error)
+        assertTrue(backend.commands.isEmpty())
+    }
+
+    @Test
     fun backup_fails_without_selection() = runBlocking {
         val backend = FakeRootBackend()
         val result = controller(backend).backup(emptySet())
@@ -216,7 +263,7 @@ class CotaControllerTest {
             riskAcknowledged = false
         )
         assertTrue(result is CotaResult.Error)
-        assertTrue(backend.commands.none { it.startsWith("rm -f ") })
+        assertTrue(backend.commands.none { it.contains("rm -f ") })
     }
 
     @Test
@@ -228,7 +275,7 @@ class CotaControllerTest {
             riskAcknowledged = true
         )
         assertTrue(result is CotaResult.Error)
-        assertTrue(backend.commands.none { it.startsWith("rm -f ") })
+        assertTrue(backend.commands.none { it.contains("rm -f ") })
     }
 
     @Test
@@ -244,7 +291,7 @@ class CotaControllerTest {
             riskAcknowledged = true
         )
         assertTrue(result is CotaResult.Error)
-        assertTrue(backend.commands.none { it.startsWith("rm -f ") })
+        assertTrue(backend.commands.none { it.contains("rm -f ") })
     }
 
     @Test
@@ -260,7 +307,7 @@ class CotaControllerTest {
             riskAcknowledged = true
         )
         assertTrue(result is CotaResult.Error)
-        assertTrue(backend.commands.none { it.startsWith("rm -f ") })
+        assertTrue(backend.commands.none { it.contains("rm -f ") })
         assertTrue(backend.files.containsKey("cpuconfig"))
     }
 
@@ -277,7 +324,7 @@ class CotaControllerTest {
             riskAcknowledged = true
         )
         assertTrue(result is CotaResult.Error)
-        assertTrue(backend.commands.none { it.startsWith("rm -f ") })
+        assertTrue(backend.commands.none { it.contains("rm -f ") })
         assertTrue(backend.files.containsKey("cpuconfig"))
     }
 
@@ -297,7 +344,9 @@ class CotaControllerTest {
             assertTrue(result is CotaResult.Ok)
             assertTrue(backend.files.isEmpty())
             assertTrue(
-                backend.commands.any { it == "rm -f '/data/cota/para/cpuconfig'" }
+                backend.commands.any {
+                    it.endsWith("rm -f '/data/cota/para/cpuconfig'")
+                }
             )
         }
 
@@ -318,6 +367,22 @@ class CotaControllerTest {
     }
 
     @Test
+    fun restore_refuses_special_mode_before_running_a_command() = runBlocking {
+        val backend = FakeRootBackend()
+        val nested = "thermal_config/thermal_config_cloud.xml"
+        backend.files[nested] = FakeFile(452048, hashA, "4755", 0, 0)
+        backend.manifest = CotaParsers.renderManifest(
+            listOf(CotaBackupFile(nested, hashA, 452048, "4755", 0, 0))
+        )
+        backend.backupHashes = mapOf(nested to hashA)
+
+        val result = controller(backend).restore("20261121-183000")
+
+        assertTrue(result is CotaResult.Error)
+        assertTrue(backend.commands.none { it.startsWith("cp -p") })
+    }
+
+    @Test
     fun restore_copies_and_verifies_the_manifest_hash() = runBlocking {
         val backend = FakeRootBackend()
         backend.files["cpuconfig"] = FakeFile(1024, hashB, "644", 1000, 1000)
@@ -330,6 +395,46 @@ class CotaControllerTest {
 
         assertTrue(result is CotaResult.Ok)
         assertEquals(hashA, backend.files.getValue("cpuconfig").sha)
-        assertTrue(backend.commands.any { it.startsWith("cp -p '/storage") })
+        assertTrue(backend.commands.any { it.contains("cp -p '/storage") })
+    }
+
+    @Test
+    fun nested_parameter_is_listed_backed_up_deleted_and_restored() = runBlocking {
+        val backend = FakeRootBackend()
+        val nested = "thermal_config/thermal_config_cloud.xml"
+        backend.files.clear()
+        backend.files[nested] = FakeFile(452048, hashA, "644", 0, 0)
+        backend.backupHashes = mapOf(nested to hashA)
+
+        val listed = controller(backend).listFiles()
+        assertTrue(listed is CotaResult.Ok)
+        val file = (listed as CotaResult.Ok<List<CotaFile>>).value.single()
+        assertEquals(nested, file.name)
+        assertEquals(CotaFileKind.THERMAL_CONFIG, file.kind)
+
+        val backedUp = controller(backend).backup(setOf(nested))
+        assertTrue(backedUp is CotaResult.Ok)
+        val backup = (backedUp as CotaResult.Ok<CotaBackup>).value
+        assertEquals(nested, backup.files.single().name)
+        assertTrue(
+            backend.commands.any {
+                it.contains(
+                    "mkdir -p '/storage/emulated/0/Nemu/cota-backup/" +
+                        "20261121-183000/thermal_config'"
+                )
+            }
+        )
+
+        val deleted = controller(backend).delete(
+            setOf(nested),
+            "20261121-183000",
+            riskAcknowledged = true
+        )
+        assertTrue(deleted is CotaResult.Ok)
+        assertTrue(backend.files.isEmpty())
+
+        val restored = controller(backend).restore("20261121-183000")
+        assertTrue(restored is CotaResult.Ok)
+        assertEquals(hashA, backend.files.getValue(nested).sha)
     }
 }

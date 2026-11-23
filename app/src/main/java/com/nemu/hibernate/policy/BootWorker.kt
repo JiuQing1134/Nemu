@@ -41,29 +41,12 @@ class BootWorker(
             return Result.success()
         }
 
+        // This work is for the current boot; the device-protected crash
+        // fallback (set by LOCKED_BOOT) has served its purpose.
+        BootReceiver.clearPendingBootSafety(applicationContext)
+
         val settings = Settings(applicationContext)
         val bootFreezeSettings = BootFreezeSettings(applicationContext)
-        // WorkManager may deliver this safety pass many minutes after boot
-        // (Doze, force-stop, app launch). If the user already froze something
-        // during this boot, unfreezing now would silently undo their action.
-        // Only a freeze attempt that happened after boot counts.
-        val bootStartedAt = System.currentTimeMillis() - SystemClock.elapsedRealtime()
-        val frozenThisBoot = BootSafetyDecision.frozenThisBoot(
-            lastAttemptTime = bootFreezeSettings.lastBootFreezeAttemptTime,
-            lastFreezeTime = bootFreezeSettings.lastBootFreezeTime,
-            lastSucceeded = bootFreezeSettings.lastBootFreezeSucceeded,
-            bootStartedAtMillis = bootStartedAt
-        )
-        if (frozenThisBoot) {
-            settings.lastBootResult = "已跳过：本次开机已经执行过冻结"
-            settings.lastBootTime = System.currentTimeMillis()
-            settings.lastBootDetail =
-                "attempt=${bootFreezeSettings.lastBootFreezeAttemptTime} " +
-                    "freeze=${bootFreezeSettings.lastBootFreezeTime} " +
-                    "bootStartedAt=$bootStartedAt"
-            ActionLog.info("开机安全解冻已跳过：本次开机已有冻结操作")
-            return Result.success()
-        }
         val manager = BackendManager(settings)
 
         var backend: PrivilegeBackend? = null
@@ -82,13 +65,37 @@ class BootWorker(
             return if (runAttemptCount < 2) Result.retry() else Result.failure()
         }
 
+        // WorkManager may deliver this safety pass many minutes after boot
+        // (Doze, force-stop, app launch). The check must happen after the
+        // backend wait: a manual/automatic freeze may land during the wait,
+        // and unfreezing it afterwards would silently undo the user's action.
+        val bootStartedAt = System.currentTimeMillis() - SystemClock.elapsedRealtime()
         val service = TargetFreezeService(
             context = applicationContext,
             backend = backend,
             dryRun = false,
             markerBackend = manager.getRootForShutdown()
         )
-        val result = service.residualUnfreeze()
+        // The decision and residual pass must share the freeze lock: a manual
+        // apply/restore may land between a pre-check and the cleanup.
+        val result = service.residualUnfreezeIfNoBootAction(
+            bootCount = currentBoot,
+            bootSettings = bootFreezeSettings,
+            bootStartedAtMillis = bootStartedAt
+        )
+        if (result == null) {
+            settings.lastBootResult = "已跳过：本次开机已有冻结/解冻操作"
+            settings.lastBootTime = System.currentTimeMillis()
+            settings.lastBootDetail =
+                "本次开机已执行过冻结或手动解冻，跳过安全解冻"
+            ActionLog.info(
+                "开机安全解冻已跳过：本次开机已有操作 " +
+                    "attempt=${bootFreezeSettings.lastBootFreezeAttemptTime} " +
+                    "skipped=${bootFreezeSettings.bootFreezeSkippedBootCount} " +
+                    "bootStartedAt=$bootStartedAt"
+            )
+            return Result.success()
+        }
         val ok = result.ok
         settings.lastBootDetail = result.summary()
         val resultText = if (ok) "安全解冻成功" else "安全解冻失败"
@@ -98,6 +105,11 @@ class BootWorker(
         // residualUnfreeze clears applied markers for everything it restored;
         // this stops the safety service when nothing remains frozen.
         SafetyService.sync(applicationContext)
+        // Keep the KernelSU shutdown script in sync after a background
+        // cleanup, even when the user never opens the app this boot.
+        manager.getRootForShutdown()?.let { markerRoot ->
+            ShutdownScript.write(markerRoot, TargetPolicy(applicationContext))
+        }
         return if (ok || runAttemptCount >= 3) Result.success() else Result.retry()
     }
 
@@ -107,19 +119,29 @@ class BootWorker(
 }
 
 /**
- * Pure decision helper for a late boot-safety pass. A freeze attempt at or
- * after boot start means the user (or the auto-freeze worker) already acted
- * this boot, so the residual unfreeze must not undo it.
+ * Pure decision helper for a late boot-safety pass. Only a freeze *attempt*
+ * recorded for this boot suppresses the residual cleanup. `recordResult`
+ * also writes `lastBootFreezeBootCount` for skips/failures that never touched
+ * a target (no backend, boot not completed, residual failure), so that field
+ * must not be treated as "the user already acted".
  */
 internal object BootSafetyDecision {
     fun frozenThisBoot(
         lastAttemptTime: Long,
-        lastFreezeTime: Long,
-        lastSucceeded: Boolean = true,
+        lastAttemptBootCount: Int = -1,
+        currentBootCount: Int = -1,
         bootStartedAtMillis: Long
-    ): Boolean =
-        lastSucceeded && (
-            lastAttemptTime >= bootStartedAtMillis ||
-                lastFreezeTime >= bootStartedAtMillis
-            )
+    ): Boolean {
+        // Boot counts survive clock jumps; wall-clock time is only a fallback
+        // for ROMs that do not expose BOOT_COUNT.
+        if (currentBootCount >= 0) {
+            // Boot counts are immune to NTP/RTC jumps; do not let wall-clock
+            // times override a different boot. -1 is "unknown", not a match.
+            return lastAttemptBootCount >= 0 &&
+                lastAttemptBootCount == currentBootCount
+        }
+        // Any attempt after boot start counts, even a failed/partial one:
+        // an automatic residual pass must not undo the targets it froze.
+        return lastAttemptTime > 0L && lastAttemptTime >= bootStartedAtMillis
+    }
 }

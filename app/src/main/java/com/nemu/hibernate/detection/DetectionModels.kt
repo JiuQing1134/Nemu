@@ -1,7 +1,7 @@
 package com.nemu.hibernate.detection
 
-import com.nemu.hibernate.core.CloudAction
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyPreset
 import com.nemu.hibernate.cota.CotaDirectoryInventory
 import com.nemu.hibernate.cota.CotaFile
 import java.time.Instant
@@ -17,7 +17,7 @@ enum class FreezeSource { CORE, AI, CLOUD, CATALOG }
  * component is disabled; HIDE means the package is hidden from PackageManager
  * lookups and looks uninstalled; OBSERVE rows are informational only.
  */
-enum class FreezeMode { SUSPEND, DISABLE, COMPONENT, HIDE, OBSERVE }
+enum class FreezeMode { SUSPEND, DISABLE, COMPONENT, HIDE, OBSERVE, RESTRICT }
 
 /**
  * Policy vs actual state for one package. Pure Kotlin so the mapping,
@@ -38,17 +38,32 @@ data class FreezeState(
     val processRunning: Boolean? = null,
     val risk: RiskLevel? = null,
     /** Null when the mode is not COMPONENT or the component states are unreadable. */
-    val componentDisabled: Boolean? = null
+    val componentDisabled: Boolean? = null,
+    /** True when Nemu owns an AppOps/standby restriction for this package. */
+    val restrictionApplied: Boolean = false,
+    /**
+     * True once the stored policy was executed (or the actual state already
+     * matches it). A configured-but-never-applied target is "未应用", not a
+     * mismatch.
+     */
+    val policyApplied: Boolean = true,
+    /** Derived UI preset; null for legacy rows without options. */
+    val preset: StrategyPreset? = null
 ) {
+    private val pending: Boolean
+        get() = policyEnabled && !policyApplied && !actuallyFrozen
+
     val actuallyFrozen: Boolean
         get() = when (mode) {
             FreezeMode.SUSPEND -> suspended
             FreezeMode.DISABLE -> installed && !enabled
             FreezeMode.COMPONENT -> componentDisabled == true
             // A successful hide removes the package from this app's
-            // PackageManager view, so "not installed" is the observable state.
-            FreezeMode.HIDE -> !installed
+            // PackageManager view, but an uninstalled/never-applied target is
+            // also invisible. Require the applied marker to claim a hide.
+            FreezeMode.HIDE -> policyApplied && !installed
             FreezeMode.OBSERVE -> false
+            FreezeMode.RESTRICT -> restrictionApplied
         }
 
     /**
@@ -60,6 +75,7 @@ data class FreezeState(
             installed &&
             actualKnown &&
             (mode != FreezeMode.COMPONENT || componentDisabled != null) &&
+            !pending &&
             policyEnabled != actuallyFrozen
 
     /**
@@ -76,15 +92,42 @@ data class FreezeState(
 
     fun describePolicy(): String = when {
         mode == FreezeMode.OBSERVE -> "仅观察"
+        pending -> "已纳入（未应用）"
         policyEnabled -> "已纳入"
         else -> "未纳入"
     }
 
+    /**
+     * Mode-specific actual-state fragment for the detection row. Do not use
+     * "暂停" for disable/restrict: those are different system states.
+     */
+    fun detailLine(): String = when (mode) {
+        FreezeMode.SUSPEND -> "暂停 ${yesNo(suspended)}"
+        FreezeMode.DISABLE -> "停用 ${yesNo(!enabled)}"
+        FreezeMode.COMPONENT -> "组件 " + when (componentDisabled) {
+            true -> "已停用"
+            false -> "启用"
+            null -> "未知"
+        }
+        FreezeMode.HIDE -> "隐藏 " + when {
+            installed -> "未生效"
+            policyApplied -> "已生效"
+            else -> "未知（未安装或未应用）"
+        }
+        FreezeMode.RESTRICT ->
+            "限制 ${if (restrictionApplied) "已生效" else "未生效"}"
+        FreezeMode.OBSERVE -> "未执行"
+    }
+
+    private fun yesNo(value: Boolean): String = if (value) "是" else "否"
+
     fun describeActual(): String = when {
-        mode == FreezeMode.HIDE -> if (installed) {
-            "仍可见（未隐藏或已被恢复）"
-        } else {
-            "对系统不可见：已隐藏，或已卸载"
+        mode == FreezeMode.RESTRICT ->
+            if (restrictionApplied) "已限制" else "未限制"
+        mode == FreezeMode.HIDE -> when {
+            installed -> "仍可见：未隐藏或已恢复"
+            policyApplied -> "不可见：已隐藏"
+            else -> "不可见：未安装或未应用"
         }
         !installed -> "未安装"
         !actualKnown -> "读取失败"
@@ -113,115 +156,28 @@ data class FreezeState(
 
     fun statusLabel(): String = when {
         mode == FreezeMode.OBSERVE -> "仅观察"
-        mode == FreezeMode.HIDE && !installed -> "已隐藏"
+        mode == FreezeMode.RESTRICT ->
+            if (restrictionApplied) "已限制" else "未限制"
+        mode == FreezeMode.HIDE && !installed && policyApplied -> "已隐藏"
+        mode == FreezeMode.HIDE && !installed -> "不可见（未安装）"
         !installed -> "未安装"
         !actualKnown -> "读取失败"
         mode == FreezeMode.COMPONENT && componentDisabled == null -> "组件状态未知"
+        pending -> "未应用"
         mismatch() -> "不一致"
         mode == FreezeMode.DISABLE -> if (!enabled) "已停用" else "仍启用"
         mode == FreezeMode.COMPONENT ->
             if (componentDisabled == true) "组件已停用" else "组件启用"
         partiallyApplied() -> "已暂停 · 进程存活"
         suspended && processRunning == null -> "已暂停 · 进程未知"
+        preset == StrategyPreset.PAUSE ->
+            if (suspended) "已暂停" else "未暂停"
+        preset == StrategyPreset.FREEZE ->
+            if (suspended) "已冻结" else "未冻结"
         else -> if (suspended) "已冻结" else "未冻结"
     }
 
     fun describe(): String = "策略：${describePolicy()}；实际：${describeActual()}"
-}
-
-/**
- * Cloud/telemetry row. The action decides what "applied" means:
- * disable-user expects the package to be disabled, suspend expects the
- * package to be suspended, observe-only has no policy state.
- */
-data class CloudState(
-    val packageName: String,
-    val label: String,
-    val action: CloudAction,
-    val policyEnabled: Boolean,
-    /**
-     * True once the policy has been attempted since it was last changed.
-     * Without this, "configured but never applied" would look like a failure.
-     */
-    val policyApplied: Boolean = true,
-    val installed: Boolean,
-    val actualKnown: Boolean,
-    val enabled: Boolean,
-    val suspended: Boolean,
-    val stopped: Boolean = false,
-    val processRunning: Boolean? = null,
-    val note: String? = null,
-    val protected: Boolean = false
-) {
-    val actuallyApplied: Boolean
-        get() = when (action) {
-            CloudAction.DISABLE_USER -> installed && !enabled
-            CloudAction.SUSPEND -> suspended
-            CloudAction.OBSERVE_ONLY -> false
-        }
-
-    fun mismatch(): Boolean =
-        action != CloudAction.OBSERVE_ONLY &&
-            policyApplied &&
-            installed &&
-            actualKnown &&
-            policyEnabled != actuallyApplied
-
-    fun describePolicy(): String = when {
-        protected -> "禁止操作"
-        action == CloudAction.OBSERVE_ONLY -> "仅观察"
-        policyEnabled && !policyApplied -> "已纳入（未应用）"
-        policyEnabled -> "已纳入"
-        else -> "未纳入"
-    }
-
-    fun describeActual(): String = when {
-        !installed -> "未安装"
-        !actualKnown -> "读取失败"
-        action == CloudAction.DISABLE_USER -> buildString {
-            append(if (enabled) "已启用" else "已停用")
-            if (suspended) append("，已暂停")
-            if (stopped || processRunning != null) {
-                appendStoppedAndProcess(stopped, processRunning)
-            }
-        }
-        else -> describeSuspendActual(enabled, suspended, stopped, processRunning)
-    }
-
-    fun statusLabel(): String = when {
-        protected -> "禁止操作"
-        action == CloudAction.OBSERVE_ONLY -> "仅观察"
-        !installed -> "未安装"
-        !actualKnown -> "读取失败"
-        policyEnabled && !policyApplied -> "未应用"
-        mismatch() -> "不一致"
-        action == CloudAction.DISABLE_USER -> if (!enabled) "已停用" else "仍启用"
-        action == CloudAction.SUSPEND && suspended && processRunning == true ->
-            "已暂停 · 进程存活"
-        action == CloudAction.SUSPEND && suspended && processRunning == null ->
-            "已暂停 · 进程未知"
-        else -> if (suspended) "已冻结" else "未冻结"
-    }
-
-    fun describe(): String = "策略：${describePolicy()}；实际：${describeActual()}"
-
-    fun asFreezeState(): FreezeState = FreezeState(
-        packageName = packageName,
-        label = label,
-        source = FreezeSource.CLOUD,
-        mode = when (action) {
-            CloudAction.SUSPEND -> FreezeMode.SUSPEND
-            CloudAction.DISABLE_USER -> FreezeMode.DISABLE
-            CloudAction.OBSERVE_ONLY -> FreezeMode.OBSERVE
-        },
-        policyEnabled = policyEnabled,
-        installed = installed,
-        actualKnown = actualKnown,
-        enabled = enabled,
-        suspended = suspended,
-        stopped = stopped,
-        processRunning = processRunning
-    )
 }
 
 /** Result of the read-only COTA listing. UNKNOWN is never treated as success. */
@@ -281,7 +237,7 @@ data class ThermalState(
     val services: List<ThermalServiceState> = emptyList(),
     val message: String? = null
 ) {
-    val readOnlyNote: String get() = "只读；不提供停止/冻结操作"
+    val readOnlyNote: String get() = "检测页只读；冻结/策略在应用页操作"
 
     fun describe(): String {
         if (services.isEmpty()) return message ?: "未检测"
@@ -303,7 +259,7 @@ data class BootSafetyState(
     val lastBootTime: Long = 0L,
     val bootFreezeEnabled: Boolean = false,
     val bootFreezeDelaySeconds: Int = 120,
-    val aiDeepFreezeEnabled: Boolean = false,
+    val aiTargetsEnabledAny: Boolean = false,
     val lastBootFreezeResult: String? = null,
     val lastBootFreezeDetail: String? = null,
     val lastBootFreezeTime: Long = 0L,
@@ -340,27 +296,32 @@ data class BootSafetyState(
         describeTimestamped(lastBootFreezeResult, lastBootFreezeTime, zone)
 
     /** Mirrors the precedence in [BootFreezePolicy.evaluate]. */
-    fun describeGuard(): String = when {
-        !bootFreezeEnabled -> "开机自动冻结已关闭"
+    /** Non-default guard event, or null when the chips already say everything. */
+    fun guardNote(): String? = when {
+        !bootFreezeEnabled -> null
+        skippedThisBoot() -> "用户已在本 boot 手动恢复，跳过自动冻结"
         bootCount >= 0 && lastBootFreezeBootCount == bootCount ->
             "本 boot 已处理过开机冻结"
-        skippedThisBoot() -> "用户已在本 boot 手动恢复，跳过自动冻结"
         bootCount >= 0 && lastBootFreezeAttemptBootCount == bootCount ->
             "本 boot 已尝试过开机冻结"
         bootloopGuardTripped() ->
             "守卫触发：上次冻结尝试后未检测到干净关机，本次开机应跳过自动冻结"
-        else -> "开机自动冻结已开启（延迟 ${bootFreezeDelaySeconds}s）"
+        else -> null
+    }
+
+    fun describeGuard(): String = guardNote() ?: if (bootFreezeEnabled) {
+        "开机自动冻结已开启（延迟 ${bootFreezeDelaySeconds}s）"
+    } else {
+        "开机自动冻结已关闭"
     }
 }
 
 /**
- * Complete read-only snapshot. [freezeStates] contains core and AI rows;
- * [cloudStates] carries the richer cloud/telemetry details for its own section
- * (kept separate to avoid duplicate rows and double-counted mismatches).
+ * Complete read-only snapshot. [freezeStates] contains one strategy-aware row
+ * per catalog target; cloud/telemetry targets carry [FreezeSource.CLOUD].
  */
 data class DetectionSnapshot(
     val freezeStates: List<FreezeState> = emptyList(),
-    val cloudStates: List<CloudState> = emptyList(),
     val cota: CotaState = CotaState(),
     val thermal: ThermalState = ThermalState(),
     val bootSafety: BootSafetyState = BootSafetyState(),
@@ -370,19 +331,13 @@ data class DetectionSnapshot(
     val freezeMismatches: List<FreezeState>
         get() = freezeStates.filter { it.mismatch() }
 
-    val cloudMismatches: List<CloudState>
-        get() = cloudStates.filter { it.mismatch() }
-
     val mismatchCount: Int get() = freezeMismatches.size
 
     fun describeSummary(): String = buildString {
         append(
-            "冻结/目录目标 ${freezeStates.size} 项，" +
+            "目录目标 ${freezeStates.size} 项，" +
                 "策略与实际不一致 ${freezeMismatches.size} 项"
         )
-        if (cloudStates.isNotEmpty()) {
-            append("；云控/遥测 ${cloudStates.size} 项，不一致 ${cloudMismatches.size} 项")
-        }
         append("；COTA：${cota.describe()}")
         append("；温控：${thermal.describe()}")
     }

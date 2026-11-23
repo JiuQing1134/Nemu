@@ -9,12 +9,12 @@ package com.nemu.hibernate.core
  * - COMPONENT: selectively `pm disable --user 0 pkg/component`; intended for
  *   red packages whose framework bindings restart them. Restore with
  *   `pm default-state`.
- * - DISABLE_USER: `pm disable-user --user 0 pkg`; only for green/yellow leaf
- *   packages and explicitly confirmed carrier DM/number-identity targets.
+ * - DISABLE_USER: `pm disable-user --user 0 pkg`; available for every target,
+ *   with a high-risk warning for Red/DenyList packages.
  * - HIDE: `pm hide --user 0 pkg`; the package becomes invisible to the user
  *   and to PackageManager lookups, like an uninstalled app, but data and the
  *   APK stay on disk. Restore with `pm unhide`. This is the "伪装卸载"
- *   strategy. Only offered on explicit yellow/green leaf targets.
+ *   strategy; available for every target with the same warning.
  * - OBSERVE: no command; read-only display (thermal/HAL/unknown packages).
  */
 enum class FreezeStrategy {
@@ -42,51 +42,31 @@ data class TargetComponent(
 )
 
 /**
- * Strategy policy: the UI can only offer modes that are safe for this target.
- * Red packages must never be whole-package disabled.
+ * Whole-package strategies are available for every installed package. The
+ * registry only describes component/restriction metadata; Red/DenyList
+ * packages still get a high-risk warning before applying.
  */
 object FreezeStrategyPolicy {
-    val redSupported: Set<FreezeStrategy> = setOf(
+    private val wholePackageStrategies = setOf(
         FreezeStrategy.SUSPEND,
-        FreezeStrategy.COMPONENT,
-        FreezeStrategy.OBSERVE
-    )
-    val yellowSupported: Set<FreezeStrategy> = setOf(
-        FreezeStrategy.SUSPEND,
-        FreezeStrategy.COMPONENT,
         FreezeStrategy.DISABLE_USER,
-        FreezeStrategy.HIDE,
-        FreezeStrategy.OBSERVE
+        FreezeStrategy.HIDE
     )
-    val greenSupported: Set<FreezeStrategy> = setOf(
-        FreezeStrategy.SUSPEND,
-        FreezeStrategy.COMPONENT,
-        FreezeStrategy.DISABLE_USER,
-        FreezeStrategy.HIDE,
-        FreezeStrategy.OBSERVE
-    )
-
-    fun supported(risk: RiskLevel): Set<FreezeStrategy> = when (risk) {
-        RiskLevel.RED -> redSupported
-        RiskLevel.YELLOW -> yellowSupported
-        RiskLevel.GREEN -> greenSupported
-    }
 
     fun isAllowed(target: Target, strategy: FreezeStrategy): Boolean =
-        strategy in target.supportedStrategies &&
-            strategy in supported(target.risk)
+        validate(target, strategy) == null
 
     fun validate(target: Target, strategy: FreezeStrategy): String? = when {
-        !isAllowed(target, strategy) ->
-            "${target.packageName} 不支持 ${strategy.name}（风险 ${target.risk.name}）"
+        // Whole-package strategies are available for every installed package.
+        // The platform may still reject a specific package at execution time;
+        // that is surfaced as a command failure, not a pre-emptive block.
         strategy == FreezeStrategy.COMPONENT && target.components.isEmpty() ->
             "${target.packageName} 没有登记可停用的组件"
-        strategy == FreezeStrategy.DISABLE_USER && target.risk == RiskLevel.RED ->
-            "红色包禁止整包 disable-user"
-        strategy == FreezeStrategy.HIDE && target.risk == RiskLevel.RED ->
-            "红色包禁止整包隐藏（伪装卸载）"
-        strategy == FreezeStrategy.HIDE && FreezeStrategy.HIDE !in target.supportedStrategies ->
-            "${target.packageName} 不在可隐藏清单中"
         else -> null
     }
+
+    /** True when the target needs an explicit high-risk warning, not a block. */
+    fun requiresHighRiskWarning(target: Target, strategy: FreezeStrategy): Boolean =
+        strategy in wholePackageStrategies &&
+            (DenyList.isProtected(target.packageName) || target.risk == RiskLevel.RED)
 }

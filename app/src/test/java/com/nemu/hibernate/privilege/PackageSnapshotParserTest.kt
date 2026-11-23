@@ -42,6 +42,18 @@ class PackageSnapshotParserTest {
     }
 
     @Test
+    fun installedFalseCountsAsMissingForOwnershipCleanup() {
+        val line = visibleLine.replace("installed=true", "installed=false")
+        val snapshot = PackageSnapshotParser.parse(
+            "Packages:\n  Package [com.example] (abc):\n$line"
+        )
+
+        assertTrue(snapshot.exists)
+        assertEquals(false, snapshot.installed)
+        assertTrue(snapshot.isMissing())
+    }
+
+    @Test
     fun missingPackageIsReportedAsNotExisting() {
         val snapshot = PackageSnapshotParser.parse(
             "Unable to find package: com.example.missing"
@@ -49,6 +61,30 @@ class PackageSnapshotParserTest {
 
         assertFalse(snapshot.exists)
         assertNull(snapshot.hidden)
+    }
+
+    @Test
+    fun injectedUnableToFindInsideAPackageSectionIsNotMissing() {
+        val snapshot = PackageSnapshotParser.parse(
+            "Packages:\n  Package [com.example] (abc):\n" +
+                "    versionName=Unable to find package: com.example\n" +
+                "$visibleLine"
+        )
+
+        assertTrue(snapshot.exists)
+        assertEquals(false, snapshot.hidden)
+    }
+
+    @Test
+    fun duplicateUserStateLinesFailClosed() {
+        val snapshot = PackageSnapshotParser.parse(
+            "Packages:\n  Package [com.example] (abc):\n" +
+                "$hiddenLine\n$visibleLine"
+        )
+
+        assertTrue(snapshot.exists)
+        assertNull(snapshot.hidden)
+        assertNull(snapshot.suspended)
     }
 
     @Test

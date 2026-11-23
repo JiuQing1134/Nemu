@@ -3,6 +3,10 @@ package com.nemu.hibernate.policy
 import com.nemu.hibernate.core.CommandBuilder
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.FreezeStrategyPolicy
+import com.nemu.hibernate.core.ResultCopy
+import com.nemu.hibernate.core.ResultNote
+import com.nemu.hibernate.core.ResultReason
+import com.nemu.hibernate.core.StrategyOptions
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetComponent
 import com.nemu.hibernate.data.ActionLog
@@ -14,19 +18,13 @@ data class StrategyResult(
     val packageName: String,
     val strategy: FreezeStrategy,
     val commands: List<String>,
-    val notes: List<String> = emptyList()
+    val reasons: List<ResultNote> = emptyList(),
+    val label: String = packageName
 ) {
-    fun summary(): String = buildString {
-        append(packageName)
-        append(" [")
-        append(strategy.name)
-        append("] ")
-        append(if (ok) "OK" else "FAIL")
-        if (notes.isNotEmpty()) {
-            append("；")
-            append(notes.joinToString("；"))
-        }
-    }
+    /** Chinese UI lines; raw commands/outputs stay in ActionLog. */
+    val notes: List<String> get() = reasons.map { it.line() }
+
+    fun summary(): String = ResultCopy.resultLine(ok, label, reasons)
 }
 
 /**
@@ -58,39 +56,68 @@ class FreezeStrategyController(
      */
     private val hiddenStateReader: (suspend (String) -> Boolean?)? = null
 ) {
+    private fun result(
+        ok: Boolean,
+        target: Target,
+        strategy: FreezeStrategy,
+        commands: List<String> = emptyList(),
+        reasons: List<ResultNote> = emptyList()
+    ) = StrategyResult(
+        ok = ok,
+        packageName = target.packageName,
+        strategy = strategy,
+        commands = commands,
+        reasons = reasons,
+        label = target.label
+    )
+
     suspend fun apply(
         target: Target,
         strategy: FreezeStrategy,
-        originalEnabled: Boolean? = null
+        originalEnabled: Boolean? = null,
+        options: StrategyOptions = StrategyOptions(),
+        componentsOverride: List<TargetComponent>? = null
     ): StrategyResult {
         val invalid = FreezeStrategyPolicy.validate(target, strategy)
         if (invalid != null) {
             ActionLog.warn("拒绝冻结策略：$invalid")
-            return StrategyResult(false, target.packageName, strategy, emptyList(), listOf(invalid))
+            return result(
+                false,
+                target,
+                strategy,
+                reasons = listOf(
+                    ResultReason.PRECHECK_FAILED.at(target.label, invalid)
+                )
+            )
         }
         if (strategy == FreezeStrategy.OBSERVE) {
-            return StrategyResult(true, target.packageName, strategy, emptyList())
+            return result(true, target, strategy)
         }
-        val notes = mutableListOf<String>()
+        val reasons = mutableListOf<ResultNote>()
         val plan = if (strategy == FreezeStrategy.COMPONENT) {
+            val candidates = componentsOverride ?: target.components
             val owned = mutableListOf<TargetComponent>()
             val originalStates = mutableMapOf<TargetComponent, Int>()
-            for (component in target.components) {
+            for (component in candidates) {
                 when (val state = componentStateReader(component)) {
-                    null -> notes += "无法读取组件状态，已跳过：${component.label}"
+                    null -> reasons += ResultReason.COMPONENT_STATE_UNKNOWN.at(
+                        component.label
+                    )
                     0, 1 -> {
                         owned += component
                         originalStates[component] = state
                     }
-                    else -> notes += "组件原本已停用，保持原状态：${component.label}"
+                    else -> reasons += ResultReason.ALREADY_DISABLED.at(
+                        component.label
+                    )
                 }
             }
             if (owned.isEmpty()) {
                 // Re-applying an already-frozen COMPONENT target is an
                 // idempotent no-op when every disabled component still has a
                 // stored baseline (i.e. Nemu owns it).
-                val idempotent = target.components.isNotEmpty() &&
-                    target.components.all { component ->
+                val idempotent = candidates.isNotEmpty() &&
+                    candidates.all { component ->
                         componentStateReader(component) in 2..4 &&
                             componentOriginalState(component) != null
                     }
@@ -98,17 +125,21 @@ class FreezeStrategyController(
                     ActionLog.info(
                         "${target.packageName} 组件已全部停用（幂等）"
                     )
-                    return StrategyResult(
+                    return result(
                         true,
-                        target.packageName,
+                        target,
                         strategy,
-                        emptyList(),
-                        listOf("组件已全部停用（幂等）")
+                        reasons = listOf(
+                            ResultReason.COMPONENTS_ALL_DISABLED.at(target.label)
+                        )
                     )
                 }
-                notes += "没有可停用的组件"
-                ActionLog.warn("组件冻结跳过 ${target.packageName}：${notes.joinToString()}")
-                return StrategyResult(false, target.packageName, strategy, emptyList(), notes)
+                reasons += ResultReason.NO_COMPONENTS.at(target.label)
+                ActionLog.warn(
+                    "组件冻结跳过 ${target.packageName}：" +
+                        reasons.joinToString { it.line() }
+                )
+                return result(false, target, strategy, reasons = reasons)
             }
             if (!dryRun) {
                 // Durability: persist ownership before executing the command.
@@ -116,36 +147,42 @@ class FreezeStrategyController(
                     onComponentOriginalState(component, state)
                 }
             }
-            FreezeStrategyPlanner.apply(target, strategy, owned)
+            FreezeStrategyPlanner.apply(
+                target,
+                strategy,
+                owned,
+                options = options
+            )
         } else {
-            FreezeStrategyPlanner.apply(target, strategy)
+            FreezeStrategyPlanner.apply(target, strategy, options = options)
         }
         var disableOriginal: Boolean? = null
         if (strategy == FreezeStrategy.DISABLE_USER) {
             disableOriginal = originalEnabled ?: enabledStateReader(target.packageName)
             if (disableOriginal == null) {
-                val note = "无法读取操作前 enabled 状态；未执行停用"
-                ActionLog.warn(note)
-                return StrategyResult(false, target.packageName, strategy, emptyList(), listOf(note))
+                val note = ResultReason.BASELINE_READ_FAILED.at(target.label)
+                ActionLog.warn(note.line())
+                return result(false, target, strategy, reasons = listOf(note))
             }
             if (disableOriginal == false) {
-                return StrategyResult(
+                return result(
                     true,
-                    target.packageName,
+                    target,
                     strategy,
-                    emptyList(),
-                    listOf("原本已停用；保留原状态")
+                    reasons = listOf(
+                        ResultReason.ALREADY_DISABLED.at(target.label)
+                    )
                 )
             }
             if (!dryRun && !beforeDisableByNemu(target.packageName)) {
-                val note = "无法写入救援恢复标记；未执行停用"
-                ActionLog.warn(note)
-                return StrategyResult(false, target.packageName, strategy, emptyList(), listOf(note))
+                val note = ResultReason.MARKER_WRITE_FAILED.at(target.label)
+                ActionLog.warn(note.line())
+                return result(false, target, strategy, reasons = listOf(note))
             }
         }
         if (dryRun) {
             plan.commands.forEach { ActionLog.info("DRY-RUN（策略）: $it") }
-            return StrategyResult(true, target.packageName, strategy, plan.commands, notes)
+            return result(true, target, strategy, plan.commands, reasons)
         }
         if (!executeAll(plan.commands)) {
             if (strategy == FreezeStrategy.COMPONENT) {
@@ -154,48 +191,66 @@ class FreezeStrategyController(
                 // guard marker; only drop components that are still enabled.
                 plan.components.forEach { component ->
                     val state = componentStateReader(component)
-                    if (state == 2 || state == 3 || state == 4) {
-                        markComponentByNemu(component, true)
-                    } else {
-                        onComponentOriginalState(component, null)
+                    when {
+                        // Unknown readback: keep the exact-state baseline so a
+                        // later restore can still recover the component.
+                        state == null -> Unit
+                        ComponentRestoreState.isRestored(state) ->
+                            onComponentOriginalState(component, null)
+                        else -> markComponentByNemu(component, true)
                     }
                 }
             }
-            return StrategyResult(false, target.packageName, strategy, plan.commands, notes)
+            reasons += ResultReason.COMMAND_FAILED.at(target.label)
+            return result(false, target, strategy, plan.commands, reasons)
         }
 
         when (strategy) {
             FreezeStrategy.DISABLE_USER -> {
-                if (disableOriginal == true && enabledStateReader(target.packageName) == true) {
-                    notes += "PackageManager 未确认停用"
+                if (disableOriginal == true &&
+                    enabledStateReader(target.packageName) != false
+                ) {
+                    // false is the only proof that the package was disabled.
+                    // true and null both mean the change is unconfirmed.
+                    reasons += ResultReason.PACKAGE_NOT_CONFIRMED.at(target.label)
                 }
             }
             FreezeStrategy.COMPONENT -> {
                 for (component in plan.components) {
                     // pm can exit 0 without changing the component state.
                     // Verify before claiming ownership/applied.
-                    if (componentStateReader(component) !in 2..4) {
-                        notes += "组件未停用：${component.label}"
-                        onComponentOriginalState(component, null)
-                        continue
-                    }
-                    if (!markComponentByNemu(component, true)) {
-                        notes += "组件所有权标记失败：${component.label}"
+                    val state = componentStateReader(component)
+                    when {
+                        state == null -> reasons +=
+                            ResultReason.COMPONENT_STATE_UNKNOWN.at(
+                                component.label
+                            )
+                        ComponentRestoreState.isRestored(state) -> {
+                            reasons += ResultReason.COMPONENT_NOT_DISABLED.at(
+                                component.label
+                            )
+                            onComponentOriginalState(component, null)
+                        }
+                        else -> if (!markComponentByNemu(component, true)) {
+                            reasons += ResultReason.COMPONENT_OWNERSHIP_FAILED.at(
+                                component.label
+                            )
+                        }
                     }
                 }
             }
             FreezeStrategy.SUSPEND -> {
                 val suspended = suspendedStateReader?.invoke(target.packageName)
                 if (suspended == false) {
-                    notes += "PackageManager 未确认暂停"
+                    reasons += ResultReason.PACKAGE_NOT_CONFIRMED.at(target.label)
                 } else if (suspendedStateReader != null && suspended == null) {
-                    notes += "无法确认暂停状态"
+                    reasons += ResultReason.PACKAGE_STATE_UNKNOWN.at(target.label)
                 }
                 val r = processSnapshotReader()
                 if (r == null) {
-                    notes += "无法读取进程快照"
+                    reasons += ResultReason.PROCESS_STATE_UNKNOWN.at(target.label)
                 } else if (r.isRunning(target.packageName)) {
-                    notes += "进程仍存活：${target.packageName}"
+                    reasons += ResultReason.PROCESS_STILL_RUNNING.at(target.label)
                 }
             }
             FreezeStrategy.HIDE -> {
@@ -204,29 +259,30 @@ class FreezeStrategyController(
                 // command output (which is not authoritative on this ROM).
                 val reader = hiddenStateReader
                 if (reader == null) {
-                    notes += "无法确认隐藏状态"
+                    reasons += ResultReason.HIDE_STATE_UNKNOWN.at(target.label)
                 } else {
-                    when (val hidden = reader(target.packageName)) {
-                        false -> notes += "PackageManager 未确认隐藏"
-                        null -> notes += "无法确认隐藏状态"
+                    when (reader(target.packageName)) {
+                        false -> reasons += ResultReason.HIDE_NOT_CONFIRMED.at(
+                            target.label
+                        )
+                        null -> reasons += ResultReason.HIDE_STATE_UNKNOWN.at(
+                            target.label
+                        )
                         true -> Unit
                     }
                 }
             }
             FreezeStrategy.OBSERVE -> Unit
         }
-        val ok = notes.none {
-            it.startsWith("PackageManager") ||
-                it.startsWith("无法写入") ||
-                it.startsWith("组件所有权标记失败") ||
-                it.startsWith("组件未停用") ||
-                it.startsWith("无法确认暂停") ||
-                it.startsWith("无法确认隐藏") ||
-                it.startsWith("未确认解除隐藏")
-        }
+        val ok = reasons.none { it.reason.blocking }
         if (ok) ActionLog.info("冻结策略完成：${target.packageName} / ${strategy.name}")
-        else ActionLog.warn("冻结策略有警告：${target.packageName} / ${notes.joinToString()}")
-        return StrategyResult(ok, target.packageName, strategy, plan.commands, notes)
+        else {
+            ActionLog.warn(
+                "冻结策略有警告：${target.packageName} / " +
+                    reasons.joinToString { it.line() }
+            )
+        }
+        return result(ok, target, strategy, plan.commands, reasons)
     }
 
     suspend fun restore(
@@ -235,19 +291,20 @@ class FreezeStrategyController(
         originalEnabled: Boolean? = null
     ): StrategyResult {
         if (strategy == FreezeStrategy.OBSERVE) {
-            return StrategyResult(true, target.packageName, strategy, emptyList())
+            return result(true, target, strategy)
         }
         if (strategy == FreezeStrategy.COMPONENT && target.components.isEmpty()) {
-            return StrategyResult(
+            return result(
                 true,
-                target.packageName,
+                target,
                 strategy,
-                emptyList(),
-                listOf("没有登记组件；无需恢复")
+                reasons = listOf(
+                    ResultReason.NO_REGISTERED_COMPONENTS.at(target.label)
+                )
             )
         }
-        val notes = mutableListOf<String>()
-        val plan = FreezeStrategyPlanner.apply(target, strategy)
+        val reasons = mutableListOf<ResultNote>()
+        val restoreCommands = FreezeStrategyPlanner.restoreOnly(target, strategy)
         val commands = when (strategy) {
             FreezeStrategy.COMPONENT -> {
                 val perComponent = target.components.mapNotNull { component ->
@@ -261,70 +318,69 @@ class FreezeStrategyController(
                 // component. Do not default-state blindly: that could enable a
                 // component the user had disabled before Nemu.
                 if (perComponent.isEmpty()) {
-                    notes += "没有组件原始状态记录；未执行组件恢复"
-                    return StrategyResult(
-                        true,
-                        target.packageName,
-                        strategy,
-                        emptyList(),
-                        notes
+                    reasons += ResultReason.COMPONENT_BASELINE_MISSING.at(
+                        target.label
                     )
+                    return result(true, target, strategy, reasons = reasons)
                 }
                 perComponent
             }
             FreezeStrategy.DISABLE_USER -> {
                 when (originalEnabled) {
-                    true -> plan.restoreCommands
+                    true -> restoreCommands
                     false -> emptyList()
                     null -> {
                         // Unknown baseline: enabling could overwrite a state
                         // the user set before Nemu. Fail closed instead.
-                        notes += "原始 enabled 状态未知；未执行 pm enable"
+                        reasons += ResultReason.BASELINE_READ_FAILED.at(
+                            target.label
+                        )
                         emptyList()
                     }
                 }
             }
-            FreezeStrategy.HIDE -> plan.restoreCommands
-            else -> plan.restoreCommands
+            FreezeStrategy.HIDE -> restoreCommands
+            else -> restoreCommands
         }
         if (dryRun) {
             commands.forEach { ActionLog.info("DRY-RUN（恢复）: $it") }
-            return StrategyResult(true, target.packageName, strategy, commands, notes)
+            return result(true, target, strategy, commands, reasons)
         }
         val ok = executeAll(commands)
+        if (!ok) reasons += ResultReason.COMMAND_FAILED.at(target.label)
         if (ok && strategy == FreezeStrategy.HIDE) {
             val reader = hiddenStateReader
             if (reader == null) {
-                notes += "无法确认隐藏状态"
+                reasons += ResultReason.HIDE_STATE_UNKNOWN.at(target.label)
             } else {
                 when (reader(target.packageName)) {
-                    true -> notes += "未确认解除隐藏"
-                    null -> notes += "无法确认隐藏状态"
+                    true -> reasons += ResultReason.UNHIDE_NOT_CONFIRMED.at(
+                        target.label
+                    )
+                    null -> reasons += ResultReason.HIDE_STATE_UNKNOWN.at(
+                        target.label
+                    )
                     false -> Unit
                 }
             }
         }
         if (ok && strategy == FreezeStrategy.DISABLE_USER && originalEnabled == true) {
-            if (enabledStateReader(target.packageName) != true ||
-                !afterRestoreByNemu(target.packageName)
-            ) {
-                notes += "未确认恢复 enable 或所有权标记清除"
+            if (enabledStateReader(target.packageName) != true) {
+                reasons += ResultReason.PACKAGE_NOT_CONFIRMED.at(target.label)
+            } else if (!afterRestoreByNemu(target.packageName)) {
+                reasons += ResultReason.MARKER_CLEAR_FAILED.at(target.label)
             }
         }
-        if (ok && strategy == FreezeStrategy.COMPONENT) {
-            target.components.forEach { component ->
-                if (!markComponentByNemu(component, false)) {
-                    notes += "组件所有权标记清除失败：${component.label}"
-                }
-                onComponentOriginalState(component, null)
-            }
-        }
-        return StrategyResult(
-            ok && notes.isEmpty(),
-            target.packageName,
+        // Component baselines and guard markers are cleared by
+        // TargetFreezeService only after a read-back confirms the component is
+        // no longer disabled. Clearing them here would lose the only recovery
+        // record if the process died before verification.
+        return result(
+            ok && reasons.isEmpty(),
+            target,
             strategy,
             commands,
-            notes
+            reasons
         )
     }
 

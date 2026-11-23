@@ -16,9 +16,6 @@ object CommandBuilder {
     fun forceStop(pkg: String): String =
         "am force-stop ${quote(pkg)}"
 
-    fun clearCache(pkg: String, userId: Int = 0): String =
-        "pm clear --user $userId --cache-only ${quote(pkg)}"
-
     fun disableUser(pkg: String, userId: Int = 0): String =
         "pm disable-user --user $userId ${quote(pkg)}"
 
@@ -57,9 +54,23 @@ object CommandBuilder {
         "appops set --user $userId ${quote(pkg)} RUN_ANY_IN_BACKGROUND " +
             (if (restricted) "ignore" else "allow")
 
+    /** Restores an arbitrary AppOps mode captured before Nemu changed it. */
+    fun appOpsBackgroundMode(pkg: String, mode: String, userId: Int = 0): String =
+        "appops set --user $userId ${quote(pkg)} RUN_ANY_IN_BACKGROUND ${quote(mode)}"
+
+    fun appOpsGet(pkg: String, userId: Int = 0): String =
+        "appops get --user $userId ${quote(pkg)} RUN_ANY_IN_BACKGROUND"
+
     fun standbyBucket(pkg: String, restricted: Boolean, userId: Int = 0): String =
         "am set-standby-bucket --user $userId ${quote(pkg)} " +
             (if (restricted) "restricted" else "active")
+
+    /** Restores an arbitrary standby bucket captured before Nemu changed it. */
+    fun standbyBucketValue(pkg: String, bucket: Int, userId: Int = 0): String =
+        "am set-standby-bucket --user $userId ${quote(pkg)} $bucket"
+
+    fun standbyGet(pkg: String, userId: Int = 0): String =
+        "am get-standby-bucket --user $userId ${quote(pkg)}"
 
     private fun quote(value: String): String = ShellQuote.quote(value)
 }

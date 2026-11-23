@@ -1,78 +1,45 @@
 package com.nemu.hibernate.core
 
 /**
- * AI deep-freeze targets (design docs/07 §6.1). Every entry is opt-in: the
- * user must enable "AI 深度冻结" and then each individual package.
+ * Extra AI targets that are not part of [Targets.all]. Every entry is opt-in
+ * per target; there is no global "AI deep freeze" switch. Most are also in
+ * [DenyList], so choosing a whole-package strategy shows a high-risk warning
+ * but is not blocked.
  *
- * These packages intentionally stay out of [Targets.all] and out of the
- * generic [com.nemu.hibernate.policy.FreezeController] path. Most of them are
- * also in [DenyList], so the generic controller refuses them; only
- * [com.nemu.hibernate.policy.AiFreezeController] may act on this whitelist.
- *
- * Defaults are deliberately conservative: disabled, suspend + force-stop
- * only, never clear cache, never disable-user/uninstall.
+ * Catalog defaults are conservative (SUSPEND + force-stop); other strategies
+ * remain selectable with the same warning.
  */
 object AiTargets {
     val all: List<Target> = listOf(
         Target(
             packageName = "com.hihonor.aipluginengine",
             label = "荣耀 AI · 基础服务",
-            risk = RiskLevel.RED,
-            defaultEnabled = false,
-            suspend = true,
-            forceStop = true,
-            clearCache = false
+            risk = RiskLevel.RED
         ),
         Target(
             packageName = "com.hihonor.assistant",
             label = "YOYO 建议基础服务",
-            risk = RiskLevel.RED,
-            defaultEnabled = false,
-            suspend = true,
-            forceStop = true,
-            clearCache = false
+            risk = RiskLevel.RED
         ),
         Target(
             packageName = "com.hihonor.magicvoice",
             label = "YOYO 智能体/智慧语音",
-            risk = RiskLevel.RED,
-            defaultEnabled = false,
-            suspend = true,
-            forceStop = true,
-            clearCache = false
+            risk = RiskLevel.RED
         ),
         Target(
             packageName = "com.hihonor.voiceengine",
             label = "语音服务",
-            risk = RiskLevel.YELLOW,
-            defaultEnabled = false,
-            suspend = true,
-            forceStop = true,
-            clearCache = false
+            risk = RiskLevel.YELLOW
         ),
         Target(
             packageName = "com.hihonor.brain",
             label = "智慧决策",
-            risk = RiskLevel.RED,
-            defaultEnabled = false,
-            suspend = true,
-            forceStop = true,
-            clearCache = false
+            risk = RiskLevel.RED
         ),
         Target(
             packageName = "com.hihonor.mageruntime",
             label = "MageEngineRuntime",
-            risk = RiskLevel.YELLOW,
-            defaultEnabled = false,
-            suspend = true,
-            forceStop = true,
-            clearCache = false
+            risk = RiskLevel.YELLOW
         )
     )
-
-    fun byPackage(packageName: String): Target? =
-        all.firstOrNull { it.packageName == packageName }
-
-    fun isAllowed(packageName: String): Boolean =
-        all.any { it.packageName == packageName }
 }

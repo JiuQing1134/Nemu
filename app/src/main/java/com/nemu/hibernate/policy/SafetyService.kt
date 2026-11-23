@@ -12,8 +12,6 @@ import android.content.IntentFilter
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import com.nemu.hibernate.core.TargetCatalog
-import com.nemu.hibernate.data.ActionLog
-import com.nemu.hibernate.data.Settings
 
 /**
  * Safety service. It exists only while at least one target is actually
@@ -30,23 +28,8 @@ class SafetyService : Service() {
                 return
             }
 
-            val settings = Settings(applicationContext)
-
             val pending = goAsync()
-            try {
-                // Timestamp before the unfreeze: if a freeze attempt starts
-                // during the shutdown window, its attempt time is later than
-                // this value and the next boot's guard fails closed.
-                settings.lastShutdownTime = System.currentTimeMillis()
-                val resultText = ShutdownSafety.runBlockingUnfreeze(applicationContext)
-                settings.lastShutdownResult = resultText
-                ActionLog.info("关机安全解冻：$resultText")
-            } catch (throwable: Throwable) {
-                settings.lastShutdownResult = "异常：${throwable.message}"
-                ActionLog.error("关机安全解冻异常：${throwable.message}")
-            } finally {
-                pending.finish()
-            }
+            ShutdownSafety.runAsync(applicationContext) { pending.finish() }
         }
     }
 

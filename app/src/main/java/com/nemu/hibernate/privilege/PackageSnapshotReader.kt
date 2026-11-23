@@ -19,15 +19,33 @@ data class PackageSnapshot(
     val enabledState: Int? = null
 )
 
+/** A per-user uninstall keeps the package section but sets installed=false. */
+fun PackageSnapshot.isMissing(): Boolean = !exists || installed == false
+
 object PackageSnapshotParser {
     fun parse(output: String, userId: Int = 0): PackageSnapshot {
-        if (output.contains("Unable to find package:", ignoreCase = true)) {
+        // versionName and other app-controlled fields are printed before the
+        // genuine User 0 line. A dump that contains a Package section is never
+        // a missing package, even if an injected string says so.
+        val lines = output.lineSequence()
+            .map { it.trimEnd('\r') }
+            .toList()
+        val missing = lines.any {
+            it.trim().startsWith("Unable to find package:")
+        }
+        if (missing && !output.contains("Package [")) {
             return PackageSnapshot(exists = false)
         }
         val prefix = "User $userId:"
-        val line = output.lineSequence()
-            .firstOrNull { it.trimStart().startsWith(prefix) && it.contains("hidden=") }
-            ?: return PackageSnapshot(exists = true)
+        val userLines = lines.filter {
+            it.trimStart().startsWith(prefix) && it.contains("hidden=")
+        }
+        // Multiple contradictory state lines mean a malformed/spoofed dump:
+        // keep the package as existing but expose no state (fail closed).
+        if (userLines.size != 1) {
+            return PackageSnapshot(exists = true)
+        }
+        val line = userLines.single()
         return PackageSnapshot(
             exists = true,
             installed = boolValue(line, "installed="),

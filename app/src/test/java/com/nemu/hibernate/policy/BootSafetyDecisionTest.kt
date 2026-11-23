@@ -12,7 +12,6 @@ class BootSafetyDecisionTest {
         assertFalse(
             BootSafetyDecision.frozenThisBoot(
                 lastAttemptTime = bootStartedAt - 60_000,
-                lastFreezeTime = bootStartedAt - 59_000,
                 bootStartedAtMillis = bootStartedAt
             )
         )
@@ -23,18 +22,79 @@ class BootSafetyDecisionTest {
         assertTrue(
             BootSafetyDecision.frozenThisBoot(
                 lastAttemptTime = bootStartedAt + 300_000,
-                lastFreezeTime = 0,
                 bootStartedAtMillis = bootStartedAt
             )
         )
     }
 
     @Test
-    fun successfulFreezeAfterBootSkipsUnfreezeEvenWithoutAttempt() {
+    fun sameBootAttemptSuppressesCleanupEvenWhenWallClockIsSuspect() {
         assertTrue(
             BootSafetyDecision.frozenThisBoot(
+                lastAttemptTime = bootStartedAt - 86_400_000,
+                lastAttemptBootCount = 10,
+                currentBootCount = 10,
+                bootStartedAtMillis = bootStartedAt
+            )
+        )
+    }
+
+    /**
+     * A recorded result without a real attempt (no backend, boot not
+     * completed, residual failure) must not suppress the boot-safety pass.
+     * The decision therefore reads only the attempt marker.
+     */
+    @Test
+    fun freezeResultWithoutAttemptDoesNotSuppressCleanup() {
+        assertFalse(
+            BootSafetyDecision.frozenThisBoot(
                 lastAttemptTime = 0,
-                lastFreezeTime = bootStartedAt + 300_000,
+                lastAttemptBootCount = -1,
+                currentBootCount = 10,
+                bootStartedAtMillis = bootStartedAt
+            )
+        )
+    }
+
+    @Test
+    fun unknownBootCountUsesWallClockFallback() {
+        assertTrue(
+            BootSafetyDecision.frozenThisBoot(
+                lastAttemptTime = bootStartedAt + 300_000,
+                lastAttemptBootCount = -1,
+                currentBootCount = -1,
+                bootStartedAtMillis = bootStartedAt
+            )
+        )
+        assertFalse(
+            BootSafetyDecision.frozenThisBoot(
+                lastAttemptTime = bootStartedAt - 60_000,
+                lastAttemptBootCount = -1,
+                currentBootCount = -1,
+                bootStartedAtMillis = bootStartedAt
+            )
+        )
+    }
+
+    @Test
+    fun clockJumpsDoNotOverrideMismatchedBootCounts() {
+        assertFalse(
+            BootSafetyDecision.frozenThisBoot(
+                lastAttemptTime = bootStartedAt + 300_000,
+                lastAttemptBootCount = 10,
+                currentBootCount = 11,
+                bootStartedAtMillis = bootStartedAt
+            )
+        )
+    }
+
+    @Test
+    fun unknownAttemptCountNeverMatchesKnownBoot() {
+        assertFalse(
+            BootSafetyDecision.frozenThisBoot(
+                lastAttemptTime = bootStartedAt + 300_000,
+                lastAttemptBootCount = -1,
+                currentBootCount = 11,
                 bootStartedAtMillis = bootStartedAt
             )
         )

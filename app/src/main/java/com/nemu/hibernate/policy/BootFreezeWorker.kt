@@ -23,8 +23,7 @@ import com.nemu.hibernate.privilege.PrivilegeBackend
  * 3. evaluate [BootFreezePolicy];
  * 4. collect enabled core/AI targets;
  * 5. durably write the attempt boot count/time **before** executing commands;
- * 6. apply core targets through [FreezeController] with `clearCache = false`
- *    and AI targets through [AiFreezeController];
+ * 6. apply all targets through the unified [TargetFreezeService];
  * 7. record the result. Never reboot.
  */
 class BootFreezeWorker(
@@ -52,27 +51,61 @@ class BootFreezeWorker(
         val backendManager = BackendManager(settings)
         val backend = backendManager.get()
         if (backend == null) {
-            recordResult(
-                bootSettings = bootSettings,
-                bootCount = bootCount,
-                result = "失败：无可用权限",
-                detail = "无可用后端（Root/Shizuku）",
-                succeeded = false
-            )
-            ActionLog.warn("开机冻结失败：无可用权限")
-            return Result.failure()
+            when (BootStartupPolicy.missingBackend(runAttemptCount)) {
+                BootStartupAction.RETRY -> {
+                    ActionLog.warn("开机冻结暂缓：无可用权限，稍后重试")
+                    return Result.retry()
+                }
+                BootStartupAction.GIVE_UP -> {
+                    recordResult(
+                        bootSettings = bootSettings,
+                        bootCount = bootCount,
+                        result = "失败：无可用权限",
+                        detail = "无可用后端（Root/Shizuku）",
+                        succeeded = false
+                    )
+                    ActionLog.warn("开机冻结失败：无可用权限")
+                    return Result.failure()
+                }
+            }
         }
 
-        if (!isBootCompleted(backend)) {
-            recordResult(
-                bootSettings = bootSettings,
-                bootCount = bootCount,
-                result = "已跳过：系统尚未完成启动",
-                detail = "sys.boot_completed != 1",
-                succeeded = false
-            )
-            ActionLog.warn("开机冻结已跳过：系统尚未完成启动")
-            return Result.success()
+        val bootCompleted = isBootCompleted(backend)
+        if (bootCompleted != true) {
+            val action = if (bootCompleted == false) {
+                BootStartupPolicy.bootNotCompleted(runAttemptCount)
+            } else {
+                BootStartupPolicy.bootStateUnknown(runAttemptCount)
+            }
+            when (action) {
+                BootStartupAction.RETRY -> {
+                    ActionLog.info("开机冻结暂缓：系统启动状态未确认，稍后重试")
+                    return Result.retry()
+                }
+                BootStartupAction.GIVE_UP -> {
+                    recordResult(
+                        bootSettings = bootSettings,
+                        bootCount = bootCount,
+                        result = if (bootCompleted == false) {
+                            "已跳过：系统尚未完成启动"
+                        } else {
+                            "已跳过：无法确认系统启动完成"
+                        },
+                        detail = if (bootCompleted == false) {
+                            "系统尚未完成启动"
+                        } else {
+                            "sys.boot_completed 读取失败；未执行冻结"
+                        },
+                        succeeded = false
+                    )
+                    ActionLog.warn("开机冻结已跳过：系统启动状态未确认")
+                    return if (bootCompleted == false) {
+                        Result.success()
+                    } else {
+                        Result.failure()
+                    }
+                }
+            }
         }
 
         val policy = TargetPolicy(applicationContext)
@@ -94,11 +127,30 @@ class BootFreezeWorker(
             processSnapshotReader = { PackageProcessListReader(backend).read() }
         )
 
+        val bootStartedAt =
+            System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+
         // Recovery before policy: a forced power loss/crash has no shutdown
         // hook, so residual suspensions/components can survive the reboot.
-        // Clear them first even when the bootloop guard will skip this boot's
-        // freeze.
-        val residual = safetyService.residualUnfreeze()
+        // The decision and cleanup share the freeze lock so a manual action
+        // cannot land in between; null means an action already happened this
+        // boot and residual cleanup must not undo it.
+        val residual = safetyService.residualUnfreezeIfNoBootAction(
+            bootCount = bootCount,
+            bootSettings = bootSettings,
+            bootStartedAtMillis = bootStartedAt
+        )
+        if (residual == null) {
+            recordResult(
+                bootSettings = bootSettings,
+                bootCount = bootCount,
+                result = "已跳过：本次开机已有冻结/解冻操作",
+                detail = "不执行残留清理，避免撤销本 boot 的选择",
+                succeeded = false
+            )
+            ActionLog.info("开机冻结已跳过：本次开机已有操作")
+            return Result.success()
+        }
         if (!residual.ok) {
             recordResult(
                 bootSettings = bootSettings,
@@ -110,19 +162,55 @@ class BootFreezeWorker(
             ActionLog.error("开机恢复：残留解冻失败，跳过本次冻结")
             return Result.failure()
         }
+        // Residual cleanup may have cleared ownership; remove stale shutdown
+        // commands before this boot's freeze (if any) is applied.
+        markerBackend?.let {
+            ShutdownScript.write(it, policy)
+        }
 
         // Rescue skips policy application but only AFTER the always-on
         // residual recovery above, so a partial guard rescue is retried.
-        if (BootGuard.isRescue(backendManager.getRoot())) {
-            recordResult(
-                bootSettings = bootSettings,
-                bootCount = bootCount,
-                result = "已跳过：自动救砖模式",
-                detail = "rescue flag present; residual recovery completed first",
-                succeeded = false
-            )
-            ActionLog.warn("自动救砖已触发：跳过开机冻结")
-            return Result.success()
+        val rootBackend = backendManager.getRoot()
+        val rescue = BootGuard.rescueState(rootBackend)
+        val requiresMarkers = TargetCatalog.all.any { target ->
+            policy.isEnabled(target) && policy.isActive(target) &&
+                policy.strategy(target) in setOf(
+                    FreezeStrategy.COMPONENT,
+                    FreezeStrategy.DISABLE_USER,
+                    FreezeStrategy.HIDE
+                )
+        }
+        when {
+            rescue == true -> {
+                recordResult(
+                    bootSettings = bootSettings,
+                    bootCount = bootCount,
+                    result = "已跳过：自动救砖模式",
+                    detail = "救援标记存在；已先完成残留恢复",
+                    succeeded = false
+                )
+                ActionLog.warn("自动救砖已触发：跳过开机冻结")
+                return Result.success()
+            }
+            rescue == false -> Unit
+            rootBackend == null && !requiresMarkers -> Unit
+            else -> when (BootStartupPolicy.rescueUnknown(runAttemptCount)) {
+                BootStartupAction.RETRY -> {
+                    ActionLog.warn("开机冻结暂缓：无法确认救援状态，稍后重试")
+                    return Result.retry()
+                }
+                BootStartupAction.GIVE_UP -> {
+                    recordResult(
+                        bootSettings = bootSettings,
+                        bootCount = bootCount,
+                        result = "已跳过：无法确认救援状态",
+                        detail = "Root/救援标记不可读；未执行冻结",
+                        succeeded = false
+                    )
+                    ActionLog.warn("开机冻结已跳过：无法确认救援状态")
+                    return Result.failure()
+                }
+            }
         }
 
         val decision = BootFreezePolicy.evaluate(
@@ -151,13 +239,12 @@ class BootFreezeWorker(
             return Result.success()
         }
 
-        // The unified catalog is authoritative for boot freeze. It already
-        // includes the legacy core/AI targets plus update, cloud, safety and
-        // component-only targets. OBSERVE entries never execute commands.
+        // The unified catalog is authoritative for boot freeze. It includes
+        // the core/AI entries plus update, cloud, safety and component-only
+        // targets. OBSERVE entries never execute commands.
         val targets = TargetCatalog.all
             .filter { policy.isEnabled(it) }
-            .filter { policy.strategy(it) != FreezeStrategy.OBSERVE }
-            .map { it.copy(clearCache = false) }
+            .filter { policy.isActive(it) }
 
         if (targets.isEmpty()) {
             recordResult(
@@ -175,14 +262,39 @@ class BootFreezeWorker(
         // device dies mid-freeze, the next boot sees this attempt without a
         // later clean shutdown and BootFreezePolicy skips. A dry run executes
         // nothing, so it does not create an attempt record.
-        if (!settings.dryRun) {
-            bootSettings.recordAttempt(bootCount, System.currentTimeMillis())
+        if (!settings.dryRun &&
+            !bootSettings.recordAttempt(bootCount, System.currentTimeMillis())
+        ) {
+            recordResult(
+                bootSettings = bootSettings,
+                bootCount = bootCount,
+                result = "失败：冻结尝试无法持久化",
+                detail = "SharedPreferences 提交失败，未执行冻结",
+                succeeded = false
+            )
+            ActionLog.error("开机冻结：尝试记录写入失败，未执行命令")
+            return Result.failure()
         }
 
-        val run = service.apply(targets)
+        val run = service.applyForBoot(
+            bootCount = bootCount,
+            bootSettings = bootSettings,
+            targets = targets
+        )
+        if (run == null) {
+            recordResult(
+                bootSettings = bootSettings,
+                bootCount = bootCount,
+                result = "已跳过：用户已手动解冻",
+                detail = "本次开机不再自动冻结",
+                succeeded = false
+            )
+            ActionLog.info("开机冻结已跳过：用户已在本 boot 手动解冻")
+            return Result.success()
+        }
         val ok = run.ok
         val resultText = when {
-            settings.dryRun -> "DRY-RUN：开机冻结计划完成"
+            settings.dryRun -> "预览：开机冻结计划完成"
             ok -> "开机冻结成功"
             else -> "开机冻结有失败"
         }
@@ -215,19 +327,23 @@ class BootFreezeWorker(
             ActionLog.error("$resultText（$detail）")
             SafetyService.sync(applicationContext)
         }
+        // Automatic freezes run while the UI is closed; regenerate the
+        // KernelSU shutdown script so it reflects this boot's ownership.
+        markerBackend?.let {
+            ShutdownScript.write(it, policy)
+        }
         // Never retry automatically: a failing command won't fix itself and
         // the user can apply the policy manually from the app.
         return if (ok) Result.success() else Result.failure()
     }
 
-    private suspend fun isBootCompleted(backend: PrivilegeBackend): Boolean {
+    /** Null means the read failed; freeze must not proceed on an unknown. */
+    private suspend fun isBootCompleted(backend: PrivilegeBackend): Boolean? {
         val result = runCatching { backend.exec("getprop sys.boot_completed") }
             .getOrElse { ShellResult(-1, it.message ?: "getprop failed") }
         if (!result.ok) {
-            // A failed read must not silently disable boot freezing; the 60s+
-            // delay already leaves the system stable in practice.
             ActionLog.warn("无法读取 sys.boot_completed：${result.output.take(200)}")
-            return true
+            return null
         }
         return result.output.trim() == "1"
     }
@@ -237,28 +353,31 @@ class BootFreezeWorker(
         targets: List<com.nemu.hibernate.core.Target>,
         run: TargetRunResult,
         dryRun: Boolean
-    ): String = buildString {
-        append("后端=")
-        append(backend.name)
-        append(" | 目标=")
-        append(targets.size)
-        append("（成功 ")
-        append(run.applied)
-        append("，失败 ")
-        append(run.failed)
-        append("）")
+    ): String {
         val byStrategy = targets.groupingBy { it.category }.eachCount()
         if (byStrategy.isNotEmpty()) {
-            append(" | ")
-            append(
-                byStrategy.entries.joinToString(" ") { "${it.key.name}=${it.value}" }
+            // Category enum names are diagnostics; the UI detail stays Chinese.
+            ActionLog.info(
+                "开机冻结分类统计（${backend.name}）：" +
+                    byStrategy.entries.joinToString(" ") {
+                        "${it.key.name}=${it.value}"
+                    }
             )
         }
-        if (run.notes.isNotEmpty()) {
-            append(" | ")
-            append(run.notes.take(4).joinToString("；"))
+        return buildString {
+            append("目标 ")
+            append(targets.size)
+            append("（成功 ")
+            append(run.applied)
+            append("，失败 ")
+            append(run.failed)
+            append("）")
+            if (run.notes.isNotEmpty()) {
+                append("；")
+                append(run.notes.take(4).joinToString("；"))
+            }
+            if (dryRun) append("；预览，未修改手机")
         }
-        if (dryRun) append(" | DRY-RUN")
     }
 
     private fun recordResult(

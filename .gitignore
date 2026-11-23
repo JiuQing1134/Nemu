@@ -3,6 +3,7 @@
 build/
 app/build/
 local.properties
+keystore.properties
 .idea/
 *.iml
 .superpowers/
@@ -17,3 +18,4 @@ captures/
 .cxx/
 *.hprof
 docs/**/*.png
+test-artifacts/

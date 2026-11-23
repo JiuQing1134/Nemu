@@ -46,20 +46,25 @@ object BootFreezePolicy {
         if (!input.bootFreezeEnabled) {
             return BootFreezeDecision(false, "开机自动冻结未开启")
         }
-        if (input.bootCount == input.lastFreezeBootCount) {
-            return BootFreezeDecision(false, "本 boot 已处理过开机冻结")
-        }
-        if (input.bootCount == input.lastSkippedBootCount) {
-            return BootFreezeDecision(false, "用户已跳过本 boot 的开机自动冻结")
-        }
-        if (input.bootCount == input.lastAttemptBootCount) {
-            return BootFreezeDecision(false, "本 boot 已尝试过开机冻结")
+        // A negative count means the platform did not expose a boot-stable
+        // identity. Fail open rather than treating every boot as the same one.
+        if (input.bootCount >= 0) {
+            if (input.bootCount == input.lastFreezeBootCount) {
+                return BootFreezeDecision(false, "本 boot 已处理过开机冻结")
+            }
+            if (input.bootCount == input.lastSkippedBootCount) {
+                return BootFreezeDecision(false, "用户已跳过本 boot 的开机自动冻结")
+            }
+            if (input.bootCount == input.lastAttemptBootCount) {
+                return BootFreezeDecision(false, "本 boot 已尝试过开机冻结")
+            }
         }
 
         // Only the immediately previous boot counts. An attempt from two or
         // more boots ago (typically followed by a guarded skip) must not
         // suspend automatic freeze permanently.
-        val hasPriorAttempt = input.lastAttemptBootCount == input.bootCount - 1
+        val hasPriorAttempt = input.bootCount >= 0 &&
+            input.lastAttemptBootCount == input.bootCount - 1
         val cleanShutdownAfterAttempt =
             input.lastShutdownOk && input.lastShutdownTime >= input.lastAttemptTime
         if (hasPriorAttempt && !cleanShutdownAfterAttempt) {

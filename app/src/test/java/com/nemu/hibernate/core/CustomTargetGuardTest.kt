@@ -1,13 +1,14 @@
 package com.nemu.hibernate.core
 
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CustomTargetGuardTest {
     @Test
-    fun deniesCriticalSystemAndSelfPackages() {
+    fun criticalWarningCoversSystemAndSelfPackages() {
         listOf(
             "android",
             "com.nemu.hibernate",
@@ -19,27 +20,91 @@ class CustomTargetGuardTest {
             "com.android.settings",
             "com.hihonor.powergenie"
         ).forEach {
-            assertTrue(it, CustomTargetGuard.isDenied(it))
+            assertNotNull(it, CustomTargetGuard.criticalReason(it))
         }
     }
 
     @Test
-    fun deniesInputMethods() {
-        assertTrue(CustomTargetGuard.isDenied("com.sohu.inputmethod.sogou.honor"))
+    fun inputMethodsGetACriticalWarning() {
+        assertNotNull(
+            CustomTargetGuard.criticalReason("com.sohu.inputmethod.sogou.honor")
+        )
     }
 
     @Test
-    fun allowsOrdinaryThirdPartyApp() {
-        assertFalse(CustomTargetGuard.isDenied("com.alibaba.wireless"))
+    fun ordinaryThirdPartyAppHasNoWarning() {
+        assertNull(CustomTargetGuard.criticalReason("com.alibaba.wireless"))
     }
 
     @Test
-    fun customTargetOffersAllLeafStrategiesButNoComponentMode() {
+    fun dynamicDefaultLauncherAndImeGetAWarning() {
+        val roles = mapOf(
+            "com.teslacoilsw.launcher" to "桌面",
+            "com.baidu.input" to "输入法"
+        )
+
+        assertEquals(
+            "桌面",
+            CustomTargetGuard.criticalReason(
+                "com.teslacoilsw.launcher",
+                roles
+            )
+        )
+        assertEquals(
+            "输入法",
+            CustomTargetGuard.criticalReason("com.baidu.input", roles)
+        )
+    }
+
+    @Test
+    fun onlyNemuItselfIsAHardBlock() {
+        assertTrue(CustomTargetGuard.isSelf("com.nemu.dream"))
+        assertTrue(CustomTargetGuard.isSelf("com.nemu.hibernate"))
+    }
+
+    @Test
+    fun recoveryCriticalCustomTargetsArePromotedToRed() {
+        assertEquals(
+            RiskLevel.RED,
+            TargetCatalog.customTarget("moe.shizuku.privileged.api", "Shizuku").risk
+        )
+        assertEquals(
+            RiskLevel.YELLOW,
+            TargetCatalog.customTarget("com.alibaba.wireless", "阿里巴巴").risk
+        )
+    }
+
+    @Test
+    fun removalIsBlockedByOwnershipOrAnyActualFrozenState() {
+        assertTrue(
+            CustomTargetGuard.shouldBlockRemoval(
+                owned = true,
+                hasFrozenState = false
+            )
+        )
+        assertTrue(
+            CustomTargetGuard.shouldBlockRemoval(
+                owned = false,
+                hasFrozenState = true
+            )
+        )
+        assertTrue(
+            !CustomTargetGuard.shouldBlockRemoval(
+                owned = false,
+                hasFrozenState = false
+            )
+        )
+    }
+
+    @Test
+    fun customTargetOffersWholePackageStrategiesButNoComponentMode() {
         val target = TargetCatalog.customTarget("com.alibaba.wireless", "阿里巴巴")
-        assertTrue(FreezeStrategy.SUSPEND in target.supportedStrategies)
-        assertTrue(FreezeStrategy.DISABLE_USER in target.supportedStrategies)
-        assertTrue(FreezeStrategy.HIDE in target.supportedStrategies)
-        assertFalse(FreezeStrategy.COMPONENT in target.supportedStrategies)
+        assertNull(FreezeStrategyPolicy.validate(target, FreezeStrategy.SUSPEND))
+        assertNull(FreezeStrategyPolicy.validate(target, FreezeStrategy.DISABLE_USER))
+        assertNull(FreezeStrategyPolicy.validate(target, FreezeStrategy.HIDE))
+        assertNotNull(
+            FreezeStrategyPolicy.validate(target, FreezeStrategy.COMPONENT)
+        )
         assertNotNull(target.consequenceFor(FreezeStrategy.HIDE))
     }
 }

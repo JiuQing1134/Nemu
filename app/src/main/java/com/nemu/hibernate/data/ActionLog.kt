@@ -26,4 +26,9 @@ object ActionLog {
     fun info(message: String) = add("INFO", message)
     fun warn(message: String) = add("WARN", message)
     fun error(message: String) = add("ERROR", message)
+
+    /** Clears the in-memory view alongside the persistent files. */
+    fun clear() {
+        _entries.value = emptyList()
+    }
 }

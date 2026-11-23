@@ -86,6 +86,21 @@ class PersistentLoggerTest {
     }
 
     @Test
+    fun asyncWritesAreFlushedBeforeReading() {
+        PersistentLogger.initForTest(
+            root,
+            enabled = true,
+            asyncWrites = true
+        )
+
+        repeat(3) { PersistentLogger.log("INFO", "test", "line-$it") }
+
+        val lines = PersistentLogger.recentLines(10)
+        assertEquals(3, lines.size)
+        assertTrue(lines.last().endsWith("line-2"))
+    }
+
+    @Test
     fun recentLinesReturnsEmptyWhenNothingWritten() {
         PersistentLogger.initForTest(root, enabled = true)
 

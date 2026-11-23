@@ -2,15 +2,25 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Tabler Icons snowflake.svg (MIT); adapted for the Nemu launcher mark. -->
     <group
-        android:scaleX="0.82"
-        android:scaleY="0.82"
-        android:pivotX="54"
-        android:pivotY="54">
-    <path
-        android:fillColor="#FF0A0A0A"
-        android:pathData="M67.5,20.6 A36,36 0 1,0 67.5,87.4 A34,34 0 0,1 67.5,20.6 Z" />
+        android:scaleX="0.66"
+        android:scaleY="0.66"
+        android:pivotX="12"
+        android:pivotY="12">
+        <path android:pathData="M10,4l2,1l2,-1" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M12,2v6.5l3,1.72" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M17.928,6.268l0.134,2.232l1.866,1.232" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M20.66,7l-5.629,3.25l0.01,3.458" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M19.928,14.268l-1.866,1.232l-0.134,2.232" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M20.66,17l-5.629,-3.25l-2.99,1.738" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M14,20l-2,-1l-2,1" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M12,22v-6.5l-3,-1.72" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M6.072,17.732l-0.134,-2.232l-1.866,-1.232" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M3.34,17l5.629,-3.25l-0.01,-3.458" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M4.072,9.732l1.866,-1.232l0.134,-2.232" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M3.34,7l5.629,3.25l2.99,-1.738" android:fillColor="@android:color/transparent" android:strokeColor="#FF3159EE" android:strokeWidth="2.35" android:strokeLineCap="round" android:strokeLineJoin="round" />
     </group>
 </vector>

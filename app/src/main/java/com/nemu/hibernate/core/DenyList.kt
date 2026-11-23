@@ -1,11 +1,9 @@
 package com.nemu.hibernate.core
 
 /**
- * Packages that must never be whole-package frozen by the generic
- * [com.nemu.hibernate.policy.FreezeController]. The anti-fraud module has its
- * own narrower action matrix ([AntiFraudPolicy]) and does not use this list:
- * for securityserver/awareness it only emits AppOps/standby commands, and for
- * numberidentity it permits the explicitly confirmed suspend/disable path.
+ * Packages that need an explicit high-risk warning before whole-package
+ * operations. They are no longer blocked; the warning is produced by
+ * [com.nemu.hibernate.core.TargetCopy.riskWarning].
  */
 object DenyList {
     val protectedPackages: Set<String> = setOf(

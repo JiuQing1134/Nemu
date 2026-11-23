@@ -29,15 +29,7 @@ class CommandBuilderTest {
     }
 
     @Test
-    fun clearCache_is_cache_only() {
-        assertEquals(
-            "pm clear --user 0 --cache-only 'com.hihonor.ouc'",
-            CommandBuilder.clearCache("com.hihonor.ouc")
-        )
-    }
-
-    @Test
-    fun disableUser_is_available_for_phase_two_only() {
+    fun disableUser_quotes_package() {
         assertEquals(
             "pm disable-user --user 0 'com.hihonor.regservice'",
             CommandBuilder.disableUser("com.hihonor.regservice")

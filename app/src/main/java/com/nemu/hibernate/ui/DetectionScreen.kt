@@ -2,10 +2,14 @@ package com.nemu.hibernate.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,10 +22,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,17 +37,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nemu.hibernate.core.CloudAction
+import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.ui.theme.flClashCard
 import com.nemu.hibernate.cota.CotaFile
-import com.nemu.hibernate.detection.CloudState
 import com.nemu.hibernate.detection.CotaReadStatus
 import com.nemu.hibernate.detection.CotaState
 import com.nemu.hibernate.detection.DetectionSnapshot
-import com.nemu.hibernate.detection.FreezeMode
 import com.nemu.hibernate.detection.FreezeSource
 import com.nemu.hibernate.detection.FreezeState
 import com.nemu.hibernate.detection.ThermalServiceState
@@ -57,11 +66,13 @@ data class DetectionScreenUiState(
  * Read-only detection screen. The only callback is [onRefresh]; there are no
  * freeze, stop, delete, backup or restore actions by design.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DetectionScreen(
     state: DetectionScreenUiState,
     onRefresh: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenTarget: (String) -> Unit = {}
 ) {
     val snapshot = state.snapshot
     var selectedCategory by rememberSaveable { mutableStateOf(DetectionCategory.FREEZE.name) }
@@ -69,37 +80,27 @@ fun DetectionScreen(
         .firstOrNull { it.name == selectedCategory }
         ?: DetectionCategory.FREEZE
     val listState = rememberLazyListState()
+    LaunchedEffect(category) {
+        listState.scrollToItem(0)
+    }
     LazyColumn(
         state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = 6.dp,
+            end = 16.dp,
+            bottom = 12.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { DetectionHeader(state = state, onRefresh = onRefresh) }
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DetectionCategory.entries.forEach { option ->
-                    val count = when (option) {
-                        DetectionCategory.FREEZE -> snapshot?.freezeStates?.size ?: 0
-                        DetectionCategory.TELEMETRY -> snapshot?.cloudStates?.size ?: 0
-                        DetectionCategory.SYSTEM ->
-                            (snapshot?.thermal?.services?.size ?: 0) + 1
-                        DetectionCategory.STARTUP -> 1
-                    }
-                    FilterChip(
-                        selected = category == option,
-                        onClick = { selectedCategory = option.name },
-                        label = { Text("${option.label}  $count") }
-                    )
-                }
-            }
+            DetectionHeader(
+                state = state,
+                category = category,
+                onCategoryChange = { selectedCategory = it.name },
+                onRefresh = onRefresh
+            )
         }
 
         if (snapshot == null) {
@@ -107,64 +108,34 @@ fun DetectionScreen(
         } else {
             when (category) {
                 DetectionCategory.FREEZE -> {
-                    item {
-                        SectionTitle("冻结状态 · 策略和实际分开看")
+                    val freezeRows = snapshot.freezeStates.filter {
+                        it.source != FreezeSource.CLOUD
                     }
-                    item {
-                        DetectionInfoCard(
-                            "对比“策略”和“实际”状态；不一致标红，本页只读。\n\n" +
-                                "暂停 = 不能启动；停用 = 整包禁用；隐藏 = 像卸载；" +
-                                "组件 = 只停用后台部件。"
-                        )
-                    }
-                    if (snapshot.freezeStates.isEmpty()) {
+                    if (freezeRows.isEmpty()) {
                         item { DetectionInfoCard("没有冻结目标数据。") }
                     }
                     items(
-                        items = snapshot.freezeStates,
+                        items = freezeRows,
                         key = { "${it.source}:${it.packageName}" }
-                    ) { freeze -> FreezeStateCard(freeze) }
+                    ) { freeze -> FreezeStateCard(freeze, onOpenTarget) }
                 }
                 DetectionCategory.TELEMETRY -> {
-                    item {
-                        SectionTitle("云控 / 遥测 · 只读")
+                    val cloudRows = snapshot.freezeStates.filter {
+                        it.source == FreezeSource.CLOUD
                     }
-                    item {
-                        DetectionInfoCard(
-                            "云控/遥测是厂商用来下发配置、收集诊断数据的通道。" +
-                                "冻结它们通常不会影响打电话、拍照等日常功能，但可能减少问题诊断信息。\n\n" +
-                                "这里显示策略、PackageManager 暂停状态和实际进程；刷新不会修改系统。"
-                        )
+                    if (cloudRows.isEmpty()) {
+                        item { DetectionInfoCard("没有云控/遥测目标数据。") }
                     }
                     items(
-                        items = snapshot.cloudStates,
-                        key = { it.packageName }
-                    ) { cloud -> CloudStateCard(cloud) }
+                        items = cloudRows,
+                        key = { "${it.source}:${it.packageName}" }
+                    ) { freeze -> FreezeStateCard(freeze, onOpenTarget) }
                 }
                 DetectionCategory.SYSTEM -> {
-                    item { SectionTitle("系统服务") }
-                    item {
-                        DetectionInfoCard(
-                            "温控/功耗服务负责调频、发热和充电策略。它们直接关系手机稳定，" +
-                                "所以 Nemu 默认不会冻结它们：\n" +
-                                "• PowerGenie：系统保护，命令会被拒绝，只观察；\n" +
-                                "• iAware：只允许停用两个云配置组件，主调度继续运行；\n" +
-                                "• HnAps / MSDP：默认只观察，页面会说明风险。\n\n" +
-                                "COTA 参数是厂商下发的配置文件，这里只读展示，不修改。"
-                        )
-                    }
                     item { ThermalCard(snapshot) }
                     item { CotaCard(snapshot.cota) }
                 }
                 DetectionCategory.STARTUP -> {
-                    item { SectionTitle("启动 / 安全") }
-                    item {
-                        DetectionInfoCard(
-                            "Nemu 在正常关机/重启前会尝试解冻，避免重启后卡住。" +
-                                "强制断电、崩溃或 adb reboot 来不及执行，所以下一次开机会由守卫再清理一次。\n\n" +
-                                "如果连续多次启动异常，守卫会进入救援模式并停止自动冻结。"
-                        )
-                    }
                     item { BootSafetyCard(snapshot) }
                 }
             }
@@ -190,63 +161,167 @@ private enum class DetectionCategory(val label: String) {
 @Composable
 private fun DetectionHeader(
     state: DetectionScreenUiState,
+    category: DetectionCategory,
+    onCategoryChange: (DetectionCategory) -> Unit,
     onRefresh: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("设备检测", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "只读快照 · 不执行系统操作",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onRefresh, enabled = !state.loading) {
-                    Text(if (state.loading) "读取中…" else "刷新")
-                }
-            }
-
-            if (state.loading) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("正在读取状态…", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            state.error?.let { error ->
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "读取错误：$error",
+                    "设备检测",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 20.sp
+                    )
+                )
+                Text(
+                    "只读快照 · 不执行系统操作",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Text(
+                text = if (state.loading) "读取中…" else "刷新",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (state.loading) {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                maxLines = 1,
+                modifier = Modifier
+                    .clickable(enabled = !state.loading) { onRefresh() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
 
-            state.snapshot?.let { snapshot ->
-                Text(snapshot.describeSummary(), style = MaterialTheme.typography.bodySmall)
-                if (snapshot.generatedAtMillis > 0) {
-                    Text(
-                        "更新于 ${formatDetectionTimestamp(snapshot.generatedAtMillis)}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+        if (state.loading) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("正在读取状态…", style = MaterialTheme.typography.bodySmall)
             }
         }
+
+        state.error?.let { error ->
+            Text(
+                "读取错误：$error",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        state.snapshot?.let { snapshot ->
+            if (snapshot.generatedAtMillis > 0) {
+                Text(
+                    "更新于 ${formatDetectionTimestamp(snapshot.generatedAtMillis)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DetectionCategory.entries.forEach { option ->
+                NemuFilterChip(
+                    selected = category == option,
+                    onClick = { onCategoryChange(option) },
+                    label = {
+                        Text(
+                            option.label,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                )
+            }
+        }
+
+        state.snapshot?.let { snapshot ->
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+            when (category) {
+                DetectionCategory.FREEZE -> {
+                    val rows = snapshot.freezeStates.filter {
+                        it.source != FreezeSource.CLOUD
+                    }
+                    val mismatched = rows.count { it.mismatch() }
+                    SectionHeader(
+                        title = "冻结状态",
+                        subtitle = "策略与实际分开显示；点行展开，展开后可去应用页。",
+                        trailing = {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                DetectionStatusChip("${rows.size} 项")
+                                if (mismatched > 0) {
+                                    DetectionStatusChip(
+                                        "不一致 $mismatched",
+                                        warning = true
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
+                DetectionCategory.TELEMETRY -> {
+                    val rows = snapshot.freezeStates.count {
+                        it.source == FreezeSource.CLOUD
+                    }
+                    SectionHeader(
+                        title = "云控 / 遥测",
+                        subtitle = "厂商配置/诊断通道，显示应用页保存的策略与实际状态。",
+                        trailing = { DetectionStatusChip("$rows 项") }
+                    )
+                }
+                DetectionCategory.SYSTEM -> SectionHeader(
+                    title = "系统服务",
+                    subtitle = "温控/功耗默认观察；整包策略已开放，部分 PowerGenie 命令被平台拒绝。"
+                )
+                DetectionCategory.STARTUP -> SectionHeader(
+                    title = "启动 / 安全",
+                    subtitle = "关机前解冻；异常开机由守卫清理。"
+                )
+            }
+        }
+    }
     }
 }
 
 @Composable
+private fun detectionCardColors(): CardColors = CardDefaults.cardColors(
+    containerColor = MaterialTheme.colorScheme.flClashCard()
+)
+
+@Composable
 private fun DetectionEmptyCard(state: DetectionScreenUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -265,7 +340,11 @@ private fun DetectionEmptyCard(state: DetectionScreenUiState) {
 
 @Composable
 private fun DetectionInfoCard(text: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Text(
             text,
             modifier = Modifier.padding(16.dp),
@@ -275,45 +354,62 @@ private fun DetectionInfoCard(text: String) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall)
-}
-
-@Composable
-private fun StatusChip(text: String, warning: Boolean = false) {
+private fun DetectionStatusChip(text: String, warning: Boolean = false) {
     val background = if (warning) {
-        MaterialTheme.colorScheme.errorContainer
+        Color(0xFFD32F2F)
     } else {
-        MaterialTheme.colorScheme.secondaryContainer
+        MaterialTheme.colorScheme.primary
     }
     val foreground = if (warning) {
-        MaterialTheme.colorScheme.onErrorContainer
+        Color.White
     } else {
-        MaterialTheme.colorScheme.onSecondaryContainer
+        MaterialTheme.colorScheme.onPrimary
     }
     Text(
         text,
-        style = MaterialTheme.typography.labelMedium,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
         color = foreground,
         modifier = Modifier
             .background(background, RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .padding(horizontal = 9.dp, vertical = 3.dp)
     )
 }
 
 @Composable
-private fun FreezeStateCard(freeze: FreezeState) {
+private fun FreezeStateCard(
+    freeze: FreezeState,
+    onOpenTarget: (String) -> Unit
+) {
     var expanded by rememberSaveable(freeze.packageName) { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 13.dp, vertical = 11.dp),
+                // Match DetectionHeader's 12dp inset so the count chip and
+                // every row's status chip share the same right edge.
+                .padding(horizontal = 12.dp, vertical = 11.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .semantics(mergeDescendants = true) {
+                        // Include the status in the clickable row's label;
+                        // otherwise TalkBack announces only "expand" and the
+                        // mismatch/partial state stays invisible.
+                        contentDescription = buildString {
+                            append(freeze.label)
+                            append("，")
+                            append(freeze.statusLabel())
+                            append("，")
+                            append(if (expanded) "收起" else "展开")
+                        }
+                    },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -325,30 +421,14 @@ private fun FreezeStateCard(freeze: FreezeState) {
                         fontFamily = FontFamily.Monospace
                     )
                 }
-                StatusChip(
+                DetectionStatusChip(
                     text = freeze.statusLabel(),
                     warning = freeze.mismatch() || freeze.partiallyApplied()
                 )
             }
             Text(
-                when (freeze.mode) {
-                    FreezeMode.COMPONENT ->
-                        "策略 ${freeze.describePolicy()}  ·  组件 " +
-                            when (freeze.componentDisabled) {
-                                true -> "已停用"
-                                false -> "启用"
-                                null -> "未知"
-                            } +
-                            "  ·  进程 ${processPresenceLabel(freeze.processRunning)}"
-                    FreezeMode.HIDE ->
-                        "策略 ${freeze.describePolicy()}  ·  隐藏 " +
-                            if (freeze.installed) "未生效" else "已生效" +
-                            "  ·  进程 ${processPresenceLabel(freeze.processRunning)}"
-                    else ->
-                        "策略 ${freeze.describePolicy()}  ·  暂停 " +
-                            "${if (freeze.suspended) "是" else "否"}" +
-                            "  ·  进程 ${processPresenceLabel(freeze.processRunning)}"
-                },
+                "策略 ${freeze.describePolicy()}  ·  ${freeze.detailLine()}" +
+                    "  ·  进程 ${processPresenceLabel(freeze.processRunning)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -382,62 +462,10 @@ private fun FreezeStateCard(freeze: FreezeState) {
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun CloudStateCard(cloud: CloudState) {
-    var expanded by rememberSaveable(cloud.packageName) { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 13.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(cloud.label, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        cloud.packageName,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-                StatusChip(
-                    text = cloud.statusLabel(),
-                    warning = cloud.mismatch()
-                )
-            }
-            Text(
-                "策略 ${cloud.describePolicy()}  ·  挂起 ${if (cloud.suspended) "是" else "否"}" +
-                    "  ·  进程 ${processPresenceLabel(cloud.processRunning)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             if (expanded) {
-                Text(
-                    "操作：${cloudActionLabel(cloud.action)} · 实际：${cloud.describeActual()}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    "系统“已停止”标记：${if (cloud.stopped) "已设置" else "未设置"}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                cloud.note?.let { note -> Text(note, style = MaterialTheme.typography.bodySmall) }
-            }
-            if (expanded && cloud.mismatch()) {
-                Text(
-                    "策略与实际状态不一致；本页只展示，不会自动修复。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
+                TextButton(onClick = { onOpenTarget(freeze.packageName) }) {
+                    Text("在应用页查看 ›")
+                }
             }
         }
     }
@@ -452,15 +480,19 @@ private fun processPresenceLabel(running: Boolean?): String = when (running) {
 @Composable
 private fun ThermalCard(snapshot: DetectionSnapshot) {
     val thermal = snapshot.thermal
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text("温控基础服务", style = MaterialTheme.typography.titleSmall)
             Text(
-                "PowerGenie 负责温控/充电，被系统保护，Nemu 不会也不能冻结它；" +
-                    "iAware 只允许停用云配置组件；HnAps/MSDP 默认只观察。" +
+                "PowerGenie 负责温控/充电；整包策略已开放但高风险，部分组件命令" +
+                    "被平台拒绝；iAware 建议只停用云配置组件；HnAps/MSDP 默认观察。" +
                     "这里的数字表示实际进程状态，不是“已冻结”。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -502,7 +534,11 @@ private fun ThermalServiceRow(service: ThermalServiceState) {
 
 @Composable
 private fun CotaCard(cota: CotaState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -585,7 +621,11 @@ private fun CotaFileRow(file: CotaFile) {
 @Composable
 private fun BootSafetyCard(snapshot: DetectionSnapshot) {
     val boot = snapshot.bootSafety
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = detectionCardColors(),
+        shape = MaterialTheme.shapes.large
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -626,18 +666,45 @@ private fun BootSafetyCard(snapshot: DetectionSnapshot) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("开机自动冻结", style = MaterialTheme.typography.bodySmall)
+                StatusChip(
+                    text = if (boot.bootFreezeEnabled) "已开启" else "已关闭",
+                    tone = if (boot.bootFreezeEnabled) {
+                        StatusChipTone.SUCCESS
+                    } else {
+                        StatusChipTone.NEUTRAL
+                    }
+                )
+                Text(
+                    if (boot.bootFreezeEnabled) {
+                        "延迟 ${boot.bootFreezeDelaySeconds} 秒"
+                    } else {
+                        "不会执行"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("AI 目标", style = MaterialTheme.typography.bodySmall)
+                StatusChip(
+                    text = if (boot.aiTargetsEnabledAny) "有启用项" else "无启用项",
+                    tone = if (boot.aiTargetsEnabledAny) {
+                        StatusChipTone.SUCCESS
+                    } else {
+                        StatusChipTone.NEUTRAL
+                    }
+                )
+            }
             Text(
-                "开机自动冻结：" +
-                    (if (boot.bootFreezeEnabled) "已开启" else "已关闭") +
-                    "（延迟 ${boot.bootFreezeDelaySeconds}s）",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "AI 深度冻结：" + if (boot.aiDeepFreezeEnabled) "已开启" else "已关闭",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "上次冻结（自动/手动）：${boot.describeLastBootFreeze()}",
+                "上次结果（自动/手动/解冻）：${boot.describeLastBootFreeze()}",
                 style = MaterialTheme.typography.bodySmall
             )
             boot.lastBootFreezeDetail?.let { detail ->
@@ -648,16 +715,20 @@ private fun BootSafetyCard(snapshot: DetectionSnapshot) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            val guardTripped = boot.bootloopGuardTripped() || boot.skippedThisBoot()
-            Text(
-                boot.describeGuard(),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (guardTripped) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }
-            )
+            val guardNote = boot.guardNote()
+            if (guardNote != null) {
+                val guardTripped =
+                    boot.bootloopGuardTripped() || boot.skippedThisBoot()
+                Text(
+                    guardNote,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (guardTripped) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+            }
         }
     }
 }
@@ -666,12 +737,6 @@ private fun detectionRiskLabel(risk: RiskLevel): String = when (risk) {
     RiskLevel.GREEN -> "低"
     RiskLevel.YELLOW -> "中"
     RiskLevel.RED -> "高"
-}
-
-private fun cloudActionLabel(action: CloudAction): String = when (action) {
-    CloudAction.DISABLE_USER -> "停用（可逆）"
-    CloudAction.SUSPEND -> "暂停 + 强制停止"
-    CloudAction.OBSERVE_ONLY -> "仅观察"
 }
 
 private fun formatBytes(bytes: Long): String = when {

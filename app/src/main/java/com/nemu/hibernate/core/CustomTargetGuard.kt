@@ -1,13 +1,13 @@
 package com.nemu.hibernate.core
 
 /**
- * Hard safety filter for the "freeze any app" picker. The user asked for
- * arbitrary apps, but hiding a launcher/SystemUI/telephony package can make the
- * phone unbootable or unrecoverable. These packages are never offered as
- * custom targets; catalog RED targets keep their existing component-only UI.
+ * Warning metadata for the all-apps picker. Every installed package except
+ * Nemu itself can be added; recovery-critical packages (launcher/SystemUI/
+ * telephony/settings/input methods) only get an explicit "I understand the
+ * risk" step and are stored as RED so their cards show the high-risk warning.
  */
 object CustomTargetGuard {
-    private val exactDenied = setOf(
+    private val criticalPackages = setOf(
         "android",
         "com.nemu.hibernate",
         "com.nemu.dream",
@@ -31,7 +31,7 @@ object CustomTargetGuard {
         "com.hihonor.iaware"
     )
 
-    private val deniedPrefixes = listOf(
+    private val criticalPrefixes = listOf(
         "com.android.internal.systemui",
         "com.android.launcher",
         "com.hihonor.android.launcher",
@@ -39,15 +39,37 @@ object CustomTargetGuard {
         "com.google.android.apps.nexuslauncher"
     )
 
-    fun denyReason(packageName: String): String? {
-        if (packageName in exactDenied) return "系统关键应用"
-        if (deniedPrefixes.any { packageName.startsWith(it) }) return "系统关键应用"
+    /** Nemu itself is the only package that must never become a target. */
+    fun isSelf(packageName: String): Boolean =
+        packageName == "com.nemu.dream" || packageName == "com.nemu.hibernate"
+
+    /**
+     * Removing the Target row would orphan any ownership record and could
+     * leave a suspended/hidden/disabled package with no restore path. Check
+     * both persisted ownership and the last actual-state snapshot.
+     */
+    fun shouldBlockRemoval(owned: Boolean, hasFrozenState: Boolean): Boolean =
+        owned || hasFrozenState
+
+    /** Recovery-critical names; they get a warning and RED risk, not a block. */
+    fun isCriticalPackage(packageName: String): Boolean =
+        packageName in criticalPackages ||
+            criticalPrefixes.any { packageName.startsWith(it) } ||
+            packageName.contains("inputmethod", ignoreCase = true)
+
+    /** Human-readable warning for a critical package; null means no warning. */
+    fun criticalReason(
+        packageName: String,
+        dynamicRoles: Map<String, String> = emptyMap()
+    ): String? {
+        if (isSelf(packageName)) return "Nemu 自身"
+        dynamicRoles[packageName]?.let { return it }
+        if (packageName in criticalPackages) return "系统关键应用"
+        if (criticalPrefixes.any { packageName.startsWith(it) }) return "系统关键应用"
         if (packageName.contains("inputmethod", ignoreCase = true)) return "输入法"
         if (TargetCatalog.byPackage(packageName)?.risk == RiskLevel.RED) {
-            return "目录中的高风险目标"
+            return "高风险目标"
         }
         return null
     }
-
-    fun isDenied(packageName: String): Boolean = denyReason(packageName) != null
 }

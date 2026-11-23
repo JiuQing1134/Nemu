@@ -71,10 +71,16 @@ class CotaController(
     suspend fun backup(names: Set<String>): CotaResult<CotaBackup> {
         val b = activeBackend() ?: return CotaResult.Disabled
         if (names.isEmpty()) return CotaResult.Error("未选择文件")
-        if (names.any { !CotaPaths.isSafeName(it) }) {
+        if (names.any { !CotaPaths.isSafeRelativePath(it) }) {
             return CotaResult.Error("包含无法安全处理的文件名")
         }
         val selected = names.sorted()
+        val reserved = selected.filter { CotaPaths.isReservedRootName(it) }
+        if (reserved.isNotEmpty()) {
+            return CotaResult.Error(
+                "不能备份根目录下的备份清单文件：${reserved.joinToString()}"
+            )
+        }
 
         val current = when (val result = listFiles()) {
             is CotaResult.Ok -> result.value.associateBy { it.name }
@@ -91,8 +97,7 @@ class CotaController(
             return CotaResult.Error("备份时间戳无效：$backupId")
         }
         val dir = CotaPaths.backupDir(backupRoot, backupId)
-        val sources = selected.map { CotaPaths.sourcePath(it) }
-        val copy = b.exec(CotaCommandBuilder.backup(backupRoot, backupId, sources))
+        val copy = b.exec(CotaCommandBuilder.backup(backupRoot, backupId, selected))
         if (!copy.ok) {
             return CotaResult.Error(
                 "备份复制失败（${copy.exitCode}）：${copy.output.take(300)}"
@@ -102,7 +107,8 @@ class CotaController(
         val copiedHashes = when (
             val result = hashChunks(
                 b,
-                selected.map { CotaPaths.backupPath(dir, it) }
+                selected.map { CotaPaths.backupPath(dir, it) },
+                prefix = "$dir/"
             )
         ) {
             is CotaResult.Ok -> result.value
@@ -135,11 +141,12 @@ class CotaController(
                 "写入备份清单失败（${wrote.exitCode}）：${wrote.output.take(300)}"
             )
         }
-        val readBack = b.exec(CotaCommandBuilder.readManifest(dir))
-        if (!readBack.ok) {
-            return CotaResult.Error("备份清单回读失败（${readBack.exitCode}）")
+        val readBack = when (val result = readManifestChecked(b, dir)) {
+            is CotaResult.Ok -> result.value
+            is CotaResult.Error -> return result
+            CotaResult.Disabled -> return CotaResult.Disabled
         }
-        val parsed = CotaParsers.parseManifest(readBack.output)
+        val parsed = CotaParsers.parseManifest(readBack)
             ?: return CotaResult.Error("备份清单格式无效")
         if (parsed.sortedBy { it.name } != manifestFiles.sortedBy { it.name }) {
             return CotaResult.Error("备份清单校验失败")
@@ -165,9 +172,20 @@ class CotaController(
             .distinct()
             .sortedDescending()
             .toList()
-        return CotaResult.Ok(
-            ids.map { CotaBackupSummary(it, CotaPaths.backupDir(backupRoot, it)) }
-        )
+        val valid = ids.mapNotNull { id ->
+            val summary = CotaBackupSummary(
+                id,
+                CotaPaths.backupDir(backupRoot, id)
+            )
+            when (loadBackup(summary)) {
+                is CotaResult.Ok -> summary
+                else -> {
+                    ActionLog.warn("COTA：忽略没有有效清单的备份目录 $id")
+                    null
+                }
+            }
+        }
+        return CotaResult.Ok(valid)
     }
 
     suspend fun loadBackup(summary: CotaBackupSummary): CotaResult<CotaBackup> {
@@ -176,11 +194,12 @@ class CotaController(
             return CotaResult.Error("备份编号无效：${summary.id}")
         }
         val dir = CotaPaths.backupDir(backupRoot, summary.id)
-        val result = b.exec(CotaCommandBuilder.readManifest(dir))
-        if (!result.ok) {
-            return CotaResult.Error("读取备份清单失败（${result.exitCode}）")
+        val manifest = when (val result = readManifestChecked(b, dir)) {
+            is CotaResult.Ok -> result.value
+            is CotaResult.Error -> return result
+            CotaResult.Disabled -> return CotaResult.Disabled
         }
-        val files = CotaParsers.parseManifest(result.output)
+        val files = CotaParsers.parseManifest(manifest)
             ?: return CotaResult.Error("备份清单格式无效：${summary.id}")
         if (files.isEmpty()) return CotaResult.Error("备份为空：${summary.id}")
         return CotaResult.Ok(CotaBackup(summary.id, dir, files))
@@ -197,7 +216,7 @@ class CotaController(
         if (!CotaPaths.isSafeBackupId(backupId)) {
             return CotaResult.Error("备份编号无效")
         }
-        if (names.any { !CotaPaths.isSafeName(it) }) {
+        if (names.any { !CotaPaths.isSafeRelativePath(it) }) {
             return CotaResult.Error("包含无法安全处理的文件名")
         }
 
@@ -224,7 +243,8 @@ class CotaController(
                 b,
                 selectedBackupFiles.map {
                     CotaPaths.backupPath(backup.dir, it.name)
-                }
+                },
+                prefix = "${backup.dir}/"
             )
         ) {
             is CotaResult.Ok -> checked.value
@@ -253,8 +273,9 @@ class CotaController(
             }
         }
 
-        val command = CotaCommandBuilder.delete(
-            names.sorted().map { CotaPaths.sourcePath(it) }
+        val command = CotaCommandBuilder.deleteVerified(
+            backup.dir,
+            selectedBackupFiles
         )
         val result = b.exec(command)
         if (!result.ok) {
@@ -310,13 +331,23 @@ class CotaController(
         }
 
         val files = selected.sorted().map { backedUp.getValue(it) }
+        val unsafeModes = files.filter {
+            !CotaPaths.isSafeRestoreMode(it.mode)
+        }
+        if (unsafeModes.isNotEmpty()) {
+            return CotaResult.Error(
+                "备份包含无法安全恢复的特殊权限位，已取消：" +
+                    unsafeModes.joinToString { "${it.name}(${it.mode})" }
+            )
+        }
 
         // Never overwrite a good current file with a corrupted backup: verify
         // the backup copies against the manifest before touching the target.
         val backupHashes = when (
             val checked = hashChunks(
                 b,
-                files.map { CotaPaths.backupPath(backup.dir, it.name) }
+                files.map { CotaPaths.backupPath(backup.dir, it.name) },
+                prefix = "${backup.dir}/"
             )
         ) {
             is CotaResult.Ok -> checked.value
@@ -380,7 +411,8 @@ class CotaController(
 
     private suspend fun hashChunks(
         backend: RootPrivilegeBackend,
-        paths: List<String>
+        paths: List<String>,
+        prefix: String = CotaPaths.SOURCE_DIR + "/"
     ): CotaResult<Map<String, String>> {
         if (paths.isEmpty()) return CotaResult.Ok(emptyMap())
         val hashes = linkedMapOf<String, String>()
@@ -391,13 +423,38 @@ class CotaController(
                     "SHA-256 失败（${result.exitCode}）：${result.output.take(300)}"
                 )
             }
-            hashes.putAll(CotaParsers.parseSha256(result.output))
+            hashes.putAll(CotaParsers.parseSha256(result.output, prefix))
         }
         return CotaResult.Ok(hashes)
     }
 
+    private suspend fun readManifestChecked(
+        backend: RootPrivilegeBackend,
+        backupDir: String
+    ): CotaResult<String> {
+        val sizeResult = backend.exec(CotaCommandBuilder.manifestSize(backupDir))
+        if (!sizeResult.ok) {
+            return CotaResult.Error(
+                "读取备份清单大小失败（${sizeResult.exitCode}）"
+            )
+        }
+        val size = sizeResult.output.trim().toLongOrNull()
+        if (size == null || size < 0) {
+            return CotaResult.Error("备份清单大小无效")
+        }
+        if (size > MAX_MANIFEST_BYTES) {
+            return CotaResult.Error("备份清单过大，已拒绝")
+        }
+        val read = backend.exec(CotaCommandBuilder.readManifest(backupDir))
+        if (!read.ok) {
+            return CotaResult.Error("读取备份清单失败（${read.exitCode}）")
+        }
+        return CotaResult.Ok(read.output)
+    }
+
     companion object {
         private const val COMMAND_CHUNK = 8
+        private const val MAX_MANIFEST_BYTES = 64L * 1024L
         private val BACKUP_ID_FORMAT: DateTimeFormatter =
             DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.US)
     }

@@ -1,8 +1,6 @@
 package com.nemu.hibernate.policy
 
 import com.nemu.hibernate.core.AiTargets
-import com.nemu.hibernate.core.AntiFraudPolicy
-import com.nemu.hibernate.core.CloudTargets
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.TargetCatalog
 import com.nemu.hibernate.core.Targets
@@ -23,14 +21,9 @@ object SafetyTargets {
      */
     val suspendPackageNames: List<String>
         get() = (Targets.all.map { it.packageName } +
-            CloudTargets.suspendPackageNames +
-            AntiFraudPolicy.safetyPackages() +
             AiTargets.all.map { it.packageName } +
-            // Catalog targets that can legally be suspended. Whole-package
-            // disable-user targets are excluded: `pm unsuspend` must never be
-            // the command that "restores" a package Nemu disabled.
-            TargetCatalog.all
-                .filter { FreezeStrategy.SUSPEND in it.supportedStrategies }
-                .map { it.packageName })
+            // Every catalog target can be selected for SUSPEND; ownership is
+            // checked by the caller before actually unsuspending.
+            TargetCatalog.all.map { it.packageName })
             .distinct()
 }

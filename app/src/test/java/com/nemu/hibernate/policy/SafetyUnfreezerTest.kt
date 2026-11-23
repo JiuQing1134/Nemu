@@ -74,6 +74,20 @@ class SafetyUnfreezerTest {
     }
 
     @Test
+    fun backendFailureContainingNotFoundIsNotResolved() = runBlocking {
+        val backend = FakeBackend(
+            ShellResult(-1, "su not found; tried /system/bin/su")
+        )
+
+        val result = SafetyUnfreezer.runUnsuspendPackages(
+            backend,
+            listOf("com.hihonor.ouc")
+        )
+
+        assertFalse(result.ok)
+    }
+
+    @Test
     fun unsuspendPackages_acceptsExtraSafetyPackages() = runBlocking {
         val backend = FakeBackend()
         val packages = Targets.all.map { it.packageName } +

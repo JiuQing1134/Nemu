@@ -169,6 +169,45 @@ object PrivilegeOverviewReader {
     private const val SETTING_WIRELESS_ADB = "adb_wifi_enabled"
 
     /**
+     * Lightweight refresh used when the activity resumes. It updates only the
+     * Shizuku/ADB fields and keeps the last root result, so returning from
+     * Stellar must not trigger another su prompt.
+     */
+    suspend fun readShizuku(
+        context: Context,
+        previous: PrivilegeOverview
+    ): PrivilegeOverview = withContext(Dispatchers.IO) {
+        val shizukuInstalled = isShizukuInstalled(context)
+        val shizukuRunning = isShizukuRunning()
+        val shizukuGranted = shizukuRunning && isShizukuGranted()
+        val shizukuUid = if (shizukuRunning) shizukuUid() else null
+        val adbEnabled = readGlobalFlag(context, Settings.Global.ADB_ENABLED)
+        val wirelessDebuggingEnabled = readGlobalFlag(context, SETTING_WIRELESS_ADB)
+        previous.copy(
+            shizukuInstalled = shizukuInstalled,
+            shizukuRunning = shizukuRunning,
+            shizukuGranted = shizukuGranted,
+            shizukuUid = shizukuUid,
+            adbEnabled = adbEnabled,
+            wirelessDebuggingEnabled = wirelessDebuggingEnabled,
+            activeBackendLabel = PrivilegeLabels.activeBackendLabel(
+                rootAvailable = previous.rootAvailable,
+                shizukuRunning = shizukuRunning,
+                shizukuGranted = shizukuGranted,
+                shizukuUid = shizukuUid,
+            ),
+            plainSummary = PrivilegeLabels.plainSummary(
+                rootAvailable = previous.rootAvailable,
+                shizukuInstalled = shizukuInstalled,
+                shizukuRunning = shizukuRunning,
+                shizukuGranted = shizukuGranted,
+                shizukuUid = shizukuUid,
+                adbEnabled = adbEnabled,
+            ),
+        )
+    }
+
+    /**
      * Reads every field in one pass. This may trigger the root manager's
      * authorization prompt on first use (through BackendManager's su probe),
      * which is acceptable on an explicit refresh or app launch.

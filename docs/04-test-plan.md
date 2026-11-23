@@ -1,5 +1,10 @@
 # 04 测试与回滚计划
 
+> 历史记录：本文件写于 2026-11-21，部分模块/测试类（CloudController、
+> AntiFraudController、旧自定义选择器等）已在后续重构中删除。当前回归状态
+> 以 `docs/20-device-test-2026-11-22.md` 与 `docs/21-audit-2026-11-23.md`
+> 第六轮为准。
+
 > 原则：一次只改一个包；每次改完必须重启验证；先 OUC，后 AI 叶子包；红色包不测整包冻结。
 > 助手只生成命令/脚本，写入与重启由用户执行。
 
@@ -394,67 +399,72 @@ adb shell dumpsys package com.hihonor.numberidentity | Select-String 'User 0:'
 
 ## 2.3 温控 / COTA 模块测试（COTA1–COTA6，待用户执行）
 
+> 2026-11-23 实机：COTA1/COTA2 已通过（AAP-AN00 102：递归读到 55 个文件，温控组 3 项；`thermal_config/thermal_config_cloud.xml` 备份 452,048 字节，manifest 保留相对路径并校验 SHA-256）。COTA3–COTA6 待执行。
+
 ### COTA1：COTA 只读清单（root）
 
 **目的**：核对 App 展示的文件名、大小、mode/uid/gid、SHA-256 与设备实际内容一致。
 
-1. 在 KSU 管理器中给 Nemu 授权 Root；打开 Nemu，启用“温控/COTA 模块”，点“刷新文件/备份”。
+1. 在 KSU 管理器中给 Nemu 授权 Root；打开 Nemu → 设置 → 高级；模块已启用时进入页面会自动读取，也可点“刷新列表”。
 2. 在手机 root 终端执行（只读）：
 
    ```sh
-   ls -la /data/cota/para
-   stat -c '%n|%s|%a|%u|%g' /data/cota/para/*
-   sha256sum /data/cota/para/*
-   ls -Z /data/cota/para
+   find /data/cota/para -mindepth 1 -maxdepth 4 -type f -print
+   find /data/cota/para -mindepth 1 -maxdepth 4 -type f \
+     -exec stat -c '%n|%s|%a|%u|%g' {} \;
+   find /data/cota/para -mindepth 1 -maxdepth 4 -type f \
+     -exec sha256sum {} \;
+   ls -laZ /data/cota/para
    ```
 
-3. 逐项对比 App 显示与终端输出。
+3. 逐项对比 App 显示与终端输出。App 以相对路径（如 `thermal_config/thermal_config_cloud.xml`）为标识，并按子系统分组。
 
-**通过标准**：每个普通文件的名称、大小、SHA-256、mode、uid、gid 一致；子目录和符号链接不出现在可操作列表中；若 App 日志显示“跳过 N 个无法安全处理的条目”，用 root 终端对比 `find` 输出确认这些条目的名称，并记录数量与原因（App 出于安全考虑只记录数量，不回显不安全文件名）。
+**通过标准**：每个普通文件的相对路径、大小、SHA-256、mode、uid、gid 一致；目录和符号链接不出现在可操作列表中；若 App 日志显示“跳过 N 个无法安全处理的条目”，用 root 终端对比 `find` 输出确认这些条目的名称，并记录数量与原因（App 出于安全考虑只记录数量，不回显不安全文件名）。
 
 ### COTA2：COTA 备份
 
 **目的**：验证备份目录、清单和 hash 校验。
 
-1. 在 App 中全选文件，点“备份选中”，记录时间戳 `<ts>`。
-2. 在手机 root 终端执行：
+1. 在 App 中勾选温控组（或需要的文件），点“备份选中”，记录时间戳 `<ts>` 和 App 显示的备份路径。
+2. 在手机 root 终端执行（路径是 App 私有目录）：
 
    ```sh
-   ls -la /storage/emulated/0/Nemu/cota-backup/<ts>/
-   cat /storage/emulated/0/Nemu/cota-backup/<ts>/manifest.tsv
-   sha256sum /storage/emulated/0/Nemu/cota-backup/<ts>/*
+   find /data/user/0/com.nemu.dream/files/cota-backup/<ts> -type f -print
+   cat /data/user/0/com.nemu.dream/files/cota-backup/<ts>/manifest.tsv
+   find /data/user/0/com.nemu.dream/files/cota-backup/<ts> -type f \
+     -exec sha256sum {} \;
    ```
 
-**通过标准**：备份目录包含所有选中文件和 `manifest.tsv`；清单首行为 `#nemu-cota-backup-v1`；备份文件 hash 与 COTA1 一致；App 显示“备份完成”。
+**通过标准**：备份目录包含所有选中文件（保留相对子目录）和 `manifest.tsv`；清单首行为 `#nemu-cota-backup-v1`；备份文件 hash 与 COTA1 一致；App 显示“备份完成”。
 
 ### COTA3：COTA 合成文件备份/删除/恢复（先做，避开真实参数）
 
 **目的**：在不碰真实云控参数的情况下验证删除与恢复路径。
 
-1. 在手机 root 终端创建一个合成文件：
+1. 在手机 root 终端创建一个合成文件（放在子目录，验证相对路径）：
 
    ```sh
-   printf 'nemu-test\n' > /data/cota/para/nemu_test_param
-   chmod 644 /data/cota/para/nemu_test_param
+   mkdir -p /data/cota/para/nemu_test_dir
+   printf 'nemu-test\n' > /data/cota/para/nemu_test_dir/nemu_test_param
+   chmod 644 /data/cota/para/nemu_test_dir/nemu_test_param
    ```
 
-2. 在 App 中刷新，只勾选 `nemu_test_param`，备份，然后删除（勾选风险确认）。
+2. 在 App 中刷新，展开 `nemu_test_dir` 组，只勾选 `nemu_test_param`，备份，然后删除（勾选风险确认）。
 3. 在 root 终端验证删除：
 
    ```sh
-   ls -la /data/cota/para
-   test ! -e /data/cota/para/nemu_test_param && echo GONE
+   test ! -e /data/cota/para/nemu_test_dir/nemu_test_param && echo GONE
    ```
 
-4. 在 App 中从该备份恢复，再验证：
+4. 在 App 中从该备份恢复，再验证（目标子目录应被自动重建）：
 
    ```sh
-   sha256sum /data/cota/para/nemu_test_param
-   cat /data/cota/para/nemu_test_param
-   stat -c '%a|%u|%g' /data/cota/para/nemu_test_param
+   sha256sum /data/cota/para/nemu_test_dir/nemu_test_param
+   cat /data/cota/para/nemu_test_dir/nemu_test_param
+   stat -c '%a|%u|%g' /data/cota/para/nemu_test_dir/nemu_test_param
    ```
 
-**通过标准**：删除后文件不存在；恢复后内容为 `nemu-test`，hash 与清单一致，mode/uid/gid 与备份前一致。清理：用户确认后删除该合成文件。
+**通过标准**：删除后文件不存在；恢复后内容为 `nemu-test`，hash 与清单一致，mode/uid/gid 与备份前一致。清理：用户确认后删除该合成文件与空目录。
 
 ### COTA4：真实参数删除（可选，高风险）
 
@@ -468,8 +478,8 @@ adb shell dumpsys package com.hihonor.numberidentity | Select-String 'User 0:'
    adb shell dumpsys cpuinfo
    ```
 
-2. 只删除 `cpuconfig`；不要同时删除 `thermal_config` 或 `pg_config`。
-3. 删除后 10 分钟内每 2 分钟记录一次 `dumpsys battery` 温度与 `dumpsys thermalservice` 状态；观察是否异常发热、卡顿、充电异常。
+2. 只删除一个子系统组；AAP-AN00 102 上可测试温控组 `thermal_config`（3 个文件）。不要同时删除多个组。删除前确认该组已在 COTA2 备份中。
+3. 删除后 10 分钟内每 2 分钟记录一次 `dumpsys battery` 温度与 `dumpsys thermalservice` 状态；观察是否异常发热、卡顿、充电异常。注意：系统可能重新下发，且本模块不改内核/HAL 温控，效果不保证。
 4. 正常重启（电源菜单或 `svc power reboot`，不要用 `adb reboot`），确认：
 
    ```powershell
@@ -480,11 +490,11 @@ adb shell dumpsys package com.hihonor.numberidentity | Select-String 'User 0:'
 5. 检查是否被重新下发（root 终端）：
 
    ```sh
-   ls -la /data/cota/para
-   sha256sum /data/cota/para/*
+   find /data/cota/para/thermal_config -maxdepth 1 -type f -print
+   find /data/cota/para/thermal_config -maxdepth 1 -type f -exec sha256sum {} \;
    ```
 
-6. 从 COTA2 备份恢复 `cpuconfig`，确认 hash 与 COTA1 一致。
+6. 从 COTA2 备份恢复温控组，确认 hash 与 COTA1 一致。
 
 **通过标准**：正常开机；无持续热紧急状态；可恢复且 hash 一致。失败处理见“回滚”。
 

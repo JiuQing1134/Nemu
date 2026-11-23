@@ -6,6 +6,8 @@ import com.nemu.hibernate.core.ShellQuote
 import com.nemu.hibernate.core.TargetCatalog
 import com.nemu.hibernate.data.ActionLog
 import com.nemu.hibernate.privilege.RootPrivilegeBackend
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Materialises the current ownership state into a self-contained shell script
@@ -19,8 +21,13 @@ import com.nemu.hibernate.privilege.RootPrivilegeBackend
 object ShutdownScript {
     private const val DIR = "/data/adb/nemu"
     private const val PATH = "$DIR/restore_frozen.sh"
+    private const val TEMP_PATH = "$DIR/.restore_frozen.sh.tmp"
+    private val writeMutex = Mutex()
 
-    suspend fun write(backend: RootPrivilegeBackend, policy: TargetPolicy): Boolean {
+    suspend fun write(
+        backend: RootPrivilegeBackend,
+        policy: TargetPolicy
+    ): Boolean = writeMutex.withLock {
         val commands = buildCommands(policy)
         val payload = if (commands.isEmpty()) {
             ""
@@ -34,17 +41,20 @@ object ShutdownScript {
         val quoted = payload.lines().joinToString(" ") { ShellQuote.quote(it) }
         // printf '%s\n' preserves each line; the file is empty when there are
         // no frozen targets so the module can use `[ -s file ]`.
+        // Publish atomically: the KernelSU module may execute this file at any
+        // shutdown moment, so it must never see a truncated tail.
         val command = if (payload.isEmpty()) {
-            "mkdir -p '$DIR' && : > '$PATH' && chmod 700 '$PATH'"
+            "mkdir -p '$DIR' && : > '$TEMP_PATH' && chmod 700 '$TEMP_PATH' && " +
+                "mv -f '$TEMP_PATH' '$PATH'"
         } else {
-            "mkdir -p '$DIR' && printf '%s\\n' $quoted > '$PATH' && " +
-                "chmod 700 '$PATH'"
+            "mkdir -p '$DIR' && printf '%s\\n' $quoted > '$TEMP_PATH' && " +
+                "chmod 700 '$TEMP_PATH' && mv -f '$TEMP_PATH' '$PATH'"
         }
         val result = backend.exec(command)
         if (!result.ok) {
             ActionLog.warn("写入关机解冻脚本失败：${result.output.take(200)}")
         }
-        return result.ok
+        result.ok
     }
 
     private fun buildCommands(policy: TargetPolicy): List<String> {
@@ -52,7 +62,7 @@ object ShutdownScript {
 
         // Clear suspends last-known to be active, including custom targets.
         val suspended = TargetCatalog.all
-            .filter { policy.strategy(it) == FreezeStrategy.SUSPEND }
+            .filter { policy.storedStrategy(it) == FreezeStrategy.SUSPEND }
             .filter { policy.isApplied(it) }
             .map { it.packageName }
             .distinct()
@@ -64,9 +74,34 @@ object ShutdownScript {
 
         TargetCatalog.all.forEach { target ->
             if (!policy.isApplied(target)) return@forEach
-            when (policy.strategy(target)) {
+            // Persistent restrictions stay in place while their policy is
+            // enabled. Only orphan ownership is restored at normal shutdown.
+            if (policy.ownsAppOps(target) &&
+                !appOpsStillRequested(policy, target)
+            ) {
+                policy.originalAppOps(target)?.let { mode ->
+                    commands += CommandBuilder.appOpsBackgroundMode(
+                        target.packageName,
+                        mode
+                    )
+                }
+            }
+            if (policy.ownsStandby(target) &&
+                !standbyStillRequested(policy, target)
+            ) {
+                policy.originalStandby(target)?.let { bucket ->
+                    commands += CommandBuilder.standbyBucketValue(
+                        target.packageName,
+                        bucket
+                    )
+                }
+            }
+            when (policy.storedStrategy(target)) {
                 FreezeStrategy.COMPONENT -> {
-                    target.components.forEach { component ->
+                    OwnedComponentCatalog.merge(
+                        registered = target.components,
+                        ownedNames = policy.ownedComponentNames(target)
+                    ).forEach { component ->
                         val original = policy.componentOriginalState(
                             target,
                             component.className
@@ -77,10 +112,10 @@ object ShutdownScript {
                         )
                     }
                 }
-                FreezeStrategy.DISABLE_USER ->
-                    if (policy.originalEnabled(target) == true) {
-                        commands += CommandBuilder.enable(target.packageName)
-                    }
+                // Disable-user is intentionally persistent across a normal
+                // shutdown: shutdown safety does not reverse it. Only an
+                // explicit Unfreeze action may re-enable the package.
+                FreezeStrategy.DISABLE_USER -> Unit
                 FreezeStrategy.HIDE ->
                     if (policy.ownsHidden(target)) {
                         commands += CommandBuilder.unhide(target.packageName)
@@ -90,4 +125,16 @@ object ShutdownScript {
         }
         return commands.distinct()
     }
+
+    private fun appOpsStillRequested(
+        policy: TargetPolicy,
+        target: com.nemu.hibernate.core.Target
+    ): Boolean =
+        policy.isEnabled(target) && policy.options(target)?.appOps == true
+
+    private fun standbyStillRequested(
+        policy: TargetPolicy,
+        target: com.nemu.hibernate.core.Target
+    ): Boolean =
+        policy.isEnabled(target) && policy.options(target)?.standby == true
 }

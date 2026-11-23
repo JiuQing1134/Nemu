@@ -318,6 +318,31 @@ adb shell settings get global boot_count
 - 未在 LSPosed 激活时，仅安装 App 仍会看到更新提示，符合预期。
 - 详见 `docs/14-update-guard.md`。
 
+### PF30 强制停止/杀进程重启观察（2026-11-23，root adb）
+
+目的：确认 hiview 三件套与 PowerGenie 是否存在可用的“强行停止”手段。
+
+| 操作 | 结果 |
+|---|---|
+| `am force-stop com.hihonor.hiview`（PID 4720） | `stopped=true`，但 **PID 4720 未死**；15 秒内同一 PID 持续存活 |
+| `kill -9 4720` | 立即重启为 PID 20135（`*PERS* UID 1000`），20 秒内稳定；进程 packageList 含 hiviewpush/chr/hiview |
+| `am force-stop com.hihonor.hiviewtunnel`（PID 29692） | PID 立即消失，21 秒内未重启 |
+| `am force-stop com.hihonor.hiviewpush` | `stopped=true`，hiview 持久进程 PID 20135 仍在 |
+| `am force-stop com.hihonor.android.chr` | `stopped=true`，hiview 持久进程 PID 20135 仍在 |
+| `am force-stop com.hihonor.powergenie` | 当时无进程；2 秒后 `stopped=false`，无 PID |
+| 全程 `boot_id` / `uptime` | boot_id 不变、uptime 连续，**手机没有重启** |
+
+结论：`am force-stop` 对非持久进程（hiviewtunnel）有效；对 hiview 持久进程无效。
+`kill -9` 能杀死，但系统会立即重启，不能作为持久冻结；PowerGenie 当前无进程可杀。
+因此没有“强行停止并保持停止”的策略，只能一次性作用于 hiviewtunnel 这类非持久进程。
+手机全程未重启（`boot_id` 不变、uptime 连续）。
+
+测试后清理：对 hiviewpush / chr / hiviewtunnel / powergenie 执行
+`cmd package unstop --user 0`，`stopped` 均回到 false；hiview 由系统自动重启
+（PID 20135）；hiviewtunnel 清除 stopped 后仍未自动重启，用
+`am start-service` 启动其 UpdateConfigService 恢复为 PID 22990。PowerGenie
+测试前后均无进程。
+
 ## 4. 仍未覆盖 / 已知限制
 
 1. **guard rescue 分支未实机触发**：PF16 证明 guard 计数（attempts=1）和正常
@@ -329,8 +354,8 @@ adb shell settings get global boot_count
 3. **DM 三件套 enable 路径未测**：三项的 `cloud_original_enabled=false`，属于
    用户原本停用状态；按设计 restore 不会 enable。没有主动把基线改成 true 来制造
    一个假的“原本启用”状态。numberidentity 已覆盖 enable 往返（PF12）。
-4. **powergenie 组件被平台保护**：`pm disable` 返回 `new state: default`，目录已
-   改为 OBSERVE only；不再提供无效按钮。iaware 组件模式已实测通过。
+4. **powergenie 组件被平台保护**：`pm disable` 返回 `new state: default`，只有
+   组件策略置灰；整包策略仍可选但标高风险。iaware 组件模式已实测通过。
 5. **关机 applied 标记清理未完全生效**：观察到的标记在 BootWorker/BootFreezeWorker
    后仍被重新写入；v1.1 APK 的 UI 以实际状态为准（active 不显示“已应用”），
    但持久化清理的根因未再单独修复。最终 APK（`ad522852`）没有再执行干净重启验收；PF23 修复了迟到 BootWorker，

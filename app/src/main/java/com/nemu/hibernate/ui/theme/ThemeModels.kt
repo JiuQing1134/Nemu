@@ -3,48 +3,48 @@ package com.nemu.hibernate.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * 三套可切换的视觉风格。
+ * FlClash 的四种配色风格，对应上游 `ColorStyle`：
  *
- * - [MATERIAL3]：标准 Material 3，最克制。
- * - [M3E2025]：Material 3 Expressive 2025 观感，更大的圆角、更粗的标题。
- * - [MIUIX]：MIUI 风格，圆角更均匀、字重更轻、行距更紧凑。
+ * - [VIVID]：鲜明（默认），高饱和主色 + 纸白卡片。
+ * - [TINTED]：氛围，连页面与卡片都带一层主色。
+ * - [SOFT]：柔和，降低主色饱和度。
+ * - [MONOCHROME]：单色，只保留灰阶。
  *
- * 枚举名（`name`）稳定，可直接用于 DataStore 持久化。
+ * 枚举名用于 DataStore 持久化。
  */
 enum class ThemeStyle(val label: String) {
-    MATERIAL3("Material 3（标准）"),
-    M3E2025("M3E（大圆角）"),
-    MIUIX("MIUIX（紧凑）")
+    VIVID("鲜明"),
+    TINTED("氛围"),
+    SOFT("柔和"),
+    MONOCHROME("单色")
 }
 
 /**
- * 可切换的配色方案。每种配色都提供完整的浅色 / 深色 [androidx.compose.material3.ColorScheme]，
- * 见 [colorSchemeFor]。
+ * FlClash 默认的八色 iOS 系统色板。`swatchColor` 是上游原始种子色，
+ * 不是生成后的 primary；完整浅色 / 深色角色见 [colorSchemeFor]。
  *
- * [swatchColor] 是供设置页色板使用的代表色（浅色主题下的 primary）。
- * 枚举名（`name`）稳定，可直接用于 DataStore 持久化。
+ * 枚举名用于 DataStore 持久化。
  */
 enum class ThemePalette(
     val label: String,
     val swatchColor: Color
 ) {
-    /** 松林绿（默认）：整页控件都从绿色与白色之间取色。 */
-    MINT("松林绿", Color(0xFF28805A)),
+    /** FlClash 默认色 #007AFF。 */
+    BLUE("蓝色", Color(0xFF007AFF)),
 
-    /** 冰川蓝。 */
-    ICE("冰川蓝", Color(0xFF236B85)),
+    MAGENTA("品红", Color(0xFFCB30E0)),
 
-    /** 暖琥珀。 */
-    PEACH("暖琥珀", Color(0xFF834B25)),
+    ROSE("玫红", Color(0xFFFF2D55)),
 
-    /** 极光紫。 */
-    LAVENDER("极光紫", Color(0xFF4D3177)),
+    RED("红色", Color(0xFFFF383C)),
 
-    /** 石墨灰。 */
-    GRAPHITE("石墨灰", Color(0xFF4C565D)),
+    ORANGE("橙色", Color(0xFFFF8D28)),
 
-    /** 樱花粉：和看板娘图标呼应的柔和粉色。 */
-    SAKURA("樱花粉", Color(0xFFB33B63))
+    YELLOW("黄色", Color(0xFFFFCC00)),
+
+    GREEN("绿色", Color(0xFF34C759)),
+
+    GRAPHITE("石墨", Color(0xFF8E8E93))
 }
 
 /**

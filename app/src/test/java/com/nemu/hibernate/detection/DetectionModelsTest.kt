@@ -1,12 +1,13 @@
 package com.nemu.hibernate.detection
 
-import com.nemu.hibernate.core.CloudAction
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyPreset
 import com.nemu.hibernate.cota.CotaFile
 import com.nemu.hibernate.cota.CotaFileKind
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,7 +25,9 @@ class DetectionModelsTest {
         suspended: Boolean = false,
         stopped: Boolean = false,
         processRunning: Boolean? = null,
-        mode: FreezeMode = FreezeMode.SUSPEND
+        mode: FreezeMode = FreezeMode.SUSPEND,
+        restrictionApplied: Boolean = false,
+        preset: StrategyPreset? = null
     ): FreezeState = FreezeState(
         packageName = "com.example.app",
         label = "示例应用",
@@ -37,37 +40,78 @@ class DetectionModelsTest {
         suspended = suspended,
         stopped = stopped,
         processRunning = processRunning,
-        risk = RiskLevel.YELLOW
-    )
-
-    private fun cloud(
-        action: CloudAction,
-        policy: Boolean,
-        installed: Boolean = true,
-        known: Boolean = true,
-        enabled: Boolean = true,
-        suspended: Boolean = false,
-        stopped: Boolean = false,
-        processRunning: Boolean? = null,
-        protected: Boolean = false,
-        applied: Boolean = true
-    ): CloudState = CloudState(
-        packageName = "com.example.cloud",
-        label = "示例云控",
-        action = action,
-        policyEnabled = policy,
-        policyApplied = applied,
-        installed = installed,
-        actualKnown = known,
-        enabled = enabled,
-        suspended = suspended,
-        stopped = stopped,
-        processRunning = processRunning,
-        note = "说明",
-        protected = protected
+        risk = RiskLevel.YELLOW,
+        restrictionApplied = restrictionApplied,
+        preset = preset
     )
 
     // ---- FreezeState ----
+
+    @Test
+    fun detailLineDoesNotCallEveryModePaused() {
+        assertEquals(
+            "暂停 是",
+            freeze(policy = true, suspended = true).detailLine()
+        )
+        assertEquals(
+            "停用 是",
+            freeze(
+                policy = true,
+                mode = FreezeMode.DISABLE,
+                enabled = false
+            ).detailLine()
+        )
+        assertEquals(
+            "限制 已生效",
+            freeze(
+                policy = true,
+                mode = FreezeMode.RESTRICT,
+                restrictionApplied = true
+            ).detailLine()
+        )
+    }
+
+    @Test
+    fun configuredButNotAppliedIsPendingNotMismatch() {
+        val state = freeze(policy = true, suspended = false)
+            .copy(policyApplied = false)
+
+        assertFalse(state.mismatch())
+        assertEquals("未应用", state.statusLabel())
+        assertEquals("已纳入（未应用）", state.describePolicy())
+    }
+
+    @Test
+    fun attemptedButActualDiffersIsMismatch() {
+        val state = freeze(policy = true, suspended = false)
+
+        assertTrue(state.mismatch())
+        assertEquals("不一致", state.statusLabel())
+    }
+
+    @Test
+    fun restrictModeUsesRestrictionOwnershipForMismatchAndLabel() {
+        val state = freeze(
+            policy = true,
+            mode = FreezeMode.RESTRICT,
+            restrictionApplied = true
+        )
+
+        assertFalse(state.mismatch())
+        assertEquals("已限制", state.statusLabel())
+    }
+
+    @Test
+    fun pausePresetLabelsSuspendedAsPaused() {
+        val state = freeze(
+            policy = true,
+            suspended = true,
+            processRunning = false,
+            preset = StrategyPreset.PAUSE
+        )
+
+        assertEquals("已暂停", state.statusLabel())
+    }
 
     @Test
     fun suspendPolicyOnButNotSuspended_isMismatch() {
@@ -232,139 +276,6 @@ class DetectionModelsTest {
         assertEquals(RiskLevel.YELLOW, state.risk)
     }
 
-    // ---- CloudState ----
-
-    @Test
-    fun cloudSuspendMatchesWhenPolicyAndSuspended() {
-        val state = cloud(
-            action = CloudAction.SUSPEND,
-            policy = true,
-            suspended = true
-        )
-
-        assertFalse(state.mismatch())
-        assertEquals("已暂停 · 进程未知", state.statusLabel())
-        assertEquals(
-            "策略：已纳入；实际：已暂停，已启用，停止标记未设置，进程未知",
-            state.describe()
-        )
-    }
-
-    @Test
-    fun cloudSuspendPolicyOnButNotSuspended_isMismatch() {
-        val state = cloud(
-            action = CloudAction.SUSPEND,
-            policy = true,
-            suspended = false
-        )
-
-        assertTrue(state.mismatch())
-        assertEquals("不一致", state.statusLabel())
-    }
-
-    @Test
-    fun cloudPolicyConfiguredButNotApplied_isPendingNotMismatch() {
-        val state = cloud(
-            action = CloudAction.SUSPEND,
-            policy = true,
-            suspended = false,
-            applied = false
-        )
-
-        assertFalse(state.mismatch())
-        assertEquals("未应用", state.statusLabel())
-        assertTrue(state.describePolicy().contains("未应用"))
-    }
-
-    @Test
-    fun cloudDisableMatchesWhenPolicyAndDisabled() {
-        val state = cloud(
-            action = CloudAction.DISABLE_USER,
-            policy = true,
-            enabled = false
-        )
-
-        assertFalse(state.mismatch())
-        assertEquals("已停用", state.statusLabel())
-        assertEquals("策略：已纳入；实际：已停用", state.describe())
-    }
-
-    @Test
-    fun cloudDisablePolicyOnButEnabled_isMismatch() {
-        val state = cloud(
-            action = CloudAction.DISABLE_USER,
-            policy = true,
-            enabled = true
-        )
-
-        assertTrue(state.mismatch())
-        assertEquals("不一致", state.statusLabel())
-    }
-
-    @Test
-    fun cloudObserveOnlyNeverMismatches() {
-        val state = cloud(
-            action = CloudAction.OBSERVE_ONLY,
-            policy = true,
-            suspended = false
-        )
-
-        assertFalse(state.mismatch())
-        assertEquals("仅观察", state.statusLabel())
-        assertEquals("仅观察", state.describePolicy())
-    }
-
-    @Test
-    fun protectedCloudPackageIsMarkedForbidden() {
-        val state = cloud(
-            action = CloudAction.OBSERVE_ONLY,
-            policy = false,
-            protected = true
-        )
-
-        assertEquals("禁止操作", state.statusLabel())
-        assertEquals("禁止操作", state.describePolicy())
-    }
-
-    @Test
-    fun cloudMissingAndUnknownAreExplicit() {
-        val missing = cloud(
-            action = CloudAction.SUSPEND,
-            policy = true,
-            installed = false,
-            known = false
-        )
-        val unknown = cloud(
-            action = CloudAction.SUSPEND,
-            policy = true,
-            known = false
-        )
-
-        assertEquals("未安装", missing.statusLabel())
-        assertEquals("读取失败", unknown.statusLabel())
-        assertFalse(missing.mismatch())
-        assertFalse(unknown.mismatch())
-    }
-
-    @Test
-    fun cloudAsFreezeStateMapsSourceAndMode() {
-        val suspend = cloud(action = CloudAction.SUSPEND, policy = true).asFreezeState()
-        val disable = cloud(
-            action = CloudAction.DISABLE_USER,
-            policy = false
-        ).asFreezeState()
-        val observe = cloud(
-            action = CloudAction.OBSERVE_ONLY,
-            policy = false
-        ).asFreezeState()
-
-        assertEquals(FreezeSource.CLOUD, suspend.source)
-        assertEquals(FreezeMode.SUSPEND, suspend.mode)
-        assertEquals(FreezeMode.DISABLE, disable.mode)
-        assertEquals(FreezeMode.OBSERVE, observe.mode)
-        assertEquals("com.example.cloud", suspend.packageName)
-    }
-
     // ---- CotaState ----
 
     @Test
@@ -463,7 +374,7 @@ class DetectionModelsTest {
         val state = ThermalState(services = listOf(a, b))
 
         assertEquals("已安装 2/2；已启用 1/2", state.describe())
-        assertEquals("只读；不提供停止/冻结操作", state.readOnlyNote)
+        assertEquals("检测页只读；冻结/策略在应用页操作", state.readOnlyNote)
     }
 
     @Test
@@ -540,6 +451,18 @@ class DetectionModelsTest {
 
         assertTrue(state.skippedThisBoot())
         assertTrue(state.describeGuard().contains("手动恢复"))
+        assertEquals("用户已在本 boot 手动恢复，跳过自动冻结", state.guardNote())
+    }
+
+    @Test
+    fun guardNoteSkipsDefaultOnOffStatesAlreadyShownByChips() {
+        assertNull(BootSafetyState(bootFreezeEnabled = false).guardNote())
+        val enabled = BootSafetyState(
+            bootFreezeEnabled = true,
+            bootCount = 10
+        )
+        assertNull(enabled.guardNote())
+        assertTrue(enabled.describeGuard().startsWith("开机自动冻结已开启"))
     }
 
     @Test
@@ -589,18 +512,11 @@ class DetectionModelsTest {
         val matching = freeze(policy = true, suspended = true)
         val mismatching = freeze(policy = true, suspended = false)
             .copy(packageName = "com.example.mismatch")
-        val cloudMismatch = cloud(
-            action = CloudAction.SUSPEND,
-            policy = true,
-            suspended = false
-        )
         val snapshot = DetectionSnapshot(
-            freezeStates = listOf(matching, mismatching),
-            cloudStates = listOf(cloudMismatch)
+            freezeStates = listOf(matching, mismatching)
         )
 
         assertEquals(1, snapshot.freezeMismatches.size)
-        assertEquals(1, snapshot.cloudMismatches.size)
         assertEquals(1, snapshot.mismatchCount)
         assertTrue(snapshot.describeSummary().contains("不一致 1 项"))
         assertTrue(snapshot.describeSummary().contains("COTA：未检测"))

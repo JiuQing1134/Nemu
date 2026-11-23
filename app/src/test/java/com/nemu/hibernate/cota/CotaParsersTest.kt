@@ -25,6 +25,28 @@ class CotaParsersTest {
     }
 
     @Test
+    fun parseFileNames_keeps_nested_parameter_paths() {
+        val output = listOf(
+            "/data/cota/para/thermal_config/thermal_config_cloud.xml",
+            "/data/cota/para/thermal_config/version.txt",
+            "/data/cota/para/iaware/triStatePara/smartAppsControl.xml",
+            "/data/cota/para/thermal_config/../escape"
+        ).joinToString("\n")
+
+        val (names, skipped) = CotaParsers.parseFileNames(output)
+
+        assertEquals(
+            listOf(
+                "iaware/triStatePara/smartAppsControl.xml",
+                "thermal_config/thermal_config_cloud.xml",
+                "thermal_config/version.txt"
+            ),
+            names
+        )
+        assertEquals(1, skipped)
+    }
+
+    @Test
     fun parseSubsystemFiles_groups_safe_relative_paths_and_deduplicates() {
         val output = listOf(
             "/data/cota/para/antifraud/FraudCallContentPolicy.json|23989",
@@ -62,6 +84,31 @@ class CotaParsersTest {
     }
 
     @Test
+    fun parseStat_keeps_nested_paths_relative_to_the_source_directory() {
+        val output =
+            "/data/cota/para/thermal_config/thermal_config_cloud.xml|452048|644|0|0\n"
+
+        val stats = CotaParsers.parseStat(output)
+
+        assertEquals(1, stats.size)
+        assertEquals(
+            "thermal_config/thermal_config_cloud.xml",
+            stats[0].name
+        )
+        assertEquals(452048L, stats[0].sizeBytes)
+    }
+
+    @Test
+    fun parseStat_keeps_special_mode_bits_instead_of_dropping_the_row() {
+        val output = "/data/cota/para/thermal_config/special|1|4755|0|0\n"
+
+        val stats = CotaParsers.parseStat(output)
+
+        assertEquals(1, stats.size)
+        assertEquals("4755", stats[0].mode)
+    }
+
+    @Test
     fun parseStat_drops_malformed_lines() {
         val output = "garbage\n/data/cota/para/cpuconfig|x|644|1000|1000\n"
         assertTrue(CotaParsers.parseStat(output).isEmpty())
@@ -79,6 +126,19 @@ class CotaParsersTest {
     }
 
     @Test
+    fun parseSha256_keeps_nested_paths_relative_to_the_source_directory() {
+        val output =
+            "$hash  /data/cota/para/thermal_config/thermal_config_cloud.xml\n"
+
+        val hashes = CotaParsers.parseSha256(output)
+
+        assertEquals(
+            hash,
+            hashes["thermal_config/thermal_config_cloud.xml"]
+        )
+    }
+
+    @Test
     fun parseSha256_ignores_unsafe_paths() {
         val output = "$hash  /data/cota/para/bad name\n"
         assertTrue(CotaParsers.parseSha256(output).isEmpty())
@@ -88,12 +148,56 @@ class CotaParsersTest {
     fun manifest_round_trips() {
         val files = listOf(
             CotaBackupFile("cpuconfig", hash, 1024, "644", 1000, 1000),
-            CotaBackupFile("thermal_config", "c".repeat(64), 2048, "644", 0, 0)
+            CotaBackupFile("thermal_config", "c".repeat(64), 2048, "644", 0, 0),
+            CotaBackupFile(
+                "thermal_config/thermal_config_cloud.xml",
+                "d".repeat(64),
+                452048,
+                "644",
+                0,
+                0
+            )
         )
 
         val parsed = CotaParsers.parseManifest(CotaParsers.renderManifest(files))
 
         assertEquals(files.sortedBy { it.name }, parsed)
+    }
+
+    @Test
+    fun parseFileNames_reads_nul_delimited_find_output() {
+        val output =
+            "/data/cota/para/thermal_config/thermal_config_cloud.xml\u0000" +
+                "/data/cota/para/thermal_config/version.txt\u0000" +
+                "/data/cota/para/bad\nname\u0000"
+
+        val (names, skipped) = CotaParsers.parseFileNames(output)
+
+        assertEquals(
+            listOf(
+                "thermal_config/thermal_config_cloud.xml",
+                "thermal_config/version.txt"
+            ),
+            names
+        )
+        assertEquals(1, skipped)
+    }
+
+    @Test
+    fun manifest_rejects_duplicate_names_and_negative_sizes() {
+        assertNull(
+            CotaParsers.parseManifest(
+                "#nemu-cota-backup-v1\n" +
+                    "cpuconfig\t$hash\t1\t644\t0\t0\n" +
+                    "cpuconfig\t$hash\t2\t644\t0\t0\n"
+            )
+        )
+        assertNull(
+            CotaParsers.parseManifest(
+                "#nemu-cota-backup-v1\n" +
+                    "cpuconfig\t$hash\t-1\t644\t0\t0\n"
+            )
+        )
     }
 
     @Test
