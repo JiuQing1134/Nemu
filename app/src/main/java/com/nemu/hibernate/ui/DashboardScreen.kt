@@ -467,17 +467,24 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
             // A ship's wheel needs a visible central hole. The old spokes
             // started at the exact centre plus a filled hub, which collapsed
             // into a black blob at 24dp.
-            val hubRadius = radius * 0.34f
-            val hubStroke = stroke
-            // Start the spokes on the ring's centreline so each round cap sits
-            // inside the band. Starting outside the band made six caps merge
-            // with the ring and read as a hub nearly twice as thick.
-            val spokeStart = hubRadius
-            // Keep the inward-facing handles, but start them near the rim so
-            // their caps stay clear of the hub band. At 0.58r they landed on
-            // the ring and made the centre look nearly twice as thick.
-            val branchRadius = radius * 0.74f
-            val branchLength = radius * 0.20f
+            // The old 0.34r hub left a hole only ~2 stroke-widths wide, so the
+            // ring read as a thick washer (the "hub twice as thick" report).
+            // A larger hole plus spokes seated outside the band keeps the hub
+            // stroke visually identical to the spokes.
+            val hubRadius = radius * 0.40f
+            // A small circle reads bolder than a straight line of the same
+            // width; trim the hub stroke optically so the centre matches the
+            // spokes instead of looking nearly twice as thick.
+            val hubStroke = stroke * 0.78f
+            // Round caps end at the outer edge of the hub band instead of
+            // merging into it.
+            val spokeStart = hubRadius + hubStroke
+            // Keep the inward-facing handles near the rim. Their round caps
+            // used to reach the hub band and merged with it, which made the
+            // centre read as a thick blob even though both strokes were the
+            // same width; leave a visible gap instead.
+            val branchRadius = radius * 0.78f
+            val branchLength = radius * 0.16f
             for (ray in 0 until 6) {
                 val angle = -PI / 2.0 + ray * PI / 3.0
                 val ux = cos(angle).toFloat()

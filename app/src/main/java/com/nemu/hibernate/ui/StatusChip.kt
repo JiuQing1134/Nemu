@@ -93,10 +93,10 @@ private fun chipColors(tone: StatusChipTone): Pair<Color, Color> {
             scheme.primary to scheme.onPrimary
         StatusChipTone.WARNING ->
             Color(0xFFFF8D28) to Color(0xFF1A1200)
-        // Small chip text must stay readable; keep the red family but use a
-        // darker shade than the vivid error ink used for body copy.
+        // High-risk chips use the vivid FlClash red (same as the RED palette
+        // and the high-risk body ink), not the old muted brick shade.
         StatusChipTone.ERROR ->
-            Color(0xFFD32F2F) to Color.White
+            Color(0xFFFF383C) to Color.White
         StatusChipTone.LOW_RISK ->
             Color(0xFF2E7D32) to Color.White
         StatusChipTone.THEME ->

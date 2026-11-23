@@ -356,7 +356,8 @@ private fun DetectionInfoCard(text: String) {
 @Composable
 private fun DetectionStatusChip(text: String, warning: Boolean = false) {
     val background = if (warning) {
-        Color(0xFFD32F2F)
+        // Vivid FlClash red; the muted #D32F2F read as dark brown-red.
+        Color(0xFFFF383C)
     } else {
         MaterialTheme.colorScheme.primary
     }
@@ -426,12 +427,28 @@ private fun FreezeStateCard(
                     warning = freeze.mismatch() || freeze.partiallyApplied()
                 )
             }
-            Text(
-                "策略 ${freeze.describePolicy()}  ·  ${freeze.detailLine()}" +
-                    "  ·  进程 ${processPresenceLabel(freeze.processRunning)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "策略 ${freeze.describePolicy()}  ·  ${freeze.detailLine()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // Process presence sits on the right and stays terse:
+                // 存活 / 无进程 / 未知.
+                Text(
+                    processPresenceLabel(freeze.processRunning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
             if (expanded) {
                 Text("包状态：${freeze.describeActual()}", style = MaterialTheme.typography.bodySmall)
                 Text(

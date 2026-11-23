@@ -168,8 +168,8 @@ data class FreezeState(
         mode == FreezeMode.DISABLE -> if (!enabled) "已停用" else "仍启用"
         mode == FreezeMode.COMPONENT ->
             if (componentDisabled == true) "组件已停用" else "组件启用"
-        partiallyApplied() -> "已暂停 · 进程存活"
-        suspended && processRunning == null -> "已暂停 · 进程未知"
+        partiallyApplied() -> "已暂停 · 存活"
+        suspended && processRunning == null -> "已暂停 · 未知"
         preset == StrategyPreset.PAUSE ->
             if (suspended) "已暂停" else "未暂停"
         preset == StrategyPreset.FREEZE ->

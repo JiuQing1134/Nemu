@@ -131,7 +131,7 @@ class DetectionModelsTest {
 
         assertFalse(state.mismatch())
         assertFalse(state.partiallyApplied())
-        assertEquals("已暂停 · 进程未知", state.statusLabel())
+        assertEquals("已暂停 · 未知", state.statusLabel())
         assertEquals("已暂停，已启用，停止标记未设置，进程未知", state.describeActual())
     }
 
@@ -146,7 +146,7 @@ class DetectionModelsTest {
 
         assertFalse(state.mismatch())
         assertTrue(state.partiallyApplied())
-        assertEquals("已暂停 · 进程存活", state.statusLabel())
+        assertEquals("已暂停 · 存活", state.statusLabel())
         assertEquals("已暂停，已启用，停止标记已设置，进程存活", state.describeActual())
     }
 
@@ -156,7 +156,7 @@ class DetectionModelsTest {
 
         assertFalse(state.mismatch())
         assertFalse(state.partiallyApplied())
-        assertEquals("已暂停 · 进程未知", state.statusLabel())
+        assertEquals("已暂停 · 未知", state.statusLabel())
         assertEquals("已暂停，已启用，停止标记已设置，进程未知", state.describeActual())
     }
 
@@ -500,7 +500,7 @@ class DetectionModelsTest {
             .copy(source = FreezeSource.AI)
 
         assertFalse(applied.mismatch())
-        assertEquals("已暂停 · 进程未知", applied.statusLabel())
+        assertEquals("已暂停 · 未知", applied.statusLabel())
         assertTrue(missing.mismatch())
         assertEquals("不一致", missing.statusLabel())
     }

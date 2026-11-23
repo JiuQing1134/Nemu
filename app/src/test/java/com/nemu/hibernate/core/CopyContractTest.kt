@@ -137,8 +137,8 @@ class CopyContractTest {
             "运行中", "未冻结",
             // FreezeState.statusLabel()
             "仅观察", "已限制", "未限制", "未安装", "读取失败",
-            "组件状态未知", "不一致", "仍启用", "已暂停 · 进程存活",
-            "已暂停 · 进程未知", "未暂停", "已冻结"
+            "组件状态未知", "不一致", "仍启用", "已暂停 · 存活",
+            "已暂停 · 未知", "未暂停", "已冻结"
         )
         val labels = mutableSetOf<String>()
         val target = TargetCatalog.all.first()
