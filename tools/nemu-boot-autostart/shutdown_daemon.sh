@@ -14,18 +14,21 @@ chmod 755 "$NEMU_DIR" 2>/dev/null
 if [ ! -p "$PIPE" ]; then
     rm -f "$PIPE"
     mkfifo "$PIPE" 2>/dev/null
-    chmod 666 "$PIPE" 2>/dev/null
+    chown root:system "$PIPE" 2>/dev/null
+    chmod 0620 "$PIPE" 2>/dev/null
 fi
 
 # initrc `on shutdown` is the primary path. This poll is the fallback for
 # late-load kernels where initrc injection is unavailable, and only runs while
 # the restore script is non-empty (i.e. while something is frozen).
 (
-    while [ -s "$RESTORE" ]; do
-        powerctl=$(getprop sys.powerctl 2>/dev/null)
-        if [ -n "$powerctl" ]; then
-            /system/bin/sh "$MODDIR/restore_if_frozen.sh"
-            break
+    while true; do
+        if [ -s "$RESTORE" ]; then
+            powerctl=$(getprop sys.powerctl 2>/dev/null)
+            if [ -n "$powerctl" ]; then
+                /system/bin/sh "$MODDIR/restore_if_frozen.sh"
+                sleep 5
+            fi
         fi
         sleep 1
     done
@@ -35,7 +38,8 @@ while true; do
     if [ ! -p "$PIPE" ]; then
         rm -f "$PIPE"
         mkfifo "$PIPE" 2>/dev/null
-        chmod 666 "$PIPE" 2>/dev/null
+        chown root:system "$PIPE" 2>/dev/null
+        chmod 0620 "$PIPE" 2>/dev/null
         sleep 2
         continue
     fi

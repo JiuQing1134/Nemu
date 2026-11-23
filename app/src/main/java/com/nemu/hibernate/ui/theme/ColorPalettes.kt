@@ -7,56 +7,50 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
 /*
- * FlClash colour engine, ported to Nemu.
+ * Nemu colour engine.
  *
- * Upstream:
- *   https://github.com/chen08209/FlClash/blob/main/lib/providers/state/theme.dart
- *   https://github.com/chen08209/FlClash/blob/main/plugins/prism_ui/lib/color.dart
- *
- * FlClash builds every role with HCT / Material Color Utilities. Its default
- * palette is the eight iOS system colours below, and the default style is the
- * "vivid" content scheme: a saturated accent, paper-white cards with a faint
- * seed tint, and grey page / inset surfaces. The generated values live in
- * FlClashColorData.kt so Nemu does not need a colour-science dependency at
- * runtime. The generator is tools/flclash_theme_gen.py.
- *
- * FlClash is Apache-2.0; see https://github.com/chen08209/FlClash.
+ * Upstream reference: FlClash (https://github.com/chen08209/FlClash),
+ * lib/providers/state/theme.dart + plugins/prism_ui/lib/color.dart, Apache-2.0.
+ * The HCT tone ladder, surface levels and default "vivid" style are ported
+ * from that reference. Nemu ships the precomputed tables in NemuColorData.kt,
+ * so no colour-science dependency is needed at runtime. Generator:
+ * tools/theme_gen.py.
  */
 
 /**
- * FlClash surfaces. These are deliberately not the same as Compose's
- * surfaceContainer* ladder: FlClash uses a page < card < block < inset
+ * Nemu surface levels. These are deliberately not the same as Compose's
+ * surfaceContainer* ladder: Nemu uses a page < card < block < inset
  * hierarchy, with the card brighter than the page in light mode and darker
  * than the page in dark mode.
  */
-enum class FlClashSurface {
+enum class NemuSurface {
     PAGE,
     CARD,
     BLOCK,
     INSET
 }
 
-fun ColorScheme.flClashSurface(level: FlClashSurface): Color {
+fun ColorScheme.nemuSurface(level: NemuSurface): Color {
     val dark = surface.luminance() < 0.5f
     return when (level) {
-        FlClashSurface.PAGE -> if (dark) surface else surfaceContainer
-        FlClashSurface.CARD -> if (dark) surfaceContainer else surfaceBright
-        FlClashSurface.BLOCK -> if (dark) surfaceContainerHigh else surfaceContainer
-        FlClashSurface.INSET -> surfaceContainerHighest
+        NemuSurface.PAGE -> if (dark) surface else surfaceContainer
+        NemuSurface.CARD -> if (dark) surfaceContainer else surfaceBright
+        NemuSurface.BLOCK -> if (dark) surfaceContainerHigh else surfaceContainer
+        NemuSurface.INSET -> surfaceContainerHighest
     }
 }
 
-fun ColorScheme.flClashCard(): Color = flClashSurface(FlClashSurface.CARD)
-fun ColorScheme.flClashBlock(): Color = flClashSurface(FlClashSurface.BLOCK)
-fun ColorScheme.flClashInset(): Color = flClashSurface(FlClashSurface.INSET)
+fun ColorScheme.nemuCard(): Color = nemuSurface(NemuSurface.CARD)
+fun ColorScheme.nemuBlock(): Color = nemuSurface(NemuSurface.BLOCK)
+fun ColorScheme.nemuInset(): Color = nemuSurface(NemuSurface.INSET)
 
 /** The floating navigation dock: card in light, block in dark. */
-fun ColorScheme.flClashFloating(): Color =
-    if (surface.luminance() < 0.5f) flClashBlock() else flClashCard()
+fun ColorScheme.nemuFloating(): Color =
+    if (surface.luminance() < 0.5f) nemuBlock() else nemuCard()
 
 private fun colorSchemeFromRoles(roles: LongArray): ColorScheme {
-    require(roles.size == FLCLASH_ROLE_COUNT) {
-        "FlClash colour table is ${roles.size} roles, expected $FLCLASH_ROLE_COUNT"
+    require(roles.size == NEMU_ROLE_COUNT) {
+        "Nemu colour table is ${roles.size} roles, expected $NEMU_ROLE_COUNT"
     }
     fun c(index: Int) = Color(roles[index].toInt())
 
@@ -98,11 +92,11 @@ private fun colorSchemeFromRoles(roles: LongArray): ColorScheme {
         surfaceContainerHigh = c(34),
         surfaceContainerHighest = c(35)
     )
-    // The roles below do not have a distinct FlClash source. Mirroring the
+    // The roles below do not have a distinct upstream source. Mirroring the
     // nearest generated role keeps Material components (which may read them)
     // inside the same palette instead of falling back to the stock purple.
     return scheme.copy(
-        // Readability pass requested on-device: keep FlClash's structural
+        // Readability pass requested on-device: keep the structural
         // colours, but make body/secondary ink closer to true black.
         onSurface = Color(0xFF0A0A0A),
         onBackground = Color(0xFF0A0A0A),
@@ -195,8 +189,8 @@ fun colorSchemeFor(
 ): ColorScheme {
     val index = palette.ordinal * ThemeStyle.entries.size + style.ordinal
     return if (dark) {
-        darkColorSchemeFromRoles(FLCLASH_DARK_ROLES[index])
+        darkColorSchemeFromRoles(NEMU_DARK_ROLES[index])
     } else {
-        colorSchemeFromRoles(FLCLASH_LIGHT_ROLES[index])
+        colorSchemeFromRoles(NEMU_LIGHT_ROLES[index])
     }
 }

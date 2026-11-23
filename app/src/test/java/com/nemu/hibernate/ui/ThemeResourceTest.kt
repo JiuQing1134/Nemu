@@ -6,7 +6,7 @@ import org.junit.Test
 
 class ThemeResourceTest {
     @Test
-    fun lightWindowMatchesTheFlClashPageColour() {
+    fun lightWindowMatchesNemuPageColour() {
         val themes = TestSources.read("src/main/res/values/themes.xml")
 
         assertTrue(themes.contains("#EFEDF0"))

@@ -6,8 +6,10 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import com.nemu.hibernate.core.AiTargets
+import com.nemu.hibernate.core.CommandBuilder
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.FreezeStrategyPolicy
+import com.nemu.hibernate.core.RestrictionParsers
 import com.nemu.hibernate.core.StrategyOptions
 import com.nemu.hibernate.core.StrategyOptionsCodec
 import com.nemu.hibernate.core.Target
@@ -22,6 +24,7 @@ import com.nemu.hibernate.data.Settings
 import com.nemu.hibernate.privilege.AndroidComponentStateReader
 import com.nemu.hibernate.privilege.ComponentStateReader
 import com.nemu.hibernate.policy.BootCount
+import com.nemu.hibernate.policy.RestrictionController
 import com.nemu.hibernate.policy.TargetPolicy
 import com.nemu.hibernate.privilege.PackageStatusReader
 import com.nemu.hibernate.privilege.RootPrivilegeBackend
@@ -111,7 +114,7 @@ class DetectionReader(
      * actual component enabled state, so a successful command is never
      * mistaken for a still-enabled component.
      */
-    private fun readCatalogStates(
+    private suspend fun readCatalogStates(
         processSnapshot: ProcessListSnapshot?
     ): List<FreezeState> {
         val corePackages = coreTargets.map { it.packageName }.toSet()
@@ -160,14 +163,32 @@ class DetectionReader(
                 } else {
                     emptyList()
                 }
+                val disabledComponents =
+                    componentStates.count { it == 2 || it == 3 || it == 4 }
+                // "Frozen" for COMPONENT means every selected component is
+                // disabled. A single disabled component is only a partial
+                // result and must not be reported as fully applied.
                 val componentDisabled = if (mode == FreezeMode.COMPONENT) {
-                    componentStates.any { it == 2 || it == 3 || it == 4 }
+                    components.isNotEmpty() &&
+                        disabledComponents == components.size
                 } else {
                     null
                 }
+                val componentPartial = mode == FreezeMode.COMPONENT &&
+                    disabledComponents in 1 until components.size
                 val componentKnown = mode != FreezeMode.COMPONENT ||
                     (componentStates.isNotEmpty() &&
                         componentStates.all { it != null })
+                val restrictionActual = if (mode == FreezeMode.RESTRICT) {
+                    readRestrictionActual(
+                        packageName = target.packageName,
+                        options = options,
+                        appOpsOwned = appOpsOwned,
+                        standbyOwned = standbyOwned
+                    )
+                } else {
+                    null
+                }
                 val appliedMarker = readBoolean(
                     "strategy_applied_${target.packageName}",
                     false
@@ -186,18 +207,63 @@ class DetectionReader(
                     mode = mode,
                     policyEnabled = catalogPolicyEnabled(target),
                     installed = actual.installed,
-                    actualKnown = actual.known && componentKnown,
+                    actualKnown = actual.known && componentKnown &&
+                        (mode != FreezeMode.RESTRICT ||
+                            restrictionActual != null),
                     enabled = actual.enabled,
                     suspended = actual.suspended,
                     stopped = actual.stopped,
                     processRunning = actual.processRunning,
                     risk = target.risk,
                     componentDisabled = componentDisabled,
+                    componentPartial = componentPartial,
                     restrictionApplied = restrictionApplied,
-                    policyApplied = appliedMarker,
+                    restrictionActual = restrictionActual,
+                    // OBSERVE + AppOps/standby never writes strategy_applied;
+                    // ownership of the restriction is its own applied proof.
+                    policyApplied = appliedMarker || restrictionApplied,
                     preset = options?.presetOf(strategy)
                 )
             }
+    }
+
+    /**
+     * Live AppOps/standby readback for a RESTRICT row. Returns null when any
+     * requested value cannot be read; callers then mark the row unknown
+     * instead of claiming "not restricted". Without a root backend this is
+     * always null (the shell commands would silently fail).
+     */
+    private suspend fun readRestrictionActual(
+        packageName: String,
+        options: StrategyOptions?,
+        appOpsOwned: Boolean,
+        standbyOwned: Boolean
+    ): Boolean? {
+        val backend = rootBackend ?: return null
+        val checkAppOps = options?.appOps == true || (options == null && appOpsOwned)
+        val checkStandby =
+            options?.standby == true || (options == null && standbyOwned)
+        if (!checkAppOps && !checkStandby) return null
+        val values = mutableListOf<Boolean>()
+        if (checkAppOps) {
+            val result = backend.exec(CommandBuilder.appOpsGet(packageName))
+            val mode = if (result.ok) {
+                RestrictionParsers.parseAppOpsMode(result.output)
+            } else {
+                null
+            } ?: return null
+            values += mode.equals("ignore", ignoreCase = true)
+        }
+        if (checkStandby) {
+            val result = backend.exec(CommandBuilder.standbyGet(packageName))
+            val bucket = if (result.ok) {
+                RestrictionParsers.parseStandbyBucket(result.output)
+            } else {
+                null
+            } ?: return null
+            values += bucket == RestrictionController.RESTRICTED_BUCKET
+        }
+        return values.all { it }
     }
 
     private fun readOptions(target: Target): StrategyOptions? =
@@ -257,7 +323,11 @@ class DetectionReader(
                 message = "未提供 Root 后端"
             )
         val rootFiles = when (
-            val result = CotaController(backend, settings.cotaEnabled).listFiles()
+            val result = CotaController(
+                backend,
+                settings.cotaEnabled,
+                context.filesDir.resolve("cota-backup").absolutePath
+            ).listFiles()
         ) {
             is CotaResult.Ok -> result.value
             is CotaResult.Error -> return CotaState(

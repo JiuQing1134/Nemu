@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate FlClashColorData.kt from FlClash's own colour algorithm.
+"""Regenerate NemuColorData.kt from FlClash's own colour algorithm.
 
 The android app does not depend on a colour-science library at runtime. This
 script uses Google's materialyoucolor package to run the same HCT / Material
@@ -15,7 +15,7 @@ Reference snapshots used for this port:
     prism_ui     8f5fc22ca1a6bccb064589494ca69cedb38edb50
 
 Run from the repository root:
-    python tools/flclash_theme_gen.py
+    python tools/theme_gen.py
 """
 from __future__ import annotations
 
@@ -255,12 +255,12 @@ def emit_kotlin(path: Path) -> None:
         " * Apache-2.0. Exact FlClash vivid/tinted/soft/monochrome schemes for",
         " * its eight default iOS system colours. Dark roles apply FlClash's",
         " * toPureBlack() transform, so the page and window are true #000000.",
-        " * Generator: tools/flclash_theme_gen.py",
+        " * Generator: tools/theme_gen.py",
         " */",
         "",
-        "internal const val FLCLASH_ROLE_COUNT = 36",
+        "internal const val NEMU_ROLE_COUNT = 36",
         "",
-        "internal val FLCLASH_LIGHT_ROLES: Array<LongArray> = arrayOf(",
+        "internal val NEMU_LIGHT_ROLES: Array<LongArray> = arrayOf(",
     ]
     for values in rows(False):
         lines.append(
@@ -271,7 +271,7 @@ def emit_kotlin(path: Path) -> None:
     lines.extend([
         ")",
         "",
-        "internal val FLCLASH_DARK_ROLES: Array<LongArray> = arrayOf(",
+        "internal val NEMU_DARK_ROLES: Array<LongArray> = arrayOf(",
     ])
     for values in rows(True):
         lines.append(
@@ -287,7 +287,7 @@ if __name__ == "__main__":
     root = Path(__file__).resolve().parent.parent
     output = (
         root
-        / "app/src/main/java/com/nemu/hibernate/ui/theme/FlClashColorData.kt"
+        / "app/src/main/java/com/nemu/hibernate/ui/theme/NemuColorData.kt"
     )
     emit_kotlin(output)
     print(f"wrote {output}")

@@ -29,7 +29,7 @@
   - `D:\win_root\nemu\PROJECT.md`
   - `D:\win_root\nemu\docs\README.md`
 - **用途**：冻结/解冻系统更新、AI、云控/遥测、反诈、COTA 温控；不卸载系统应用。
-- **外观**：FlClash 配色/外观移植；默认蓝色鲜明，深色纯黑；详见 `docs/22-flclash-theme-2026-11-23.md`。
+- **外观**：主题配色/外观移植（参考 FlClash / prism_ui）；默认蓝色鲜明，深色纯黑；详见 `docs/22-theme-port-2026-11-23.md`。
 - **图标**：白底黑色月亮。
 
 ## 2. 凪

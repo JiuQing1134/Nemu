@@ -10,7 +10,7 @@ import org.junit.Test
 
 /**
  * Status chips and filter chips draw text with the palette's designed
- * on-primary ink. The user explicitly prefers FlClash's white ink on the blue
+ * on-primary ink. The user explicitly prefers white ink on the blue
  * controls (a luminance-inverted black ink was harder to read), so this test
  * guards the designed pairs rather than forcing pure black/white: every
  * palette × style × light/dark pair must keep at least the 3:1 WCAG contrast

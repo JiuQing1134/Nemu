@@ -52,7 +52,7 @@ class SettingsEntriesTest {
             state(boot = BootFreezeUiState(enabled = true))
         ).first { it.id == SettingsEntryId.BOOT }
 
-        assertEquals("开机与恢复", boot.title)
+        assertEquals("开机与安全", boot.title)
         assertEquals("无计划目标", boot.summary)
     }
 
@@ -120,23 +120,47 @@ class SettingsEntriesTest {
 
     @Test
     fun rootListSummariesStayShort() {
+        listOf(
+            "部分成功",
+            "手动选择性解冻：本次开机不再自动冻结",
+            "开机冻结成功"
+        ).forEach { lastResult ->
+            val entries = settingsEntries(
+                state(
+                    boot = BootFreezeUiState(
+                        enabled = true,
+                        plannedCount = 12,
+                        lastResult = lastResult
+                    ),
+                    palette = ThemePalette.GRAPHITE,
+                    mode = ThemeMode.SYSTEM
+                )
+            )
+
+            entries.forEach { entry ->
+                assertTrue(
+                    "${entry.title} 的摘要过长：${entry.summary}",
+                    entry.summary.length <= 20
+                )
+            }
+        }
+    }
+
+    @Test
+    fun legacyManualSkipIsSummarizedAsAShortSkipToken() {
         val entries = settingsEntries(
             state(
                 boot = BootFreezeUiState(
                     enabled = true,
                     plannedCount = 12,
-                    lastResult = "部分成功"
+                    lastResult = "手动选择性解冻：本次开机不再自动冻结"
                 ),
                 palette = ThemePalette.GRAPHITE,
                 mode = ThemeMode.SYSTEM
             )
         )
 
-        entries.forEach { entry ->
-            assertTrue(
-                "${entry.title} 的摘要过长：${entry.summary}",
-                entry.summary.length <= 20
-            )
-        }
+        val boot = entries.first { it.id == SettingsEntryId.BOOT }
+        assertTrue(boot.summary.contains("已跳过 · 手动解冻"))
     }
 }

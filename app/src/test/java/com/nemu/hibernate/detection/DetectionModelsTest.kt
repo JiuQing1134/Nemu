@@ -50,7 +50,7 @@ class DetectionModelsTest {
     @Test
     fun detailLineDoesNotCallEveryModePaused() {
         assertEquals(
-            "暂停 是",
+            "冻结 是",
             freeze(policy = true, suspended = true).detailLine()
         )
         assertEquals(
@@ -102,6 +102,47 @@ class DetectionModelsTest {
     }
 
     @Test
+    fun restrictLiveReadWinsOverStaleOwnershipMarker() {
+        val state = freeze(
+            policy = true,
+            mode = FreezeMode.RESTRICT,
+            restrictionApplied = true
+        ).copy(restrictionActual = false)
+
+        assertFalse(state.actuallyFrozen)
+        assertTrue(state.mismatch())
+        assertEquals("未限制", state.statusLabel())
+        assertEquals("限制 未生效", state.detailLine())
+    }
+
+    @Test
+    fun unreadableRestrictionIsUnknownNotMismatch() {
+        val state = freeze(
+            policy = true,
+            known = false,
+            mode = FreezeMode.RESTRICT,
+            restrictionApplied = true
+        )
+
+        assertFalse(state.mismatch())
+        assertEquals("读取失败", state.statusLabel())
+        assertEquals("限制 未知", state.detailLine())
+    }
+
+    @Test
+    fun componentPartiallyDisabledIsNotFullyFrozen() {
+        val state = freeze(
+            policy = true,
+            mode = FreezeMode.COMPONENT
+        ).copy(componentDisabled = false, componentPartial = true)
+
+        assertFalse(state.actuallyFrozen)
+        assertTrue(state.mismatch())
+        assertEquals("组件部分停用", state.statusLabel())
+        assertEquals("组件 部分停用", state.detailLine())
+    }
+
+    @Test
     fun pausePresetLabelsSuspendedAsPaused() {
         val state = freeze(
             policy = true,
@@ -111,6 +152,22 @@ class DetectionModelsTest {
         )
 
         assertEquals("已暂停", state.statusLabel())
+        assertEquals("暂停 是", state.detailLine())
+        assertEquals("已暂停，已启用，停止标记未设置，无目标进程", state.describeActual())
+    }
+
+    @Test
+    fun freezePresetLabelsSuspendedAsFrozen() {
+        val state = freeze(
+            policy = true,
+            suspended = true,
+            processRunning = false,
+            preset = StrategyPreset.FREEZE
+        )
+
+        assertEquals("已冻结", state.statusLabel())
+        assertEquals("冻结 是", state.detailLine())
+        assertEquals("已冻结，已启用，停止标记未设置，无目标进程", state.describeActual())
     }
 
     @Test
@@ -120,7 +177,7 @@ class DetectionModelsTest {
         assertTrue(state.mismatch())
         assertEquals("不一致", state.statusLabel())
         assertEquals(
-            "策略：已纳入；实际：未暂停，已启用，停止标记未设置，进程未知",
+            "策略：已纳入；实际：未冻结，已启用，停止标记未设置，进程未知",
             state.describe()
         )
     }
@@ -131,8 +188,8 @@ class DetectionModelsTest {
 
         assertFalse(state.mismatch())
         assertFalse(state.partiallyApplied())
-        assertEquals("已暂停 · 未知", state.statusLabel())
-        assertEquals("已暂停，已启用，停止标记未设置，进程未知", state.describeActual())
+        assertEquals("已冻结 · 未知", state.statusLabel())
+        assertEquals("已冻结，已启用，停止标记未设置，进程未知", state.describeActual())
     }
 
     @Test
@@ -146,8 +203,8 @@ class DetectionModelsTest {
 
         assertFalse(state.mismatch())
         assertTrue(state.partiallyApplied())
-        assertEquals("已暂停 · 存活", state.statusLabel())
-        assertEquals("已暂停，已启用，停止标记已设置，进程存活", state.describeActual())
+        assertEquals("已冻结 · 存活", state.statusLabel())
+        assertEquals("已冻结，已启用，停止标记已设置，进程存活", state.describeActual())
     }
 
     @Test
@@ -156,8 +213,8 @@ class DetectionModelsTest {
 
         assertFalse(state.mismatch())
         assertFalse(state.partiallyApplied())
-        assertEquals("已暂停 · 未知", state.statusLabel())
-        assertEquals("已暂停，已启用，停止标记已设置，进程未知", state.describeActual())
+        assertEquals("已冻结 · 未知", state.statusLabel())
+        assertEquals("已冻结，已启用，停止标记已设置，进程未知", state.describeActual())
     }
 
     @Test
@@ -170,22 +227,24 @@ class DetectionModelsTest {
 
         assertFalse(state.partiallyApplied())
         assertEquals("已冻结", state.statusLabel())
-        assertEquals("已暂停，已启用，停止标记未设置，无目标进程", state.describeActual())
+        assertEquals("已冻结，已启用，停止标记未设置，无目标进程", state.describeActual())
     }
 
     @Test
     fun suspendPolicyOffButActuallySuspended_isMismatch() {
         val state = freeze(policy = false, suspended = true)
+            .copy(policyApplied = false)
 
         assertTrue(state.mismatch())
         assertEquals("不一致", state.statusLabel())
         assertEquals("未纳入", state.describePolicy())
-        assertEquals("已暂停，已启用，停止标记未设置，进程未知", state.describeActual())
+        assertEquals("已冻结，已启用，停止标记未设置，进程未知", state.describeActual())
     }
 
     @Test
     fun suspendPolicyOffAndNotSuspended_matches() {
         val state = freeze(policy = false, suspended = false)
+            .copy(policyApplied = false)
 
         assertFalse(state.mismatch())
         assertEquals("未冻结", state.statusLabel())
@@ -223,7 +282,7 @@ class DetectionModelsTest {
             policy = false,
             enabled = true,
             mode = FreezeMode.DISABLE
-        )
+        ).copy(policyApplied = false)
 
         assertFalse(state.mismatch())
         assertEquals("仍启用", state.statusLabel())
@@ -265,7 +324,7 @@ class DetectionModelsTest {
     fun stoppedPackageIsDescribed() {
         val state = freeze(policy = false, stopped = true)
 
-        assertEquals("未暂停，已启用，停止标记已设置，进程未知", state.describeActual())
+        assertEquals("未冻结，已启用，停止标记已设置，进程未知", state.describeActual())
     }
 
     @Test
@@ -374,7 +433,7 @@ class DetectionModelsTest {
         val state = ThermalState(services = listOf(a, b))
 
         assertEquals("已安装 2/2；已启用 1/2", state.describe())
-        assertEquals("检测页只读；冻结/策略在应用页操作", state.readOnlyNote)
+        assertEquals("检测页只读；冻结/策略在冻结/解冻页操作", state.readOnlyNote)
     }
 
     @Test
@@ -450,8 +509,8 @@ class DetectionModelsTest {
         )
 
         assertTrue(state.skippedThisBoot())
-        assertTrue(state.describeGuard().contains("手动恢复"))
-        assertEquals("用户已在本 boot 手动恢复，跳过自动冻结", state.guardNote())
+        assertTrue(state.describeGuard().contains("手动解冻"))
+        assertEquals("手动解冻，已跳过", state.guardNote())
     }
 
     @Test
@@ -500,7 +559,7 @@ class DetectionModelsTest {
             .copy(source = FreezeSource.AI)
 
         assertFalse(applied.mismatch())
-        assertEquals("已暂停 · 未知", applied.statusLabel())
+        assertEquals("已冻结 · 未知", applied.statusLabel())
         assertTrue(missing.mismatch())
         assertEquals("不一致", missing.statusLabel())
     }

@@ -4,6 +4,7 @@ import com.nemu.hibernate.core.ShellResult
 import com.nemu.hibernate.privilege.RootPrivilegeBackend
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Base64
@@ -17,7 +18,8 @@ class CotaControllerTest {
         var sha: String,
         val mode: String,
         val uid: Int,
-        val gid: Int
+        val gid: Int,
+        val modifiedAt: Long? = 1_700_000_000L
     )
 
     private class FakeRootBackend : RootPrivilegeBackend {
@@ -66,13 +68,15 @@ class CotaControllerTest {
                 }
 
                 command.startsWith("stat -c") -> {
-                    val paths = command.substringAfter("'%n|%s|%a|%u|%g' ")
-                        .split(" ")
-                        .map { it.trim('\'') }
+                    val paths =
+                        command.substringAfter("'%n|%s|%a|%u|%g|%Y' ")
+                            .split(" ")
+                            .map { it.trim('\'') }
                     val lines = paths.map { path ->
                         val file = files[sourceRelative(path)]
                             ?: return ShellResult(1, "missing")
-                        "$path|${file.size}|${file.mode}|${file.uid}|${file.gid}"
+                        "$path|${file.size}|${file.mode}|${file.uid}|" +
+                            "${file.gid}|${file.modifiedAt ?: "?"}"
                     }
                     ShellResult(0, lines.joinToString("\n"))
                 }
@@ -203,6 +207,27 @@ class CotaControllerTest {
         assertEquals("644", file.mode)
         assertEquals(1000, file.uid)
         assertEquals(1000, file.gid)
+        assertEquals(1_700_000_000L, file.modifiedAtSeconds)
+    }
+
+    @Test
+    fun listFiles_keeps_a_file_when_stat_has_no_usable_mtime() = runBlocking {
+        val backend = FakeRootBackend()
+        backend.files["cpuconfig"] = FakeFile(
+            size = 1024,
+            sha = hashA,
+            mode = "644",
+            uid = 1000,
+            gid = 1000,
+            modifiedAt = null
+        )
+
+        val result = controller(backend).listFiles()
+
+        assertTrue(result is CotaResult.Ok)
+        val file = (result as CotaResult.Ok<List<CotaFile>>).value.single()
+        assertEquals("cpuconfig", file.name)
+        assertNull(file.modifiedAtSeconds)
     }
 
     @Test

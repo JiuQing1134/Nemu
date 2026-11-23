@@ -18,19 +18,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nemu.hibernate.ui.theme.flClashCard
+import com.nemu.hibernate.ui.theme.nemuCard
 
 /**
- * Nemu 的通用分组卡片，外观取自 FlClash 的 card surface：
+ * Nemu 的通用分组卡片：
  * 浅色主题下比页面更亮的纸白卡片，深色主题下比页面亮一级；
- * 26dp 圆角、无描边、低阴影。标题使用 FlClash 的 17pt 半粗标题。
+ * 26dp 圆角、无描边、低阴影。标题使用 17pt 半粗标题。
  */
 @Composable
 fun SectionCard(
     modifier: Modifier = Modifier,
     title: String? = null,
     subtitle: String? = null,
-    containerColor: Color = MaterialTheme.colorScheme.flClashCard(),
+    containerColor: Color = MaterialTheme.colorScheme.nemuCard(),
     contentColor: Color = contentColorFor(containerColor),
     content: @Composable ColumnScope.() -> Unit
 ) {

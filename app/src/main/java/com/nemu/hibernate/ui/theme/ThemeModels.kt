@@ -3,7 +3,7 @@ package com.nemu.hibernate.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * FlClash 的四种配色风格，对应上游 `ColorStyle`：
+ * Nemu 的四种配色风格（移植自 FlClash 的 `ColorStyle`）：
  *
  * - [VIVID]：鲜明（默认），高饱和主色 + 纸白卡片。
  * - [TINTED]：氛围，连页面与卡片都带一层主色。
@@ -20,7 +20,7 @@ enum class ThemeStyle(val label: String) {
 }
 
 /**
- * FlClash 默认的八色 iOS 系统色板。`swatchColor` 是上游原始种子色，
+ * Nemu 默认的八色 iOS 系统色板（移植自 FlClash）。`swatchColor` 是上游原始种子色，
  * 不是生成后的 primary；完整浅色 / 深色角色见 [colorSchemeFor]。
  *
  * 枚举名用于 DataStore 持久化。
@@ -29,7 +29,7 @@ enum class ThemePalette(
     val label: String,
     val swatchColor: Color
 ) {
-    /** FlClash 默认色 #007AFF。 */
+    /** 默认蓝色 #007AFF。 */
     BLUE("蓝色", Color(0xFF007AFF)),
 
     MAGENTA("品红", Color(0xFFCB30E0)),

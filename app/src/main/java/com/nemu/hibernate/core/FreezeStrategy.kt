@@ -65,8 +65,25 @@ object FreezeStrategyPolicy {
         else -> null
     }
 
-    /** True when the target needs an explicit high-risk warning, not a block. */
-    fun requiresHighRiskWarning(target: Target, strategy: FreezeStrategy): Boolean =
-        strategy in wholePackageStrategies &&
-            (DenyList.isProtected(target.packageName) || target.risk == RiskLevel.RED)
+    /**
+     * True when the target needs an explicit high-risk warning, not a block.
+     * Hiding/disabling the update stack is especially dangerous: the user can
+     * lose the only built-in way to install firmware or security updates.
+     */
+    fun requiresHighRiskWarning(target: Target, strategy: FreezeStrategy): Boolean {
+        val updateCritical =
+            target.packageName == "com.hihonor.ouc" ||
+                target.packageName.contains("systemappsupdater") ||
+                target.packageName.contains("upgradeguide") ||
+                target.packageName.contains("softwareupdate")
+        if (updateCritical &&
+            (strategy == FreezeStrategy.DISABLE_USER ||
+                strategy == FreezeStrategy.HIDE)
+        ) {
+            return true
+        }
+        return strategy in wholePackageStrategies &&
+            (DenyList.isProtected(target.packageName) ||
+                target.risk == RiskLevel.RED)
+    }
 }

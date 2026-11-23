@@ -32,6 +32,7 @@ enum class ResultReason(
     MARKER_CLEAR_FAILED("救援标记未清除", blocking = true),
     OWNERSHIP_WRITE_FAILED("所有权写入失败，未执行", blocking = true),
     COMMAND_FAILED("命令执行失败", blocking = true),
+    COMMAND_TIMEOUT("命令超时，状态未知，已保留恢复记录", blocking = true),
     STILL_SUSPENDED("仍处于暂停", blocking = true),
     COMPONENT_STILL_DISABLED("组件仍停用", blocking = true),
     COMPONENT_NOT_DISABLED("组件未停用", blocking = true),
@@ -57,7 +58,6 @@ enum class ResultReason(
     NO_ENABLED_TARGETS("没有启用的目标"),
     COMPONENT_SELECTION_EMPTY("至少选择 1 个组件", blocking = true),
     RESCUE_MODE("自动救砖模式，已拒绝执行", blocking = true),
-    ALREADY_APPLIED_TARGET("已应用，先解冻再切换", blocking = true),
     SUSPEND_RESIDUAL("暂停残留未清除"),
     UNKNOWN("操作未完成");
 

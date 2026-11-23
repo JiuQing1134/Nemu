@@ -45,6 +45,27 @@ object CotaPaths {
         return "$SOURCE_DIR/$relativePath"
     }
 
+    /**
+     * Absolute path for a file or directory entry, or null when the value is
+     * not a safe relative path. Safe for UI gesture handlers, where a corrupt
+     * listing must never crash the screen.
+     */
+    fun absolutePathOrNull(relativePath: String): String? = when {
+        relativePath.isEmpty() -> SOURCE_DIR
+        isSafeRelativePath(relativePath) -> "$SOURCE_DIR/$relativePath"
+        else -> null
+    }
+
+    /**
+     * Absolute path for a file or directory entry. The empty string is the
+     * root group itself; every other value must be a safe relative path.
+     */
+    fun absolutePath(relativePath: String): String =
+        absolutePathOrNull(relativePath)
+            ?: throw IllegalArgumentException(
+                "unsafe COTA relative path: $relativePath"
+            )
+
     /** Existing directory components of a validated COTA relative path. */
     fun sourceParentPaths(relativePath: String): List<String> {
         require(isSafeRelativePath(relativePath)) {

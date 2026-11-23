@@ -28,6 +28,7 @@ ATTEMPTS_FILE="$GUARD_DIR/attempts"
 RESCUE_FILE="$GUARD_DIR/rescue.flag"
 CLEAN_SHUTDOWN_FILE="$GUARD_DIR/clean_shutdown"
 DISABLED_MARKER_DIR="$GUARD_DIR/disabled_by_nemu"
+SUSPEND_MARKER_DIR="$GUARD_DIR/suspended_by_nemu"
 LOG_FILE="$GUARD_DIR/guard.log"
 CURRENT_MODE=${1:-service}
 
@@ -307,6 +308,83 @@ restore_owned_components() {
     [ "$failures" -eq 0 ]
 }
 
+
+unsuspend_owned() {
+    # Normal boots unsuspend only packages Nemu itself suspended. The app
+    # writes a marker before `pm suspend` and removes it after a verified
+    # restore, so a Hail/MDM/user suspension is never touched.
+    #
+    # Fail closed: a marker is removed only on a positive `suspended=false`
+    # User 0 readback (or a confirmed uninstall). Empty/timeout/partial
+    # dumpsys output retains the marker for the next pass.
+    marker_dir="$SUSPEND_MARKER_DIR"
+    [ -d "$marker_dir" ] || return 0
+    failures=0
+
+    user0_state() {
+        printf '%s
+' "$1" | awk '/User 0:/ {print; exit}'
+    }
+
+    package_gone() {
+        listed=$(run_timeout 5 pm list packages --user 0 "$1" 2>&1)
+        listed_status=$?
+        [ "$listed_status" -eq 0 ] || return 1
+        ! printf '%s
+' "$listed" | grep -Fqx "package:$1"
+    }
+
+    for marker in "$marker_dir"/*; do
+        [ -f "$marker" ] || continue
+        pkg=${marker##*/}
+        verify=$(run_timeout 5 dumpsys package "$pkg" 2>&1)
+        verify_status=$?
+        user_state=$(user0_state "$verify")
+        case "$user_state" in
+            *suspended=false*)
+                # Nothing left to restore; the suspension already ended.
+                rm -f "$marker" 2>/dev/null || failures=$((failures + 1))
+                continue
+                ;;
+            *suspended=true*) ;;
+            *)
+                if package_gone "$pkg"; then
+                    rm -f "$marker" 2>/dev/null ||
+                        failures=$((failures + 1))
+                    log_line "owned suspended package no longer installed; marker cleared: $pkg"
+                else
+                    log_line "WARN suspend state unreadable; marker retained: $pkg (dumpsys=$verify_status)"
+                    failures=$((failures + 1))
+                fi
+                continue
+                ;;
+        esac
+        out=$(run_timeout 5 pm unsuspend --user 0 "$pkg" 2>&1)
+        pm_status=$?
+        after=$(run_timeout 5 dumpsys package "$pkg" 2>&1)
+        after_status=$?
+        after_state=$(user0_state "$after")
+        case "$after_state" in
+            *suspended=false*)
+                rm -f "$marker" 2>/dev/null || failures=$((failures + 1))
+                log_line "owned suspension cleared: $pkg"
+                ;;
+            *)
+                if package_gone "$pkg"; then
+                    rm -f "$marker" 2>/dev/null ||
+                        failures=$((failures + 1))
+                    log_line "owned suspended package no longer installed; marker cleared: $pkg"
+                else
+                    log_line "WARN owned unsuspend unverified; marker retained: $pkg (pm=$pm_status dumpsys=$after_status): $out"
+                    failures=$((failures + 1))
+                fi
+                ;;
+        esac
+    done
+    rmdir "$marker_dir" 2>/dev/null
+    sync 2>/dev/null
+    [ "$failures" -eq 0 ]
+}
 restore_owned_hidden() {
     marker_dir="$GUARD_DIR/hidden_by_nemu"
     [ -d "$marker_dir" ] || return 0
@@ -324,8 +402,20 @@ restore_owned_hidden() {
                 ;;
         esac
         if [ "$command_status" -eq 0 ]; then
-            rm -f "$marker" 2>/dev/null || failures=$((failures + 1))
-            log_line "unhide owned target: $pkg"
+            # pm exit 0 is not proof on this ROM; require a real readback
+            # before deleting the only rescue record.
+            verify=$(run_timeout 10 dumpsys package "$pkg" 2>&1)
+            case "$verify" in
+                *"hidden=false"*)
+                    rm -f "$marker" 2>/dev/null ||
+                        failures=$((failures + 1))
+                    log_line "unhide owned target: $pkg"
+                    ;;
+                *)
+                    failures=$((failures + 1))
+                    log_line "WARN unhide not confirmed; marker retained: $pkg"
+                    ;;
+            esac
         else
             failures=$((failures + 1))
             log_line "WARN unhide failed; ownership marker retained: $pkg ($out)"
@@ -546,10 +636,13 @@ case "${1:-service}" in
         restore_owned_components
         restore_owned_hidden
         # Do not unsuspend every suspended package on a normal boot: Hail/MDM
-        # or the user may own that suspension. Rescue paths keep the broad pass.
+        # or the user may own that suspension. Only packages with Nemu's own
+        # `suspended_by_nemu` marker are restored; rescue keeps the broad pass.
+        unsuspend_owned || log_line "WARN owned unsuspend pass 1 incomplete"
         if wait_boot_completed; then
             restore_owned_components
             restore_owned_hidden
+            unsuspend_owned || log_line "WARN owned unsuspend pass 2 incomplete"
             arm_success_watchdog
         else
             log_line "boot_completed timeout; not starting watchdog"
@@ -589,10 +682,11 @@ case "${1:-service}" in
             log_line "rescue clear refused: one or more standby buckets could not be restored"
             exit 1
         fi
-        if ! unsuspend_all; then
-            log_line "rescue clear refused: one or more suspensions remain or could not be verified"
+        if ! unsuspend_owned; then
+            log_line "rescue clear refused: one or more Nemu-owned suspensions could not be cleared"
             exit 1
         fi
+        log_line "clear: Nemu-owned suspensions cleared; foreign suspensions are not touched"
         if ! enable_disabled_targets; then
             log_line "rescue clear refused: one or more Nemu-disabled packages remain disabled"
             exit 1

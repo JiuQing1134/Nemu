@@ -43,11 +43,11 @@ class RestrictionController(
     private val appOpsReader: suspend (String) -> String? = { null },
     private val standbyReader: suspend (String) -> Int? = { null },
     private val originalAppOps: (String) -> String? = { null },
-    private val onOriginalAppOps: (String, String?) -> Unit = { _, _ -> },
+    private val onOriginalAppOps: (String, String?) -> Boolean = { _, _ -> true },
     private val appOpsOwned: (String) -> Boolean = { false },
     private val setAppOpsOwned: (String, Boolean) -> Boolean = { _, _ -> true },
     private val originalStandby: (String) -> Int? = { null },
-    private val onOriginalStandby: (String, Int?) -> Unit = { _, _ -> },
+    private val onOriginalStandby: (String, Int?) -> Boolean = { _, _ -> true },
     private val standbyOwned: (String) -> Boolean = { false },
     private val setStandbyOwned: (String, Boolean) -> Boolean = { _, _ -> true },
     private val beforeOwn: suspend (String, RestrictionKind) -> Boolean = { _, _ -> true },
@@ -134,7 +134,10 @@ class RestrictionController(
         var claimedHere = false
         if (!appOpsOwned(packageName)) {
             val baseline = originalAppOps(packageName) ?: current
-            onOriginalAppOps(packageName, baseline)
+            if (!onOriginalAppOps(packageName, baseline)) {
+                reasons += ResultReason.BASELINE_WRITE_FAILED.at(target.label)
+                return false
+            }
             if (!beforeOwn(packageName, RestrictionKind.APP_OPS)) {
                 onOriginalAppOps(packageName, null)
                 reasons += ResultReason.MARKER_WRITE_FAILED.at(target.label)
@@ -272,7 +275,10 @@ class RestrictionController(
         var claimedHere = false
         if (!standbyOwned(packageName)) {
             val baseline = originalStandby(packageName) ?: current
-            onOriginalStandby(packageName, baseline)
+            if (!onOriginalStandby(packageName, baseline)) {
+                reasons += ResultReason.BASELINE_WRITE_FAILED.at(target.label)
+                return false
+            }
             if (!beforeOwn(packageName, RestrictionKind.STANDBY)) {
                 onOriginalStandby(packageName, null)
                 reasons += ResultReason.MARKER_WRITE_FAILED.at(target.label)

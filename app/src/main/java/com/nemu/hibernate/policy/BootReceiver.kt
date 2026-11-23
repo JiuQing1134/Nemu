@@ -23,11 +23,47 @@ class BootReceiver : BroadcastReceiver() {
         // receive this registered-only broadcast) and then enqueues the safety
         // worker after unlock; MY_PACKAGE_REPLACED is a later fallback.
         if (intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            onBootTrigger(context)
+            return
+        }
+
+        // The process may have started in direct boot, when Application.onCreate
+        // could not read credential-encrypted custom targets or log settings.
+        // Reload them before any worker/safety path reads the catalog.
+        NemuApplication.reloadAfterUnlock(context)
+
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            // An APK update is not a reboot. Do not cancel a safety pass that
+            // may still be pending/running for this boot (BootWorker already
+            // rejects work scheduled for another boot); only resume it when a
+            // device-protected pending flag survived, then re-arm the service.
+            ensureBootSafetyIfPending(context)
+            SafetyService.sync(context)
+            return
+        }
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
+            intent.action != Intent.ACTION_USER_UNLOCKED
+        ) {
+            return
+        }
+
+        enqueueBootSafety(context)
+    }
+
+    companion object {
+        private const val DEVICE_PREFS = "nemu_device"
+        private const val KEY_PENDING_BOOT_SAFETY = "pending_boot_safety"
+        private const val SAFETY_WORK_NAME = "nemu_safety_unfreeze"
+
+        /**
+         * Shared entry point for `LOCKED_BOOT_COMPLETED` and the KernelSU
+         * module's post-boot broadcast. Direct boot has no
+         * credential-encrypted prefs and WorkManager may not be usable yet,
+         * so a device-protected pending flag is written first; a process
+         * killed before unlock then resumes on the next app start.
+         */
+        internal fun onBootTrigger(context: Context) {
             val appContext = context.applicationContext ?: context
-            // Direct boot has no credential-encrypted prefs and WorkManager
-            // may not be usable yet. Persist a device-protected flag so a
-            // process kill before unlock still triggers the safety pass when
-            // the app next starts.
             markPendingBootSafety(appContext)
             // ACTION_USER_UNLOCKED is registered-only and never reaches a
             // manifest receiver. The process is alive here, so register a
@@ -47,47 +83,20 @@ class BootReceiver : BroadcastReceiver() {
                     ContextCompat.RECEIVER_NOT_EXPORTED
                 )
             }.isSuccess
-            // The delayed LOCKED_BOOT broadcast can arrive after the user
-            // already unlocked; in that case USER_UNLOCKED is gone.
-            if (registered && (appContext.getSystemService(
-                    Context.USER_SERVICE
-                ) as? UserManager)?.isUserUnlocked == true
-            ) {
-                runCatching { appContext.unregisterReceiver(unlockReceiver) }
+            // The boot broadcast can arrive after the user already unlocked;
+            // in that case USER_UNLOCKED is gone.
+            val unlocked = (appContext.getSystemService(
+                Context.USER_SERVICE
+            ) as? UserManager)?.isUserUnlocked == true
+            if (unlocked) {
+                if (registered) {
+                    runCatching {
+                        appContext.unregisterReceiver(unlockReceiver)
+                    }
+                }
                 unlockAfterDirectBoot(appContext)
             }
-            return
         }
-
-        // The process may have started in direct boot, when Application.onCreate
-        // could not read credential-encrypted custom targets or log settings.
-        // Reload them before any worker/safety path reads the catalog.
-        NemuApplication.reloadAfterUnlock(context)
-
-        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            // An APK update is not a reboot. Running the full boot safety pass
-            // here used to unsuspend every target after every install, making
-            // "frozen" apps silently active again. Cancel any pending safety
-            // work (WorkManager persists it across updates) and only re-arm
-            // the service if something is still frozen.
-            WorkManager.getInstance(context)
-                .cancelUniqueWork("nemu_safety_unfreeze")
-            SafetyService.sync(context)
-            return
-        }
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != Intent.ACTION_USER_UNLOCKED
-        ) {
-            return
-        }
-
-        enqueueBootSafety(context)
-    }
-
-    companion object {
-        private const val DEVICE_PREFS = "nemu_device"
-        private const val KEY_PENDING_BOOT_SAFETY = "pending_boot_safety"
-        private const val SAFETY_WORK_NAME = "nemu_safety_unfreeze"
 
         private fun devicePrefs(context: Context): SharedPreferences? =
             runCatching {

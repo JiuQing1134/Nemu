@@ -1,5 +1,6 @@
 package com.nemu.hibernate.ui
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,5 +23,11 @@ class CotaCopyTest {
     fun offHintIsShortAndActionable() {
         assertTrue(CotaCopy.OFF_HINT.contains("开启"))
         assertTrue(CotaCopy.OFF_HINT.length < 30)
+    }
+
+    @Test
+    fun pathCopiedToastIsShortAndDoesNotContainThePath() {
+        assertEquals("地址已复制", CotaCopy.PATH_COPIED)
+        assertTrue(CotaCopy.PATH_COPIED.length <= 8)
     }
 }

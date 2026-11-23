@@ -2,6 +2,7 @@ package com.nemu.hibernate.ui
 
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyPreset
 import com.nemu.hibernate.core.Target
 import com.nemu.hibernate.core.TargetCategory
 import com.nemu.hibernate.core.TargetComponent
@@ -112,6 +113,23 @@ class CatalogModelsTest {
                 ownsStandby = false
             )
         )
+    }
+
+    @Test
+    fun actualTextFollowsTheSelectedPreset() {
+        fun row(preset: StrategyPreset) = CatalogTargetUiState(
+            target = suspendTarget,
+            strategy = FreezeStrategy.SUSPEND,
+            preset = preset,
+            applied = true,
+            actual = TargetActualUiState(suspended = true, packageEnabled = true)
+        )
+
+        assertEquals("已冻结", row(StrategyPreset.FREEZE).actualText())
+        assertEquals("已暂停", row(StrategyPreset.PAUSE).actualText())
+        assertEquals("未暂停", row(StrategyPreset.PAUSE).copy(
+            actual = TargetActualUiState(suspended = false, packageEnabled = true)
+        ).actualText())
     }
 
     @Test

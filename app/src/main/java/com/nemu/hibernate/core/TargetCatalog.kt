@@ -372,7 +372,7 @@ object TargetCatalog {
                     "诊断、日志采集和云配置组件停用：荣耀的遥测/诊断数据采集大幅减少；" +
                         "系统更新、保修检测可能缺少部分日志，不影响日常使用。",
                 FreezeStrategy.SUSPEND to
-                    "本机实测系统会拒绝暂停 HiView（返回未暂停）；" +
+                    "本机实测系统会拒绝冻结 HiView（返回未生效）；" +
                         "即使成功，共享 system UID 的进程也可能继续运行。",
                 FreezeStrategy.DISABLE_USER to
                     "HiView 整包停用：遥测/诊断采集停止，系统“服务与反馈”可能提示异常；可恢复。",

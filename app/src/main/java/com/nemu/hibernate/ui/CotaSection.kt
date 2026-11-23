@@ -1,16 +1,26 @@
 package com.nemu.hibernate.ui
 
+import android.content.ClipData
+import android.widget.Toast
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,21 +30,47 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.cota.CotaBackupSummary
 import com.nemu.hibernate.cota.CotaFile
 import com.nemu.hibernate.cota.CotaFileGroups
+import com.nemu.hibernate.cota.CotaPaths
+import com.nemu.hibernate.cota.CotaTimestamps
+import com.nemu.hibernate.cota.CotaTree
+import com.nemu.hibernate.cota.CotaTreeNode
+import com.nemu.hibernate.ui.theme.nemuInset
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 object CotaCopy {
     const val TITLE = "温控 / COTA（仅 Root）"
@@ -46,6 +82,7 @@ object CotaCopy {
         "风险：删除会真实移除云控温控/充电参数，可能导致过热、充电变慢或系统不稳定；" +
             "删除前先备份。"
     const val OFF_HINT = "默认关闭；开启后可查看、备份或恢复。"
+    const val PATH_COPIED = "地址已复制"
 }
 
 data class CotaUiState(
@@ -67,7 +104,8 @@ data class CotaCallbacks(
     val onToggleSelected: (String, Boolean) -> Unit,
     val onBackup: () -> Unit,
     val onDeleteConfirmed: () -> Unit,
-    val onRestore: (String) -> Unit
+    val onRestore: (String) -> Unit,
+    val onDeleteBackup: (String) -> Unit
 )
 
 @Composable
@@ -79,8 +117,33 @@ fun CotaSection(
     var riskChecked by remember { mutableStateOf(false) }
     var restoreId by remember { mutableStateOf<String?>(null) }
     var restoreRiskChecked by remember { mutableStateOf(false) }
+    var deleteBackupId by remember { mutableStateOf<String?>(null) }
     var autoLoaded by remember { mutableStateOf(false) }
 
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val copyPath: (String) -> Unit = remember(clipboard, context, scope) {
+        { relative ->
+            val text = CotaPaths.absolutePathOrNull(relative)
+            if (text != null) {
+                scope.launch {
+                    clipboard.setClipEntry(
+                        ClipEntry(ClipData.newPlainText("COTA 路径", text))
+                    )
+                }
+                // Always acknowledge with the same short toast. The system
+                // clipboard overlay is not guaranteed (and is different per
+                // OEM/API level), and every long-press should confirm the
+                // copy with an app-side message.
+                Toast.makeText(
+                    context,
+                    CotaCopy.PATH_COPIED,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
     // Opening Advanced with the module already enabled should show the real
     // file list instead of a stale "尚未读取文件" until the user finds 刷新.
     // The latch matters: without it a failed read flips busy back to false and
@@ -152,7 +215,7 @@ fun CotaSection(
                         enabled = !state.busy,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("刷新列表") }
-                    Button(
+                    NemuFilledButton(
                         onClick = callbacks.onBackup,
                         enabled = !state.busy && state.selected.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth()
@@ -200,21 +263,21 @@ fun CotaSection(
                 Text("没有可处理的文件。", style = MaterialTheme.typography.bodySmall)
             }
             if (state.moduleEnabled && state.files.isNotEmpty()) {
-                val groups = remember(state.files) {
-                    CotaFileGroups.group(state.files)
+                val grouped = remember(state.files) {
+                    CotaFileGroups.group(state.files).map { group ->
+                        group to CotaTree.build(group)
+                    }
                 }
-                var expandedGroups by rememberSaveable {
-                    mutableStateOf<Map<String, Boolean>>(emptyMap())
-                }
+                // Directories default to expanded, preserving the old flat
+                // list's behavior while adding a collapsible hierarchy.
                 Text(
-                    "共 ${state.files.size} 个文件，已选 ${state.selected.size} 项，" +
-                        "按子系统分组。",
+                    "共 ${state.files.size} 项 · 已选 ${state.selected.size}；" +
+                        "长按复制绝对路径",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                groups.forEach { group ->
-                    val isExpanded = expandedGroups[group.key]
-                        ?: (group.key == CotaFileGroups.THERMAL_KEY)
+                grouped.forEach { (group, tree) ->
+                    val selectionEnabled = state.rootAvailable && !state.busy
                     val selectedCount =
                         group.files.count { it.name in state.selected }
                     val allSelected = selectedCount == group.files.size
@@ -230,14 +293,55 @@ fun CotaSection(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(
-                                enabled = state.rootAvailable && !state.busy
-                            ) { toggleGroup(!allSelected) },
+                            .noRippleClickable(
+                                onClickLabel = if (allSelected) {
+                                    "取消选择分组"
+                                } else {
+                                    "选择分组全部文件"
+                                },
+                                onLongClickLabel = "复制分组目录路径",
+                                onLongClick = { copyPath(group.key) },
+                                onClick = {
+                                    if (selectionEnabled) {
+                                        toggleGroup(!allSelected)
+                                    }
+                                }
+                            )
+                            .clearAndSetSemantics {
+                                contentDescription =
+                                    "${group.title}，${group.files.size} 个文件，" +
+                                        if (allSelected) {
+                                            "已选择"
+                                        } else if (partialSelected) {
+                                            "部分选择"
+                                        } else {
+                                            "未选择"
+                                        }
+                                role = Role.Checkbox
+                                toggleableState = when {
+                                    partialSelected -> ToggleableState.Indeterminate
+                                    allSelected -> ToggleableState.On
+                                    else -> ToggleableState.Off
+                                }
+                                onLongClick(label = "复制分组目录路径") {
+                                    copyPath(group.key)
+                                    true
+                                }
+                                if (selectionEnabled) {
+                                    onClick(label = "选择分组全部文件") {
+                                        toggleGroup(!allSelected)
+                                        true
+                                    }
+                                } else {
+                                    disabled()
+                                }
+                            }
+                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.Top
                     ) {
                         NemuSmallCheckbox(
                             checked = allSelected,
-                            enabled = state.rootAvailable && !state.busy,
+                            enabled = selectionEnabled,
                             onCheckedChange = toggleGroup,
                             contentDescription =
                                 if (allSelected) {
@@ -245,16 +349,20 @@ fun CotaSection(
                                 } else {
                                     "选择 ${group.title} 全部文件"
                                 },
-                            indeterminate = partialSelected
+                            indeterminate = partialSelected,
+                            touchSize = 22.dp,
+                            glyphSize = 14.dp
                         )
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    expandedGroups =
-                                        expandedGroups + (group.key to !isExpanded)
-                                }
-                        ) {
+                        Spacer(Modifier.width(2.dp))
+                        FolderGlyph(
+                            color = MaterialTheme.colorScheme.primary.copy(
+                                alpha = 0.9f
+                            ),
+                            size = 15.dp,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Column(Modifier.weight(1f)) {
                             Text(
                                 group.title,
                                 style = MaterialTheme.typography.titleSmall
@@ -262,36 +370,31 @@ fun CotaSection(
                             Text(
                                 "${group.files.size} 项 · " +
                                     formatSize(group.totalSizeBytes) +
-                                    if (selectedCount > 0) " · 已选 $selectedCount" else "",
+                                    if (selectedCount > 0) {
+                                        " · 已选 $selectedCount"
+                                    } else {
+                                        ""
+                                    },
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontSize = 10.sp
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text(
-                            if (isExpanded) "收起" else "展开",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable {
-                                expandedGroups =
-                                    expandedGroups + (group.key to !isExpanded)
-                            }
-                        )
                     }
-                    if (isExpanded) {
-                        group.files.forEach { file ->
-                            CotaFileRow(
-                                file = file,
-                                displayName = file.name,
-                                selected = file.name in state.selected,
-                                enabled =
-                                    state.rootAvailable && !state.busy,
-                                onToggle = {
-                                    callbacks.onToggleSelected(file.name, it)
-                                }
-                            )
-                        }
+                    // Always show the tree; one paragraph-style indent under
+                    // the group header makes every child visibly subordinate.
+                    Column(Modifier.padding(start = 16.dp)) {
+                        CotaTreeNodes(
+                            nodes = tree,
+                            depth = 0,
+                            selected = state.selected,
+                            selectionEnabled = selectionEnabled,
+                            onToggleFile = { name, checked ->
+                                callbacks.onToggleSelected(name, checked)
+                            },
+                            onCopyPath = copyPath
+                        )
                     }
                 }
             }
@@ -317,10 +420,41 @@ fun CotaSection(
                             enabled = state.moduleEnabled && state.rootAvailable &&
                                 !state.busy && !state.dryRun
                         ) { Text("恢复") }
+                        NemuOutlinedButton(
+                            onClick = { deleteBackupId = backup.id },
+                            enabled = state.moduleEnabled && state.rootAvailable &&
+                                !state.busy && !state.dryRun
+                        ) { Text("删除") }
                     }
                 }
             }
         }
+
+    val pendingBackupDelete = deleteBackupId
+    if (pendingBackupDelete != null) {
+        AlertDialog(
+            onDismissRequest = { deleteBackupId = null },
+            title = { Text("删除备份 $pendingBackupDelete？") },
+            text = {
+                Text(
+                    "只删除 Nemu 私有目录中的这份备份副本，" +
+                        "不会修改 /data/cota/para 中的当前文件。" +
+                        "删除后无法再用它恢复。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteBackupId = null
+                        callbacks.onDeleteBackup(pendingBackupDelete)
+                    }
+                ) { Text("删除备份") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteBackupId = null }) { Text("取消") }
+            }
+        )
+    }
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -423,56 +557,372 @@ fun CotaSection(
     }
 }
 
+/**
+ * Recursive COTA path tree. Each nested level adds a short indent and a
+ * one-pixel guide rail, so a parent directory, its child directory and the
+ * files below them never share the same left edge. Directories are rendered
+ * as tinted headers with a folder glyph; files keep the checkbox and show the
+ * leaf name instead of the full path.
+ */
+@Composable
+private fun CotaTreeNodes(
+    nodes: List<CotaTreeNode>,
+    depth: Int,
+    selected: Set<String>,
+    selectionEnabled: Boolean,
+    onToggleFile: (String, Boolean) -> Unit,
+    onCopyPath: (String) -> Unit
+) {
+    val guideColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        nodes.forEach { node ->
+            if (node.isDirectory) {
+                val allSelected = node.filesUnder.isNotEmpty() &&
+                    node.filesUnder.all { it.name in selected }
+                val partialSelected = !allSelected &&
+                    node.filesUnder.any { it.name in selected }
+                CotaDirectoryRow(
+                    node = node,
+                    depth = depth,
+                    checked = allSelected,
+                    partial = partialSelected,
+                    enabled = selectionEnabled && node.filesUnder.isNotEmpty(),
+                    onToggle = { checked ->
+                        node.filesUnder.forEach { file ->
+                            if ((file.name in selected) != checked) {
+                                onToggleFile(file.name, checked)
+                            }
+                        }
+                    },
+                    onCopyPath = onCopyPath
+                )
+                if (node.children.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .padding(start = 14.dp)
+                            .drawBehind {
+                                val x = 0.5.dp.toPx()
+                                drawLine(
+                                    color = guideColor,
+                                    start = Offset(x, 0f),
+                                    end = Offset(x, size.height),
+                                    strokeWidth = 1.dp.toPx()
+                                )
+                            }
+                            .padding(start = 6.dp)
+                    ) {
+                        CotaTreeNodes(
+                            nodes = node.children,
+                            depth = depth + 1,
+                            selected = selected,
+                            selectionEnabled = selectionEnabled,
+                            onToggleFile = onToggleFile,
+                            onCopyPath = onCopyPath
+                        )
+                    }
+                }
+            } else {
+                val file = node.file ?: return@forEach
+                CotaFileRow(
+                    file = file,
+                    displayName = node.name,
+                    selected = file.name in selected,
+                    selectionEnabled = selectionEnabled,
+                    onToggle = { onToggleFile(file.name, it) },
+                    onCopyPath = onCopyPath
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CotaDirectoryRow(
+    node: CotaTreeNode,
+    depth: Int,
+    checked: Boolean,
+    partial: Boolean,
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onCopyPath: (String) -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val haptics = rememberNemuHaptics()
+    val tintAlpha = when (depth) {
+        0 -> 0.50f
+        1 -> 0.34f
+        else -> 0.22f
+    }
+    val accentAlpha = when (depth) {
+        0 -> 0.95f
+        1 -> 0.70f
+        else -> 0.50f
+    }
+    val accentHeight = when (depth) {
+        0 -> 22.dp
+        1 -> 20.dp
+        else -> 18.dp
+    }
+    val folderSize = when (depth) {
+        0 -> 15.dp
+        1 -> 14.dp
+        else -> 13.dp
+    }
+    val nameSize = when (depth) {
+        0 -> 13.sp
+        1 -> 12.sp
+        else -> 11.sp
+    }
+    val nameWeight = if (depth == 0) FontWeight.SemiBold else FontWeight.Medium
+    val stateWord = when {
+        partial -> "部分选择"
+        checked -> "已选择"
+        else -> "未选择"
+    }
+    val toggle: () -> Unit = {
+        if (enabled) {
+            haptics.perform(NemuHaptic.KeyboardTap.toggleFor(!checked))
+            onToggle(!checked)
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(scheme.nemuInset().copy(alpha = tintAlpha))
+            .noRippleClickable(
+                onClickLabel = if (checked) {
+                    "取消选择目录"
+                } else {
+                    "选择目录全部文件"
+                },
+                onLongClickLabel = "复制目录路径",
+                onLongClick = { onCopyPath(node.path) },
+                onClick = toggle
+            )
+            .clearAndSetSemantics {
+                contentDescription =
+                    "目录 ${node.path}，${node.filesUnder.size} 个文件，$stateWord"
+                role = Role.Checkbox
+                toggleableState = when {
+                    partial -> ToggleableState.Indeterminate
+                    checked -> ToggleableState.On
+                    else -> ToggleableState.Off
+                }
+                onLongClick(label = "复制目录路径") {
+                    onCopyPath(node.path)
+                    true
+                }
+                if (enabled) {
+                    onClick(label = if (checked) "取消选择目录" else "选择目录全部文件") {
+                        onToggle(!checked)
+                        true
+                    }
+                } else {
+                    disabled()
+                }
+            }
+            .padding(start = 5.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .height(accentHeight)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(scheme.primary.copy(alpha = accentAlpha))
+        )
+        NemuSmallCheckbox(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onToggle,
+            contentDescription = "选择目录 ${node.name} 的全部文件",
+            indeterminate = partial,
+            touchSize = 20.dp,
+            glyphSize = 12.dp
+        )
+        FolderGlyph(
+            color = scheme.onSurfaceVariant.copy(
+                alpha = when (depth) {
+                    0 -> 0.95f
+                    1 -> 0.85f
+                    else -> 0.75f
+                }
+            ),
+            size = folderSize
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                node.name,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = nameSize,
+                    fontWeight = nameWeight
+                ),
+                color = scheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${node.filesUnder.size} 个文件 · " +
+                    formatSize(node.totalSizeBytes) +
+                    if (checked || partial) " · $stateWord" else "",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp
+                ),
+                color = scheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun FolderGlyph(color: Color, size: Dp, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val path = Path().apply {
+            moveTo(w * 0.12f, h * 0.28f)
+            lineTo(w * 0.42f, h * 0.28f)
+            lineTo(w * 0.50f, h * 0.40f)
+            lineTo(w * 0.88f, h * 0.40f)
+            lineTo(w * 0.88f, h * 0.78f)
+            lineTo(w * 0.12f, h * 0.78f)
+            close()
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(
+                width = 1.3.dp.toPx(),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
+}
+
+@Composable
+private fun FileGlyph(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(12.dp)) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(w * 0.24f, h * 0.10f)
+            lineTo(w * 0.60f, h * 0.10f)
+            lineTo(w * 0.78f, h * 0.28f)
+            lineTo(w * 0.78f, h * 0.90f)
+            lineTo(w * 0.24f, h * 0.90f)
+            close()
+            moveTo(w * 0.60f, h * 0.10f)
+            lineTo(w * 0.60f, h * 0.28f)
+            lineTo(w * 0.78f, h * 0.28f)
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(
+                width = 1.2.dp.toPx(),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
+}
+
 @Composable
 private fun CotaFileRow(
     file: CotaFile,
     displayName: String,
     selected: Boolean,
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit
+    selectionEnabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onCopyPath: (String) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled) { onToggle(!selected) },
+            .noRippleClickable(
+                onClickLabel = if (selected) "取消选择" else "选择",
+                onLongClickLabel = "复制文件路径",
+                onLongClick = { onCopyPath(file.name) },
+                onClick = {
+                    if (selectionEnabled) onToggle(!selected)
+                }
+            )
+            .clearAndSetSemantics {
+                contentDescription =
+                    "文件 ${file.name}，${file.kind.label}，" +
+                        formatSize(file.sizeBytes) +
+                        "，${CotaTimestamps.displayLabel(file.modifiedAtSeconds)}" +
+                        if (selected) "，已选择" else "，未选择"
+                role = Role.Checkbox
+                toggleableState = if (selected) {
+                    ToggleableState.On
+                } else {
+                    ToggleableState.Off
+                }
+                onLongClick(label = "复制文件路径") {
+                    onCopyPath(file.name)
+                    true
+                }
+                if (selectionEnabled) {
+                    onClick(label = if (selected) "取消选择" else "选择") {
+                        onToggle(!selected)
+                        true
+                    }
+                } else {
+                    disabled()
+                }
+            }
+            .padding(vertical = 3.dp),
         verticalAlignment = Alignment.Top
     ) {
         NemuSmallCheckbox(
             checked = selected,
-            enabled = enabled,
+            enabled = selectionEnabled,
             onCheckedChange = onToggle,
             modifier = Modifier.offset(y = (-2).dp),
             contentDescription =
-                if (selected) "取消选择 $displayName" else "选择 $displayName"
+                if (selected) "取消选择 ${file.name}" else "选择 ${file.name}",
+            touchSize = 20.dp,
+            glyphSize = 12.dp
         )
+        Spacer(Modifier.width(2.dp))
+        FileGlyph(
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+            modifier = Modifier.padding(top = 2.dp)
+        )
+        Spacer(Modifier.width(6.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                "$displayName（${file.kind.label}）",
+                displayName,
                 style = MaterialTheme.typography.bodySmall.copy(
-                    fontWeight = FontWeight.Medium
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal
                 ),
-                maxLines = 3,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                file.kind.description,
+                "${file.kind.label} · ${formatSize(file.sizeBytes)}",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 10.sp
-                )
-            )
-            Text(
-                "大小：${formatSize(file.sizeBytes)}  " +
-                    "mode=${file.mode} ${file.uid}:${file.gid}",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 10.sp
-                )
-            )
-            Text(
-                file.sha256,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 9.sp
                 ),
-                fontFamily = FontFamily.Monospace
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            // Modification time only: toybox has no trustworthy birth time.
+            Text(
+                CotaTimestamps.displayLabel(file.modifiedAtSeconds),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

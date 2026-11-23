@@ -15,9 +15,15 @@ object CotaCommandBuilder {
             "find ${q(CotaPaths.SOURCE_DIR)} -mindepth 2 -maxdepth 4 -type f " +
             "-exec stat -c '%n|%s' {} \\; ; fi"
 
+    /**
+     * File metadata for the list view. `%Y` is modification time in epoch
+     * seconds. `%z` ("creation time" in toybox) is not used: on this device it
+     * silently returns mtime when no birth time exists (confirmed on procfs),
+     * so it cannot be trusted as a real creation time.
+     */
     fun stat(paths: List<String>): String {
         require(paths.isNotEmpty()) { "paths must not be empty" }
-        return "stat -c '%n|%s|%a|%u|%g' " + paths.joinToString(" ") { q(it) }
+        return "stat -c '%n|%s|%a|%u|%g|%Y' " + paths.joinToString(" ") { q(it) }
     }
 
     fun sha256(paths: List<String>): String {
@@ -72,6 +78,19 @@ object CotaCommandBuilder {
 
     fun manifestSize(backupDir: String): String =
         "stat -c %s ${q("$backupDir/${CotaPaths.MANIFEST_NAME}")}"
+
+    /**
+     * Removes one validated backup directory. The app-generated ID is the
+     * only user-controlled part and must already match
+     * [CotaPaths.isSafeBackupId]; the dir must be a real directory under the
+     * private backup root, never a symlink.
+     */
+    fun deleteBackup(root: String, backupId: String): String {
+        val dir = CotaPaths.backupDir(root, backupId)
+        return "[ -d ${q(dir)} ] && [ ! -L ${q(dir)} ] && " +
+            "case ${q(dir)} in ${q(root)}/*) rm -rf -- ${q(dir)} ;; " +
+            "*) exit 2 ;; esac"
+    }
 
     fun listBackups(root: String): String =
         "if [ -d ${q(root)} ]; then " +

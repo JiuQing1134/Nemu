@@ -6,9 +6,12 @@ plugins {
 }
 
 // Private release signing. keystore.properties + keystore/ are gitignored;
-// the same pair is backed up outside the repo. Without it the release build
-// falls back to the public debug key with a loud warning (never publish that).
+// the same pair is backed up outside the repo. A missing keystore fails
+// assembleRelease/bundleRelease unless -PallowDebugRelease=true is passed
+// explicitly for a local throwaway build.
 val keystorePropertiesFile = rootProject.file("keystore.properties")
+val allowDebugRelease =
+    providers.gradleProperty("allowDebugRelease").orNull == "true"
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
         keystorePropertiesFile.inputStream().use { load(it) }
@@ -75,6 +78,24 @@ android {
                 )
                 signingConfigs.getByName("debug")
             }
+        }
+    }
+
+    // Fail the actual release packaging, not every debug build. The release
+    // build type is configured even for `assembleDebug`, so a configuration
+    // throw would break all local development.
+    project.tasks.matching {
+        !keystorePropertiesFile.exists() && !allowDebugRelease &&
+            (it.name == "assembleRelease" ||
+                it.name == "bundleRelease" ||
+                it.name.startsWith("packageRelease"))
+    }.configureEach {
+        doFirst {
+            throw GradleException(
+                "Release signing is not configured. Create keystore.properties " +
+                    "(storeFile/storePassword/keyAlias/keyPassword) or pass " +
+                    "-PallowDebugRelease=true for a throwaway debug-signed build."
+            )
         }
     }
 

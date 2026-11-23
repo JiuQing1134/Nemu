@@ -147,7 +147,7 @@ object TargetCopy {
     fun impact(preset: StrategyPreset): String = when (preset) {
         StrategyPreset.OBSERVE -> impact(FreezeStrategy.OBSERVE)
         StrategyPreset.PAUSE -> "暂停但不结束进程；后台服务仍可能被唤起"
-        StrategyPreset.FREEZE -> impact(FreezeStrategy.SUSPEND)
+        StrategyPreset.FREEZE -> "冻结并结束当前进程；系统可能重新拉起服务"
         StrategyPreset.COMPONENT -> impact(FreezeStrategy.COMPONENT)
         StrategyPreset.DISABLE_USER -> impact(FreezeStrategy.DISABLE_USER)
         StrategyPreset.HIDE -> impact(FreezeStrategy.HIDE)
@@ -157,12 +157,12 @@ object TargetCopy {
             "后台任务和网络被严格限制"
     }
 
-    fun impactFor(target: Target, preset: StrategyPreset): String =
-        if (preset == StrategyPreset.PAUSE) {
-            impact(StrategyPreset.PAUSE)
-        } else {
-            impactFor(target, baseStrategy(preset))
-        }
+    fun impactFor(target: Target, preset: StrategyPreset): String = when (preset) {
+        StrategyPreset.PAUSE -> impact(StrategyPreset.PAUSE)
+        StrategyPreset.FREEZE ->
+            "冻结并结束当前进程；系统可能重新拉起服务"
+        else -> impactFor(target, baseStrategy(preset))
+    }
 
     fun restoreLine(strategy: FreezeStrategy): String = when (strategy) {
         FreezeStrategy.OBSERVE -> "无需恢复"
@@ -173,6 +173,8 @@ object TargetCopy {
     }
 
     fun restoreLine(preset: StrategyPreset): String = when (preset) {
+        StrategyPreset.PAUSE -> "取消暂停；进程保持原样"
+        StrategyPreset.FREEZE -> "取消冻结；若曾被强停，首次打开后恢复后台"
         StrategyPreset.RESTRICT_BACKGROUND -> "恢复原始后台模式"
         StrategyPreset.RESTRICT_STANDBY -> "恢复原始待机桶"
         else -> restoreLine(baseStrategy(preset))

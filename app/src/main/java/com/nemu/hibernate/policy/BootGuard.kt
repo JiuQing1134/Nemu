@@ -39,6 +39,7 @@ object BootGuard {
     private const val HIDDEN_MARKER_DIR = "$GUARD_DIR/hidden_by_nemu"
     private const val APPOPS_MARKER_DIR = "$GUARD_DIR/appops_owned"
     private const val STANDBY_MARKER_DIR = "$GUARD_DIR/standby_owned"
+    private const val SUSPEND_MARKER_DIR = "$GUARD_DIR/suspended_by_nemu"
     /**
      * Packages the guard may re-enable. Every catalog package is eligible;
      * the marker itself is still required, so the guard never touches a
@@ -153,6 +154,28 @@ object BootGuard {
         val command = if (hiddenByNemu) {
             "mkdir -p '$HIDDEN_MARKER_DIR' && touch $marker && " +
                 "chmod 600 $marker"
+        } else {
+            "rm -f $marker"
+        }
+        return backend.exec(command).ok
+    }
+
+    /**
+     * Marks a package Nemu suspended, so a normal boot restores only Nemu's
+     * own suspensions and never a Hail/MDM/user one. Written before
+     * `pm suspend`; removed only after a verified unsuspend.
+     */
+    suspend fun markSuspendedByNemu(
+        backend: RootPrivilegeBackend?,
+        packageName: String,
+        suspendedByNemu: Boolean
+    ): Boolean {
+        if (backend == null) return false
+        val marker = com.nemu.hibernate.core.ShellQuote.quote(
+            "$SUSPEND_MARKER_DIR/$packageName"
+        )
+        val command = if (suspendedByNemu) {
+            "mkdir -p '$SUSPEND_MARKER_DIR' && touch $marker && chmod 600 $marker"
         } else {
             "rm -f $marker"
         }

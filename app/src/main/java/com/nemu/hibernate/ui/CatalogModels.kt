@@ -49,7 +49,9 @@ data class CatalogTargetUiState(
     /** Nemu owns a standby-bucket restriction for this package. */
     val standbyOwned: Boolean = false,
     /** Applied marker without a matching live state (e.g. uninstalled). */
-    val ownershipPending: Boolean = false
+    val ownershipPending: Boolean = false,
+    /** PackageInfo.firstInstallTime; 0 when unavailable. */
+    val installedAt: Long = 0L
 ) {
     val packageName: String get() = target.packageName
     val label: String get() = target.label
@@ -72,6 +74,20 @@ data class CatalogTargetUiState(
             standbyOwned ||
             ownershipPending
 
+    /**
+     * True when Nemu holds evidence that it owns some frozen state here.
+     * A row that is only suspended by another tool is read-only: restoring it
+     * would either fail or silently take over someone else's suspension.
+     */
+    val ownsAnyState: Boolean
+        get() = applied || ownedDisable || ownedHidden ||
+            ownedComponents.isNotEmpty() || appOpsOwned || standbyOwned ||
+            ownershipPending
+
+    /** User-facing SUSPEND word; follows the selected preset. */
+    fun suspendWord(): String =
+        if (preset == StrategyPreset.PAUSE) "暂停" else "冻结"
+
     fun actualText(): String = when {
         ownershipPending -> "所有权待清理"
         actual.hidden == true && ownedHidden -> "已隐藏"
@@ -85,13 +101,14 @@ data class CatalogTargetUiState(
         }
         actual.suspended == null && actual.packageEnabled == null -> "状态未知"
         actual.packageEnabled == false && actual.suspended == true ->
-            "已停用·已暂停"
+            "已停用·已${suspendWord()}"
         actual.packageEnabled == false -> "已停用"
+        actual.suspended == true && !ownsAnyState -> "他人暂停"
         actual.suspended == true && actual.processRunning == true ->
-            "已暂停·进程存活"
-        actual.suspended == true -> "已暂停"
+            "已${suspendWord()}·进程存活"
+        actual.suspended == true -> "已${suspendWord()}"
         appOpsOwned || standbyOwned -> "已限制"
         actual.processRunning == true -> "运行中"
-        else -> "未冻结"
+        else -> "未${suspendWord()}"
     }
 }

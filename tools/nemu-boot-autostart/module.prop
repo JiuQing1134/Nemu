@@ -1,6 +1,6 @@
 id=nemu_boot_autostart
 name=Nemu Boot Guard
-version=1.10
-versionCode=11
+version=1.12
+versionCode=13
 author=Nemu
-description=Auto-unbrick guard (3 failed boots): verified clean shutdowns reset the counter; bounded suspend/component recovery with verification; only Nemu-owned disable-user packages and components are restored. v1.10 removes the boot-time UI launch (Nemu no longer pops up automatically); recovery still runs via the app's BootReceiver.
+description=Auto-unbrick guard (3 failed boots): verified clean shutdowns reset the counter; bounded recovery with verification; only Nemu-owned suspend/disable-user/components/hidden/AppOps/standby states are restored. v1.12 sends a post-boot trigger to the app (BOOT_COMPLETED is not delivered on this ROM); on a normal boot it restores only packages carrying Nemu's suspended_by_nemu marker, and clears a marker only after a positive suspended=false readback.

@@ -25,20 +25,33 @@ class CustomTargetGuardTest {
     }
 
     @Test
-    fun rootManagersAreLabelledRootToolsNotSystemApps() {
+    fun rootManagersAndLsposedHaveDistinctReasons() {
         listOf(
             "me.yuki.fina",
             "me.weishu.kernelsu",
             "com.topjohnwu.magisk",
-            "org.lsposed.manager",
-            "moe.shizuku.privileged.api"
+            "com.rifsxd.ksunext",
+            "com.sukisu.ultra",
+            "me.bmax.apatch"
         ).forEach {
-            assertEquals(
-                it,
-                "Root/框架工具",
-                CustomTargetGuard.criticalReason(it)
-            )
+            assertEquals(it, "Root 管理器", CustomTargetGuard.criticalReason(it))
         }
+        assertEquals(
+            "Shizuku 管理器",
+            CustomTargetGuard.criticalReason("moe.shizuku.privileged.api")
+        )
+        assertEquals(
+            "Shizuku 管理器",
+            CustomTargetGuard.criticalReason("roro.stellar.manager")
+        )
+        assertEquals(
+            "LSPosed 框架",
+            CustomTargetGuard.criticalReason("org.lsposed.manager")
+        )
+        assertEquals(
+            "疑似 Root 管理器",
+            CustomTargetGuard.criticalReason("com.example.wildksu")
+        )
     }
 
     @Test

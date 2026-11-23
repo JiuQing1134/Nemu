@@ -135,4 +135,27 @@ class FreezeStrategyPolicyTest {
             FreezeStrategyPolicy.isAllowed(target, FreezeStrategy.SUSPEND)
         )
     }
+
+    @Test
+    fun hidingOrDisablingTheUpdateStackRequiresAWarning() {
+        val ouc = target("com.hihonor.ouc", RiskLevel.YELLOW)
+        assertTrue(
+            FreezeStrategyPolicy.requiresHighRiskWarning(
+                ouc,
+                FreezeStrategy.DISABLE_USER
+            )
+        )
+        assertTrue(
+            FreezeStrategyPolicy.requiresHighRiskWarning(
+                ouc,
+                FreezeStrategy.HIDE
+            )
+        )
+        assertFalse(
+            FreezeStrategyPolicy.requiresHighRiskWarning(
+                ouc,
+                FreezeStrategy.SUSPEND
+            )
+        )
+    }
 }

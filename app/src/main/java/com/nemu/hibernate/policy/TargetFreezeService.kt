@@ -141,7 +141,12 @@ class TargetFreezeService(
             }
         },
         afterRestore = { _, kind ->
-            when (kind) {
+            // No marker backend this session: there is no marker we can
+            // clear. The in-app ownership is still cleared by the caller, so
+            // treat it as success instead of failing shutdown/residual.
+            if (markerBackend == null) {
+                true
+            } else when (kind) {
                 RestrictionKind.APP_OPS -> BootGuard.markAppOpsByNemu(
                     markerBackend,
                     target.packageName,
@@ -168,9 +173,13 @@ class TargetFreezeService(
         bootSettings: BootFreezeSettings,
         targets: List<Target>
     ): TargetRunResult? = FreezeOperationLock.mutex.withLock {
+        // Re-check the master switch under the same lock: the user may have
+        // turned it off after the worker evaluated the policy.
+        if (!bootSettings.bootFreezeEnabled) {
+            null
         // -1 means the platform did not expose a boot identity; it must never
         // match the default skip sentinel and suppress a real freeze.
-        if (bootCount >= 0 &&
+        } else if (bootCount >= 0 &&
             bootSettings.bootFreezeSkippedBootCount == bootCount
         ) {
             null
@@ -325,22 +334,25 @@ class TargetFreezeService(
                     continue
                 }
             }
-            val original = if (strategy == FreezeStrategy.DISABLE_USER) {
-                policy.originalEnabled(target) ?: enabledStateReader.isEnabled(target.packageName)
-            } else {
-                null
-            }
+            var original: Boolean? = null
             if (strategy == FreezeStrategy.DISABLE_USER) {
-                if (original == null) {
+                val live = enabledStateReader.isEnabled(target.packageName)
+                if (live == null) {
                     failed++
                     reasons += ResultReason.BASELINE_READ_FAILED.at(target.label)
                     continue
                 }
+                val stored = policy.originalEnabled(target)
+                original = when {
+                    stored == null -> live
+                    // A stale false baseline must not make a now-enabled
+                    // package look "already disabled"; live state wins.
+                    !stored && live -> true
+                    else -> stored
+                }
                 if (!original) {
-                    // It was already disabled before Nemu. Preserve it
-                    // and never claim ownership, original baseline or an
-                    // applied badge; no restore is needed for a state Nemu
-                    // did not create.
+                    // Truly disabled before Nemu: preserve it and claim
+                    // nothing, so restore never enables a foreign state.
                     applied++
                     reasons += ResultReason.ALREADY_DISABLED.at(target.label)
                     continue
@@ -358,6 +370,22 @@ class TargetFreezeService(
                 // in-memory/applied flag alone would be lost after a crash.
                 failed++
                 reasons += ResultReason.OWNERSHIP_WRITE_FAILED.at(target.label)
+                continue
+            }
+            if (strategy == FreezeStrategy.SUSPEND && !dryRun &&
+                markerBackend != null &&
+                !BootGuard.markSuspendedByNemu(
+                    markerBackend,
+                    target.packageName,
+                    suspendedByNemu = true
+                )
+            ) {
+                // The guard must know a suspend is Nemu's before it happens;
+                // without the marker a normal boot could not safely restore
+                // it. Refuse rather than leaving an unowned suspension.
+                policy.setApplied(target, false)
+                failed++
+                reasons += ResultReason.MARKER_WRITE_FAILED.at(target.label)
                 continue
             }
 
@@ -382,11 +410,13 @@ class TargetFreezeService(
                     )
                 },
                 afterRestoreByNemu = { packageName ->
-                    BootGuard.markDisabledByNemu(
-                        markerBackend,
-                        packageName,
-                        disabledByNemu = false
-                    )
+                    markerBackend?.let {
+                        BootGuard.markDisabledByNemu(
+                            it,
+                            packageName,
+                            disabledByNemu = false
+                        )
+                    } ?: true
                 },
                 markComponentByNemu = { component, disabled ->
                     BootGuard.markComponentDisabled(
@@ -497,6 +527,30 @@ class TargetFreezeService(
                     reasons += ResultReason.PARTIAL_SUCCESS.at(target.label)
                 }
             } else {
+                // A timeout means the command may still land after the
+                // wrapper was killed. Do not trust an immediate readback and
+                // do not clear the applied flag, baseline or guard marker:
+                // keep the recovery record so restore/boot guard can settle
+                // the real state later.
+                if (result.indeterminate) {
+                    failed++
+                    reasons.addResult(target.label, false, result.reasons)
+                    continue
+                }
+                // A failed SUSPEND with a verified live package needs no
+                // recovery marker; a stale marker would make the guard try
+                // an unsuspend next boot for no reason. Keep it when the
+                // state is unknown or still suspended.
+                if (strategy == FreezeStrategy.SUSPEND && !dryRun &&
+                    markerBackend != null &&
+                    suspendedStateReader(target.packageName) == false
+                ) {
+                    BootGuard.markSuspendedByNemu(
+                        markerBackend,
+                        target.packageName,
+                        suspendedByNemu = false
+                    )
+                }
                 // A failed HIDE must not leave an unverified hidden package.
                 // Try to roll back; only keep ownership if the package is
                 // still hidden (or its state cannot be read at all).
@@ -794,11 +848,13 @@ class TargetFreezeService(
                     null
                 },
                 afterRestoreByNemu = { packageName ->
-                    BootGuard.markDisabledByNemu(
-                        markerBackend,
-                        packageName,
-                        disabledByNemu = false
-                    )
+                    markerBackend?.let {
+                        BootGuard.markDisabledByNemu(
+                            it,
+                            packageName,
+                            disabledByNemu = false
+                        )
+                    } ?: true
                 },
                 markComponentByNemu = { component, disabled ->
                     BootGuard.markComponentDisabled(markerBackend, component, disabled)
@@ -853,6 +909,21 @@ class TargetFreezeService(
                         }
                     }
                     policy.setApplied(target, false)
+                    if (strategy == FreezeStrategy.SUSPEND &&
+                        markerBackend != null &&
+                        !BootGuard.markSuspendedByNemu(
+                            markerBackend,
+                            target.packageName,
+                            suspendedByNemu = false
+                        )
+                    ) {
+                        // The guard would retry an already-cleared suspend;
+                        // harmless, but surface the unowned marker.
+                        failed++
+                        reasons += ResultReason.MARKER_CLEAR_FAILED.at(
+                            target.label
+                        )
+                    }
                     if (strategy == FreezeStrategy.DISABLE_USER) {
                         policy.setOriginalEnabled(target, null)
                     }

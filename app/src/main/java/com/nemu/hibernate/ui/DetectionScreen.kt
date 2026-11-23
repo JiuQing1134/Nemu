@@ -2,6 +2,7 @@ package com.nemu.hibernate.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,8 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.core.RiskLevel
-import com.nemu.hibernate.ui.theme.flClashCard
+import com.nemu.hibernate.ui.theme.nemuCard
 import com.nemu.hibernate.cota.CotaFile
+import com.nemu.hibernate.cota.CotaTimestamps
 import com.nemu.hibernate.detection.CotaReadStatus
 import com.nemu.hibernate.detection.CotaState
 import com.nemu.hibernate.detection.DetectionSnapshot
@@ -209,7 +212,7 @@ private fun DetectionHeader(
                 },
                 maxLines = 1,
                 modifier = Modifier
-                    .clickable(enabled = !state.loading) { onRefresh() }
+                    .noRippleClickable(enabled = !state.loading) { onRefresh() }
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             )
         }
@@ -276,7 +279,7 @@ private fun DetectionHeader(
                     val mismatched = rows.count { it.mismatch() }
                     SectionHeader(
                         title = "目标状态",
-                        subtitle = "注：点应用名称一行可展开/收起。",
+                        subtitle = "点卡片展开",
                         subtitleMaxLines = 1,
                         trailing = {
                             Row(
@@ -299,7 +302,7 @@ private fun DetectionHeader(
                     }
                     SectionHeader(
                         title = "云控 / 遥测",
-                        subtitle = "厂商配置/诊断通道，显示应用页保存的策略与实际状态。",
+                        subtitle = "云控/遥测目标",
                         trailing = { DetectionStatusChip("$rows 项") }
                     )
                 }
@@ -319,7 +322,7 @@ private fun DetectionHeader(
 
 @Composable
 private fun detectionCardColors(): CardColors = CardDefaults.cardColors(
-    containerColor = MaterialTheme.colorScheme.flClashCard()
+    containerColor = MaterialTheme.colorScheme.nemuCard()
 )
 
 @Composable
@@ -362,17 +365,10 @@ private fun DetectionInfoCard(text: String) {
 
 @Composable
 private fun DetectionStatusChip(text: String, warning: Boolean = false) {
-    val background = if (warning) {
-        // Vivid FlClash red; the muted #D32F2F read as dark brown-red.
-        Color(0xFFFF383C)
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
-    val foreground = if (warning) {
-        Color.White
-    } else {
-        MaterialTheme.colorScheme.onPrimary
-    }
+    val scheme = MaterialTheme.colorScheme
+    // Inconsistent actual state is important: keep the theme's danger red.
+    val background = if (warning) scheme.error else scheme.primary
+    val foreground = if (warning) scheme.onError else scheme.onPrimary
     Text(
         text,
         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
@@ -389,35 +385,38 @@ private fun FreezeStateCard(
     onOpenTarget: (String) -> Unit
 ) {
     var expanded by rememberSaveable(freeze.packageName) { mutableStateOf(false) }
+    val cardPress = remember { MutableInteractionSource() }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .nemuPressFeedback(cardPress, NemuPressSpec.Card),
         colors = detectionCardColors(),
         shape = MaterialTheme.shapes.large
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Whole card is the expand target; no visible 展开 text.
+                .clickable(
+                    interactionSource = cardPress,
+                    indication = null
+                ) { expanded = !expanded }
+                .semantics(mergeDescendants = true) {
+                    contentDescription = buildString {
+                        append(freeze.label)
+                        append("，")
+                        append(freeze.statusLabel())
+                        append("，")
+                        append(if (expanded) "点按收起" else "点按展开")
+                    }
+                }
                 // Match DetectionHeader's 12dp inset so the count chip and
                 // every row's status chip share the same right edge.
                 .padding(horizontal = 12.dp, vertical = 11.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .semantics(mergeDescendants = true) {
-                        // Include the status in the clickable row's label;
-                        // otherwise TalkBack announces only "expand" and the
-                        // mismatch/partial state stays invisible.
-                        contentDescription = buildString {
-                            append(freeze.label)
-                            append("，")
-                            append(freeze.statusLabel())
-                            append("，")
-                            append(if (expanded) "收起" else "展开")
-                        }
-                    },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -437,13 +436,6 @@ private fun FreezeStateCard(
                         text = freeze.statusLabel(),
                         warning = freeze.mismatch() ||
                             freeze.partiallyApplied()
-                    )
-                    // Visible affordance: only this title row is clickable.
-                    Text(
-                        if (expanded) "收起" else "展开",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1
                     )
                 }
             }
@@ -504,15 +496,15 @@ private fun FreezeStateCard(
             }
             if (expanded && freeze.partiallyApplied()) {
                 Text(
-                    "系统显示已暂停，但进程列表仍有该应用进程。强制停止是一次性请求；" +
-                        "系统绑定服务可能再次启动它。",
+                    "系统显示已${freeze.suspendWord()}，但进程列表仍有该应用进程。" +
+                        "强制停止是一次性请求；系统绑定服务可能再次启动它。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
             if (expanded) {
                 TextButton(onClick = { onOpenTarget(freeze.packageName) }) {
-                    Text("在应用页查看 ›")
+                    Text("在冻结/解冻页查看 ›")
                 }
             }
         }
@@ -549,7 +541,7 @@ private fun ThermalCard(snapshot: DetectionSnapshot) {
             Text(
                 "PowerGenie 负责温控/充电；整包策略已开放但高风险，部分组件命令" +
                     "被平台拒绝；iAware 建议只停用云配置组件；HnAps/MSDP 默认观察。" +
-                    "这里的数字表示实际进程状态，不是“已冻结”。",
+                    "这里的数字表示包是否安装/启用，不是进程存活，也不是“已冻结”。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -663,15 +655,15 @@ private fun CotaFileRow(file: CotaFile) {
             fontFamily = FontFamily.Monospace
         )
         Text(
-            "${formatBytes(file.sizeBytes)} · ${file.kind.label} · " +
-                "用户=${file.uid} 组=${file.gid} 权限=${file.mode}",
+            "${formatBytes(file.sizeBytes)} · ${file.kind.label}",
             style = MaterialTheme.typography.bodySmall
         )
+        // Modification time only: toybox has no trustworthy birth time.
         Text(
-            "SHA-256 ${file.sha256}",
+            CotaTimestamps.displayLabel(file.modifiedAtSeconds),
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 2,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
     }

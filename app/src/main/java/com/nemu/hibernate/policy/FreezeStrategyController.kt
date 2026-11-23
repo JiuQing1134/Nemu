@@ -19,7 +19,9 @@ data class StrategyResult(
     val strategy: FreezeStrategy,
     val commands: List<String>,
     val reasons: List<ResultNote> = emptyList(),
-    val label: String = packageName
+    val label: String = packageName,
+    /** True when a command timed out and the device state is unknown. */
+    val indeterminate: Boolean = false
 ) {
     /** Chinese UI lines; raw commands/outputs stay in ActionLog. */
     val notes: List<String> get() = reasons.map { it.line() }
@@ -61,14 +63,16 @@ class FreezeStrategyController(
         target: Target,
         strategy: FreezeStrategy,
         commands: List<String> = emptyList(),
-        reasons: List<ResultNote> = emptyList()
+        reasons: List<ResultNote> = emptyList(),
+        indeterminate: Boolean = false
     ) = StrategyResult(
         ok = ok,
         packageName = target.packageName,
         strategy = strategy,
         commands = commands,
         reasons = reasons,
-        label = target.label
+        label = target.label,
+        indeterminate = indeterminate
     )
 
     suspend fun apply(
@@ -184,8 +188,9 @@ class FreezeStrategyController(
             plan.commands.forEach { ActionLog.info("DRY-RUN（策略）: $it") }
             return result(true, target, strategy, plan.commands, reasons)
         }
-        if (!executeAll(plan.commands)) {
-            if (strategy == FreezeStrategy.COMPONENT) {
+        val exec = executeAll(plan.commands)
+        if (!exec.ok) {
+            if (strategy == FreezeStrategy.COMPONENT && !exec.indeterminate) {
                 // A partial component failure must not lose ownership of the
                 // components that did get disabled. Keep their baseline and
                 // guard marker; only drop components that are still enabled.
@@ -201,8 +206,19 @@ class FreezeStrategyController(
                     }
                 }
             }
-            reasons += ResultReason.COMMAND_FAILED.at(target.label)
-            return result(false, target, strategy, plan.commands, reasons)
+            reasons += if (exec.indeterminate) {
+                ResultReason.COMMAND_TIMEOUT.at(target.label)
+            } else {
+                ResultReason.COMMAND_FAILED.at(target.label)
+            }
+            return result(
+                false,
+                target,
+                strategy,
+                plan.commands,
+                reasons,
+                indeterminate = exec.indeterminate
+            )
         }
 
         when (strategy) {
@@ -346,8 +362,15 @@ class FreezeStrategyController(
             commands.forEach { ActionLog.info("DRY-RUN（恢复）: $it") }
             return result(true, target, strategy, commands, reasons)
         }
-        val ok = executeAll(commands)
-        if (!ok) reasons += ResultReason.COMMAND_FAILED.at(target.label)
+        val exec = executeAll(commands)
+        val ok = exec.ok
+        if (!ok) {
+            reasons += if (exec.indeterminate) {
+                ResultReason.COMMAND_TIMEOUT.at(target.label)
+            } else {
+                ResultReason.COMMAND_FAILED.at(target.label)
+            }
+        }
         if (ok && strategy == FreezeStrategy.HIDE) {
             val reader = hiddenStateReader
             if (reader == null) {
@@ -384,16 +407,26 @@ class FreezeStrategyController(
         )
     }
 
-    private suspend fun executeAll(commands: List<String>): Boolean {
+    private data class ExecOutcome(
+        val ok: Boolean,
+        val indeterminate: Boolean
+    )
+
+    private suspend fun executeAll(commands: List<String>): ExecOutcome {
         var ok = true
+        var indeterminate = false
         for (command in commands) {
             val result = backend.exec(command)
             if (result.ok) ActionLog.info("OK(${backend.name}，策略): $command")
             else {
-                ActionLog.error("FAIL(${backend.name}，策略): $command\n${result.output.take(300)}")
+                ActionLog.error(
+                    "FAIL(${backend.name}，策略): $command\n" +
+                        result.output.take(300)
+                )
                 ok = false
+                if (result.indeterminate) indeterminate = true
             }
         }
-        return ok
+        return ExecOutcome(ok, indeterminate)
     }
 }

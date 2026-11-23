@@ -1,5 +1,6 @@
 package com.nemu.hibernate.ui
 
+import com.nemu.hibernate.core.BootStatusCopy
 import com.nemu.hibernate.ui.theme.ThemeMode
 import com.nemu.hibernate.ui.theme.ThemePalette
 
@@ -39,7 +40,7 @@ fun settingsEntries(state: DashboardState): List<SettingsEntry> = listOf(
     ),
     SettingsEntry(
         id = SettingsEntryId.BOOT,
-        title = "开机与恢复",
+        title = "开机与安全",
         summary = bootEntrySummary(state.bootFreeze)
     ),
     SettingsEntry(
@@ -63,7 +64,8 @@ internal fun bootEntrySummary(boot: BootFreezeUiState): String = when {
     !boot.enabled -> "开机自动冻结已关闭"
     boot.plannedCount <= 0 -> "无计划目标"
     boot.lastResult == null -> "计划 ${boot.plannedCount} 个 · 尚未执行"
-    else -> "计划 ${boot.plannedCount} 个 · ${boot.lastResult}"
+    else -> "计划 ${boot.plannedCount} 个 · " +
+        BootStatusCopy.of(boot.lastResult).chip
 }
 
 /** 二级页标题下的一行说明；只描述本页范围，不重复控件文案。 */

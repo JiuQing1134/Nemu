@@ -37,10 +37,18 @@ data class FreezeState(
     /** True process presence is separate from Android's package STOPPED flag. */
     val processRunning: Boolean? = null,
     val risk: RiskLevel? = null,
-    /** Null when the mode is not COMPONENT or the component states are unreadable. */
+    /** True only when every selected component is disabled. */
     val componentDisabled: Boolean? = null,
+    /** True when some (not all) selected components are disabled. */
+    val componentPartial: Boolean = false,
     /** True when Nemu owns an AppOps/standby restriction for this package. */
     val restrictionApplied: Boolean = false,
+    /**
+     * Live AppOps/standby readback for RESTRICT rows. Null means the current
+     * state could not be read (no root or command failure); never render
+     * that as "not restricted".
+     */
+    val restrictionActual: Boolean? = null,
     /**
      * True once the stored policy was executed (or the actual state already
      * matches it). A configured-but-never-applied target is "未应用", not a
@@ -63,7 +71,7 @@ data class FreezeState(
             // also invisible. Require the applied marker to claim a hide.
             FreezeMode.HIDE -> policyApplied && !installed
             FreezeMode.OBSERVE -> false
-            FreezeMode.RESTRICT -> restrictionApplied
+            FreezeMode.RESTRICT -> restrictionActual ?: restrictionApplied
         }
 
     /**
@@ -76,7 +84,7 @@ data class FreezeState(
             actualKnown &&
             (mode != FreezeMode.COMPONENT || componentDisabled != null) &&
             !pending &&
-            policyEnabled != actuallyFrozen
+            policyApplied != actuallyFrozen
 
     /**
      * A live process is a partial result even when PackageManager reports the
@@ -102,8 +110,12 @@ data class FreezeState(
      * "暂停" for disable/restrict: those are different system states.
      * Null for OBSERVE rows, which only have the "未执行" value.
      */
+    /** User-facing word for the SUSPEND strategy, following the preset. */
+    fun suspendWord(): String =
+        if (preset == StrategyPreset.PAUSE) "暂停" else "冻结"
+
     fun detailLabel(): String? = when (mode) {
-        FreezeMode.SUSPEND -> "暂停"
+        FreezeMode.SUSPEND -> suspendWord()
         FreezeMode.DISABLE -> "停用"
         FreezeMode.COMPONENT -> "组件"
         FreezeMode.HIDE -> "隐藏"
@@ -111,21 +123,28 @@ data class FreezeState(
         FreezeMode.OBSERVE -> null
     }
 
-    fun detailValue(): String = when (mode) {
-        FreezeMode.SUSPEND -> yesNo(suspended)
-        FreezeMode.DISABLE -> yesNo(!enabled)
-        FreezeMode.COMPONENT -> when (componentDisabled) {
-            true -> "已停用"
-            false -> "启用"
-            null -> "未知"
-        }
-        FreezeMode.HIDE -> when {
+    fun detailValue(): String = if (mode == FreezeMode.HIDE) {
+        // A hidden package is invisible to PackageManager, so actualKnown is
+        // false by design; the applied marker is the positive proof here.
+        when {
             installed -> "未生效"
             policyApplied -> "已生效"
             else -> "未知"
         }
+    } else if (!actualKnown) {
+        "未知"
+    } else when (mode) {
+        FreezeMode.SUSPEND -> yesNo(suspended)
+        FreezeMode.DISABLE -> yesNo(!enabled)
+        FreezeMode.COMPONENT -> when {
+            componentPartial -> "部分停用"
+            componentDisabled == true -> "已停用"
+            componentDisabled == false -> "启用"
+            else -> "未知"
+        }
+        FreezeMode.HIDE -> "未知"
         FreezeMode.RESTRICT ->
-            if (restrictionApplied) "已生效" else "未生效"
+            if (restrictionActual ?: restrictionApplied) "已生效" else "未生效"
         FreezeMode.OBSERVE -> "未执行"
     }
 
@@ -136,8 +155,9 @@ data class FreezeState(
     private fun yesNo(value: Boolean): String = if (value) "是" else "否"
 
     fun describeActual(): String = when {
+        mode == FreezeMode.RESTRICT && !actualKnown -> "读取失败"
         mode == FreezeMode.RESTRICT ->
-            if (restrictionApplied) "已限制" else "未限制"
+            if (restrictionActual ?: restrictionApplied) "已限制" else "未限制"
         mode == FreezeMode.HIDE -> when {
             installed -> "仍可见：未隐藏或已恢复"
             policyApplied -> "不可见：已隐藏"
@@ -154,36 +174,47 @@ data class FreezeState(
         }
         mode == FreezeMode.COMPONENT -> buildString {
             append(
-                when (componentDisabled) {
-                    true -> "组件已停用"
-                    false -> "组件启用"
-                    null -> "组件状态未知"
+                when {
+                    componentPartial -> "组件部分停用"
+                    componentDisabled == true -> "组件已停用"
+                    componentDisabled == false -> "组件启用"
+                    else -> "组件状态未知"
                 }
             )
             append("；")
             append(describeSuspendActual(enabled, suspended, stopped, processRunning))
         }
         else -> buildString {
-            append(describeSuspendActual(enabled, suspended, stopped, processRunning))
+            append(
+                describeSuspendActual(
+                    enabled,
+                    suspended,
+                    stopped,
+                    processRunning,
+                    suspendWord()
+                )
+            )
         }
     }
 
     fun statusLabel(): String = when {
         mode == FreezeMode.OBSERVE -> "仅观察"
+        mode == FreezeMode.RESTRICT && !actualKnown -> "读取失败"
         mode == FreezeMode.RESTRICT ->
-            if (restrictionApplied) "已限制" else "未限制"
+            if (restrictionActual ?: restrictionApplied) "已限制" else "未限制"
         mode == FreezeMode.HIDE && !installed && policyApplied -> "已隐藏"
         mode == FreezeMode.HIDE && !installed -> "不可见（未安装）"
         !installed -> "未安装"
         !actualKnown -> "读取失败"
         mode == FreezeMode.COMPONENT && componentDisabled == null -> "组件状态未知"
+        mode == FreezeMode.COMPONENT && componentPartial -> "组件部分停用"
         pending -> "未应用"
         mismatch() -> "不一致"
         mode == FreezeMode.DISABLE -> if (!enabled) "已停用" else "仍启用"
         mode == FreezeMode.COMPONENT ->
             if (componentDisabled == true) "组件已停用" else "组件启用"
-        partiallyApplied() -> "已暂停 · 存活"
-        suspended && processRunning == null -> "已暂停 · 未知"
+        partiallyApplied() -> "已${suspendWord()} · 存活"
+        suspended && processRunning == null -> "已${suspendWord()} · 未知"
         preset == StrategyPreset.PAUSE ->
             if (suspended) "已暂停" else "未暂停"
         preset == StrategyPreset.FREEZE ->
@@ -251,7 +282,7 @@ data class ThermalState(
     val services: List<ThermalServiceState> = emptyList(),
     val message: String? = null
 ) {
-    val readOnlyNote: String get() = "检测页只读；冻结/策略在应用页操作"
+    val readOnlyNote: String get() = "检测页只读；冻结/策略在冻结/解冻页操作"
 
     fun describe(): String {
         if (services.isEmpty()) return message ?: "未检测"
@@ -313,13 +344,13 @@ data class BootSafetyState(
     /** Non-default guard event, or null when the chips already say everything. */
     fun guardNote(): String? = when {
         !bootFreezeEnabled -> null
-        skippedThisBoot() -> "用户已在本 boot 手动恢复，跳过自动冻结"
+        skippedThisBoot() -> "手动解冻，已跳过"
         bootCount >= 0 && lastBootFreezeBootCount == bootCount ->
-            "本 boot 已处理过开机冻结"
+            "本 boot 已处理"
         bootCount >= 0 && lastBootFreezeAttemptBootCount == bootCount ->
-            "本 boot 已尝试过开机冻结"
+            "本 boot 已尝试"
         bootloopGuardTripped() ->
-            "守卫触发：上次冻结尝试后未检测到干净关机，本次开机应跳过自动冻结"
+            "守卫触发 · 上次未净关机"
         else -> null
     }
 
@@ -369,9 +400,10 @@ private fun describeSuspendActual(
     enabled: Boolean,
     suspended: Boolean,
     stopped: Boolean,
-    processRunning: Boolean?
+    processRunning: Boolean?,
+    word: String = "暂停"
 ): String = buildString {
-    append(if (suspended) "已暂停" else "未暂停")
+    append(if (suspended) "已$word" else "未$word")
     append(if (enabled) "，已启用" else "，已停用")
     appendStoppedAndProcess(stopped, processRunning)
 }

@@ -60,6 +60,38 @@ class FreezeStrategyControllerTest {
     )
 
     @Test
+    fun timeoutIsReportedAsIndeterminateNotDefiniteFailure() = runBlocking {
+        val backend = object : PrivilegeBackend {
+            override val name: String = "Timeout"
+            override val canSetHidden: Boolean = true
+            override suspend fun isAvailable(): Boolean = true
+            override suspend fun exec(command: String): ShellResult =
+                ShellResult(
+                    -1,
+                    "timeout after 15000ms",
+                    indeterminate = true
+                )
+        }
+        val controller = FreezeStrategyController(
+            backend = backend,
+            dryRun = false,
+            enabledStateReader = { true }
+        )
+        val result = controller.apply(
+            target,
+            FreezeStrategy.DISABLE_USER,
+            originalEnabled = true
+        )
+        assertFalse(result.ok)
+        assertTrue(result.indeterminate)
+        assertTrue(
+            result.reasons.any {
+                it.reason == com.nemu.hibernate.core.ResultReason.COMMAND_TIMEOUT
+            }
+        )
+    }
+
+    @Test
     fun componentApplyOwnsOnlyComponentsThatWereEnabledOrDefault() = runBlocking {
         var disabled = false
         val backend = FakeBackend(onExec = { command ->

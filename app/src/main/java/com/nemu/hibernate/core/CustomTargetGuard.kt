@@ -7,15 +7,26 @@ package com.nemu.hibernate.core
  * risk" step and are stored as RED so their cards show the high-risk warning.
  */
 object CustomTargetGuard {
-    /** Root/framework managers: ordinary APKs, but critical to recovery. */
-    private val rootToolPackages = setOf(
+    /** Root managers / privileged services; LSPosed has its own reason. */
+    private val rootManagerPackages = setOf(
         "me.weishu.kernelsu",
         "me.yuki.fina",
         "com.topjohnwu.magisk",
         "com.rifsxd.ksunext",
-        "org.lsposed.manager",
-        "moe.shizuku.privileged.api"
+        "com.sukisu.ultra",
+        "me.bmax.apatch"
     )
+
+    private val rootManagerTokens = listOf(
+        "kernelsu", "magisk", "ksunext", "sukisu", "apatch",
+        "wildksu", "wildsu"
+    )
+
+    private fun isLsposedManager(packageName: String): Boolean =
+        packageName == "org.lsposed.manager" ||
+            packageName.startsWith("org.lsposed.manager.") ||
+            packageName == "org.lsposed.lspatch" ||
+            packageName.startsWith("org.lsposed.lspatch.")
 
     private val criticalPackages = setOf(
         "android",
@@ -24,10 +35,13 @@ object CustomTargetGuard {
         "com.nemu.windstop",
         "me.yuki.fina",
         "moe.shizuku.privileged.api",
+        "roro.stellar.manager",
         "org.lsposed.manager",
         "me.weishu.kernelsu",
         "com.topjohnwu.magisk",
         "com.rifsxd.ksunext",
+        "com.sukisu.ultra",
+        "me.bmax.apatch",
         "com.android.systemui",
         "com.android.settings",
         "com.android.phone",
@@ -76,10 +90,18 @@ object CustomTargetGuard {
         dynamicRoles: Map<String, String> = emptyMap()
     ): String? {
         if (isSelf(packageName)) return "Nemu 自身"
-        if (packageName in rootToolPackages ||
-            packageName.startsWith("org.lsposed.")
+        if (isLsposedManager(packageName)) return "LSPosed 框架"
+        if (packageName == "moe.shizuku.privileged.api" ||
+            packageName == "roro.stellar.manager"
         ) {
-            return "Root/框架工具"
+            return "Shizuku 管理器"
+        }
+        if (packageName in rootManagerPackages) return "Root 管理器"
+        if (rootManagerTokens.any {
+                packageName.contains(it, ignoreCase = true)
+            }
+        ) {
+            return "疑似 Root 管理器"
         }
         dynamicRoles[packageName]?.let { return it }
         if (packageName in criticalPackages) return "系统关键应用"

@@ -26,3 +26,9 @@ if [ -f "$HOOK" ] &&
     grep -Fqx 'NEMU_GUARD_OWNER=nemu_boot_autostart' "$HOOK" 2>/dev/null; then
     rm -f "$HOOK"
 fi
+
+# Stop the root shutdown daemon and remove its runtime files; otherwise it
+# keeps running until reboot and may call a deleted restore wrapper.
+pkill -f '/data/adb/nemu/shutdown_daemon.sh' 2>/dev/null ||
+    killall -q shutdown_daemon.sh 2>/dev/null || true
+rm -f /data/adb/nemu/shutdown.pipe     /data/adb/nemu/restore_frozen.sh     /data/adb/nemu/restore_done

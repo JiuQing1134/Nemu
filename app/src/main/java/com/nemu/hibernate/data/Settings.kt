@@ -38,12 +38,12 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("cota_enabled", false)
         set(value) = prefs.edit().putBoolean("cota_enabled", value).apply()
 
-    /** FlClash colour style: VIVID / TINTED / SOFT / MONOCHROME. */
+    /** Nemu colour style: VIVID / TINTED / SOFT / MONOCHROME. */
     var themeStyle: String
         get() = prefs.getString("theme_style", "VIVID") ?: "VIVID"
         set(value) = prefs.edit().putString("theme_style", value).apply()
 
-    /** FlClash palette name (BLUE/MAGENTA/ROSE/RED/ORANGE/YELLOW/GREEN/GRAPHITE). */
+    /** Nemu palette name (BLUE/MAGENTA/ROSE/RED/ORANGE/YELLOW/GREEN/GRAPHITE). */
     var themePalette: String
         get() = prefs.getString("theme_palette", "BLUE") ?: "BLUE"
         set(value) = prefs.edit().putString("theme_palette", value).apply()

@@ -1,5 +1,6 @@
 package com.nemu.hibernate.cota
 
+import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -70,8 +71,8 @@ class CotaParsersTest {
     }
 
     @Test
-    fun parseStat_maps_pipe_separated_metadata() {
-        val output = "/data/cota/para/cpuconfig|1024|644|1000|1000\n"
+    fun parseStat_maps_pipe_separated_metadata_and_mtime() {
+        val output = "/data/cota/para/cpuconfig|1024|644|1000|1000|1700000000\n"
 
         val stats = CotaParsers.parseStat(output)
 
@@ -81,6 +82,22 @@ class CotaParsersTest {
         assertEquals("644", stats[0].mode)
         assertEquals(1000, stats[0].uid)
         assertEquals(1000, stats[0].gid)
+        assertEquals(1_700_000_000L, stats[0].modifiedAtSeconds)
+    }
+
+    @Test
+    fun parseStat_keeps_the_row_when_mtime_is_missing_or_unparseable() {
+        val output = "/data/cota/para/cpuconfig|1024|644|1000|1000\n" +
+            "/data/cota/para/pg_config|2048|644|0|0|?\n" +
+            "/data/cota/para/thermal_config|4096|644|0|0|-5\n"
+
+        val stats = CotaParsers.parseStat(output)
+
+        assertEquals(3, stats.size)
+        assertEquals(
+            listOf(null, null, null),
+            stats.map { it.modifiedAtSeconds }
+        )
     }
 
     @Test
@@ -208,5 +225,25 @@ class CotaParsersTest {
                 "#nemu-cota-backup-v1\ncpuconfig\tnot-a-hash\t1\t644\t0\t0\n"
             )
         )
+    }
+
+    @Test
+    fun displayLabel_formats_mtime_compactly_and_labels_it_honestly() {
+        // 1700000000 = 2023-11-14 22:13:20 UTC.
+        assertEquals(
+            "修改 2023-11-14 22:13",
+            CotaTimestamps.displayLabel(1_700_000_000L, ZoneOffset.UTC)
+        )
+    }
+
+    @Test
+    fun displayLabel_falls_back_without_claiming_a_creation_time() {
+        listOf(null, 0L, -1L, Long.MAX_VALUE).forEach { value ->
+            assertEquals(
+                "修改时间未知",
+                CotaTimestamps.displayLabel(value, ZoneOffset.UTC)
+            )
+            assertNull(CotaTimestamps.formatModified(value, ZoneOffset.UTC))
+        }
     }
 }

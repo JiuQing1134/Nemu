@@ -11,6 +11,8 @@ object ComponentRestoreState {
     fun isRestored(state: Int?): Boolean = state == 0 || state == 1
 
     fun isMissingComponent(result: ShellResult): Boolean =
-        result.exitCode == 0 &&
-            result.output.contains("Unknown component", ignoreCase = true)
+        // Some OEM pm builds exit non-zero while still printing the explicit
+        // unknown-component marker; that is a resolved (missing) component,
+        // not a transient command failure.
+        result.output.contains("Unknown component", ignoreCase = true)
 }

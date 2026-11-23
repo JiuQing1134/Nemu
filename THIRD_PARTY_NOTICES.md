@@ -14,7 +14,7 @@ prism_ui `8f5fc22ca1a6bccb064589494ca69cedb38edb50`。
 https://www.apache.org/licenses/LICENSE-2.0
 
 Nemu 没有复制 Flutter 运行时；颜色由
-`tools/flclash_theme_gen.py` 按同一 HCT 算法预计算，
+`tools/theme_gen.py` 按同一 HCT 算法预计算，
 组件以 Jetpack Compose 重新实现。
 
 ## Material Color Utilities

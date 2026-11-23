@@ -100,6 +100,35 @@ class BootFreezeSettings(context: Context) {
             prefs.edit().putInt(KEY_SKIPPED_BOOT_COUNT, value).commit()
         }
 
+    /**
+     * First uptime (seconds since boot) at which Nemu observed this boot.
+     * The boot-freeze window is anchored here, not at the user flipping the
+     * switch or opening a specific screen, so a late unlock still gets one
+     * predictable opportunity instead of silently never freezing.
+     */
+    val bootFreezeAnchorBootCount: Int
+        get() = prefs.getInt(KEY_ANCHOR_BOOT_COUNT, -1)
+
+    val bootFreezeAnchorUptimeSeconds: Long
+        get() = prefs.getLong(KEY_ANCHOR_UPTIME, 0L)
+
+    /**
+     * Persists the first observation of [bootCount]. Returns false when the
+     * commit failed; callers then fall back to a boot-relative delay.
+     */
+    fun anchorBootWindow(bootCount: Int, uptimeSeconds: Long): Boolean =
+        prefs.edit()
+            .putInt(KEY_ANCHOR_BOOT_COUNT, bootCount)
+            .putLong(KEY_ANCHOR_UPTIME, uptimeSeconds.coerceAtLeast(0L))
+            .commit()
+
+    /** Boot count whose automatic-freeze window was observed and missed. */
+    var bootFreezeWindowMissedBootCount: Int
+        get() = prefs.getInt(KEY_WINDOW_MISSED_BOOT_COUNT, -1)
+        set(value) {
+            prefs.edit().putInt(KEY_WINDOW_MISSED_BOOT_COUNT, value).commit()
+        }
+
     /** Written by the core shutdown path together with `last_shutdown_result`. */
     val lastShutdownTime: Long
         get() = prefs.getLong(KEY_LAST_SHUTDOWN_TIME, 0L)
@@ -149,11 +178,16 @@ class BootFreezeSettings(context: Context) {
      * automatic freeze. Separate commits could lose the skip on power loss and
      * let a late worker re-freeze the user's selection.
      */
-    fun recordManualSkip(bootCount: Int, result: String): Boolean =
+    fun recordManualSkip(
+        bootCount: Int,
+        result: String,
+        detail: String? = null
+    ): Boolean =
         prefs.edit()
             .putInt(KEY_SKIPPED_BOOT_COUNT, bootCount)
             .putInt(KEY_LAST_FREEZE_BOOT_COUNT, bootCount)
             .putString(KEY_LAST_RESULT, result)
+            .putString(KEY_LAST_DETAIL, detail)
             .putBoolean(KEY_LAST_SUCCEEDED, false)
             .putLong(KEY_LAST_FREEZE_TIME, System.currentTimeMillis())
             .commit()
@@ -199,6 +233,10 @@ class BootFreezeSettings(context: Context) {
         const val KEY_LAST_DETAIL = "last_boot_freeze_detail"
         const val KEY_LAST_SUCCEEDED = "last_boot_freeze_succeeded"
         const val KEY_SKIPPED_BOOT_COUNT = "boot_freeze_skipped_boot_count"
+        const val KEY_ANCHOR_BOOT_COUNT = "boot_freeze_anchor_boot_count"
+        const val KEY_ANCHOR_UPTIME = "boot_freeze_anchor_uptime"
+        const val KEY_WINDOW_MISSED_BOOT_COUNT =
+            "boot_freeze_window_missed_boot_count"
         const val KEY_LAST_SHUTDOWN_TIME = "last_shutdown_time"
         const val KEY_LAST_SHUTDOWN_RESULT = "last_shutdown_result"
     }

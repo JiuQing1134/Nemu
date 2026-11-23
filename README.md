@@ -50,10 +50,11 @@ HONOR MagicOS 系统组件“安全冻结”工具。
   `versionCode 9` / `1.3.3`，`app\build\outputs\apk\debug\app-debug.apk`，
   2,653,436 字节，SHA-256 `d400b5165cf31760c613e69c555bb2719246e2c0c448e1b1ac3b2ef87ce7c7bb`。
 - 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  （34,135 字节；SHA-256 `b0979b800d33fd2fc6960e7a5bf00105838f4cf4ed3ba976040b321242ae15f9`；
-  FinaSU 模块 v1.10 / versionCode 11；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
-  开机恢复交给应用自己的 BootReceiver/WorkManager。已安装旧模块的设备需在 FinaSU/
-  KernelSU 中用新 zip 更新（或直接卸载模块）后重启才生效）。
+  （12,136 字节；SHA-256 `6d4a162e35eef7758fd91d0992e7f6c1a2ff324fb3a927f65e317200fccaef32`；
+  FinaSU 模块 v1.12 / versionCode 13；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
+  v1.12 起正常开机只恢复带 `suspended_by_nemu` 标记的暂停包，并且只有在读到
+  `suspended=false` 后才删除标记。已安装旧模块的设备需在 FinaSU/KernelSU 中用新 zip
+  更新（或直接卸载模块）后重启才生效）。
 - UI：中性白/灰底 + 单色强调、M3E 大圆角、深色纯黑 OLED；桌面图标使用白底亮色几何图形：Nemu 为钴蓝 Tabler 雪花，凪为翠绿三角回环与中心圆点。
 - 2026-11-22 第三轮：桌面/应用信息/通知大图标统一为白底黑色月亮/凪图形；通知显式设置大图标，不再回退系统缓存图标；请求 120 Hz（实测 `mActiveModeId=3 / renderFrameRate 120.00001`）；修复返回桌面图标闪回、隐藏图标后残留旧图标、模式芯片无响应、点击跳跃、无障碍自动开启、Nemu 点击 1 秒卡顿。系统通知左侧的小头像由 MagicOS 自行缓存，重启手机后刷新（代码不再提供任何插画资源）。
 - 2026-11-22 第四轮：凪改名并改用风停图形；LSPosed 状态三态实时显示——管理器关闭 / 已启用待重启 / 已激活；激活用模块广播 + 本次开机标记，关闭用 root 只读查询 LSPosed 的 `modules_state`；覆盖安装后 LSPosed 若自动关掉模块，App 会立即显示“已在管理器中关闭”。
@@ -71,7 +72,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 运营商 DM 三件套（`com.hihonor.regservice`、`com.hihonor.android.UEInfoCheck`、`com.hihonor.android.AutoRegSms`）和 `com.hihonor.numberidentity` 可使用 `pm disable-user --user 0`（绿/黄目标的可逆整包停用例外）；逐项确认、不卸载，只在记录“原本启用”时 `pm enable` 回滚。
 - 遥测三件套（`com.hihonor.hiview`、`com.hihonor.hiviewpush`、`com.hihonor.hiviewtunnel`）在本机**不能 suspend**（平台返回 `state:false`），默认改用 **COMPONENT** 停用登记的 Service/Receiver/Provider；关机/开机按原始状态恢复组件，而不是只 `pm unsuspend`。
 - 冻结/解冻统一在 Freeze/Unfreeze 页操作；所选解冻会关闭策略，“临时全部解冻”会保留策略并跳过本次开机冻结。执行方式在设置里明确选择“预览（手动操作不改手机；开机/关机安全清理仍执行）”或“实际执行”，不再用含义反直觉的 Dry run 开关。
-- `com.hihonor.cipservice`、`com.hihonor.android.hnaps` 仅展示状态；`com.hihonor.android.pushagent` 在禁止清单中，不提供操作。
+- `com.hihonor.cipservice`、`com.hihonor.android.hnaps`、`com.hihonor.android.pushagent` 默认只观察；它们仍可切换暂停/停用/隐藏，但都属于高风险操作，确认框会写明后果（诊断、刷新率自适应或系统推送可能异常）。Nemu 不硬阻断任何已安装包，只警告并要求确认。
 - 云控/遥测不再有单独的“恢复全部云控”按钮；使用 Unfreeze 页的“解冻所选/全部解冻”。
 - 风险：停用运营商 DM 可能影响 VoLTE 配置、运营商 FOTA、自注册短信；组件停用遥测可能影响诊断日志。
 - 测试：CT1–CT5、PF9/PF11/PF16（见 `docs/04-test-plan.md`、`docs/12-device-test-log-2026-11-22.md`）。
@@ -80,7 +81,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 
 - 与更新/AI 列表分开管理，不混入 `Targets.all`。
 - `com.hihonor.numberidentity`（号码识别）可选 `suspend` 或 `disable-user`；失去来电识别/骚扰与诈骗标记，可恢复。
-- `com.hihonor.securityserver`（安全公共服务）与 `com.hihonor.awareness`（情景感知）**禁止停用/隐藏**；默认只观察，可选“暂停”（会弹出具体后果：支付保护/活体/反诈校验可能失灵）。高级控制里仍提供 `appops RUN_ANY_IN_BACKGROUND ignore` + `standby restricted`，可恢复为 `allow`/`active`。
+- `com.hihonor.securityserver`（安全公共服务）与 `com.hihonor.awareness`（情景感知）默认只观察，可选“暂停”；**停用/隐藏不会被代码硬拒绝**，但会弹出高风险确认（支付保护/活体/反诈校验可能失灵）。高级控制里仍提供 `appops RUN_ANY_IN_BACKGROUND ignore` + `standby restricted`，可恢复为 `allow`/`active`。
 - `com.hihonor.securitypluginbase` 仅观察。
 - `numberidentity` 纳入关机/开机安全解冻（`pm unsuspend` 幂等；`disable-user` 不会被 `pm unsuspend` 自动恢复）。
 - 测试：`AF1–AF6`（见 `docs/04-test-plan.md`）。

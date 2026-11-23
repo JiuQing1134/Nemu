@@ -47,6 +47,15 @@ class BootWorker(
 
         val settings = Settings(applicationContext)
         val bootFreezeSettings = BootFreezeSettings(applicationContext)
+        if (bootFreezeSettings.lastShutdownResult ==
+            BootFreezeSettings.SHUTDOWN_IN_PROGRESS
+        ) {
+            // The process was killed mid-shutdown; never leave a permanent
+            // "进行中" sentinel in the UI.
+            bootFreezeSettings.markShutdownFinished(
+                "未完成：关机前解冻被中断"
+            )
+        }
         val manager = BackendManager(settings)
 
         var backend: PrivilegeBackend? = null

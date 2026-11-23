@@ -47,7 +47,7 @@ class NemuApplication : Application() {
                     }
                 )
             }
-            PersistentLogger.init(appContext)
+            runCatching { PersistentLogger.init(appContext) }
         }
     }
 }

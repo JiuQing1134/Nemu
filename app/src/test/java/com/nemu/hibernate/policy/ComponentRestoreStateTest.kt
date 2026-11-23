@@ -31,7 +31,7 @@ class ComponentRestoreStateTest {
                 ShellResult(0, "Unknown component: x")
             )
         )
-        assertFalse(
+        assertTrue(
             ComponentRestoreState.isMissingComponent(
                 ShellResult(1, "Unknown component: x")
             )

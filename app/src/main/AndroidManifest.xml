@@ -78,7 +78,7 @@
             android:name=".policy.BootReceiver"
             android:directBootAware="true"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
@@ -87,10 +87,24 @@
             </intent-filter>
         </receiver>
 
+        <!-- Sent by the KernelSU module after boot_completed. DUMP is held
+             by root/shell senders and by no ordinary third-party app, so it
+             gates this exported receiver without a custom signature key. -->
+        <receiver
+            android:name=".policy.BootTriggerReceiver"
+            android:directBootAware="true"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.nemu.dream.action.BOOT_TRIGGER" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".policy.ShutdownReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.ACTION_SHUTDOWN" />
                 <action android:name="android.intent.action.REBOOT" />

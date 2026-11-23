@@ -168,6 +168,26 @@ class BootFreezeWorker(
             ShutdownScript.write(it, policy)
         }
 
+        // WorkManager can deliver this work hours late (Doze, force-stop,
+        // OEM background policy). Residual recovery above is always safe, but
+        // applying a boot freeze during active use is not: stop here and
+        // record the skip for the card.
+        if (BootFreezeScheduler.bootWindowExpired(
+                applicationContext,
+                bootCount
+            )
+        ) {
+            recordResult(
+                bootSettings = bootSettings,
+                bootCount = bootCount,
+                result = "已跳过：超过开机冻结窗口",
+                detail = "任务延迟到窗口之后才执行；未在活跃使用时冻结",
+                succeeded = false
+            )
+            ActionLog.warn("开机冻结已跳过：超过开机冻结窗口")
+            return Result.success()
+        }
+
         // Rescue skips policy application but only AFTER the always-on
         // residual recovery above, so a partial guard rescue is retried.
         val rootBackend = backendManager.getRoot()
@@ -285,8 +305,8 @@ class BootFreezeWorker(
             recordResult(
                 bootSettings = bootSettings,
                 bootCount = bootCount,
-                result = "已跳过：用户已手动解冻",
-                detail = "本次开机不再自动冻结",
+                result = "已跳过：手动解冻",
+                detail = "本次开机不自动冻结",
                 succeeded = false
             )
             ActionLog.info("开机冻结已跳过：用户已在本 boot 手动解冻")

@@ -51,7 +51,7 @@ class RestrictionControllerTest {
             appOpsReader = { appOpsState[it] },
             standbyReader = { standbyState[it] },
             originalAppOps = { originals[it] },
-            onOriginalAppOps = { pkg, mode -> originals[pkg] = mode },
+            onOriginalAppOps = { pkg, mode -> originals[pkg] = mode; true },
             appOpsOwned = { it in owned },
             setAppOpsOwned = { pkg, value ->
                 if (value) owned += pkg else owned -= pkg
@@ -134,7 +134,7 @@ class RestrictionControllerTest {
             dryRun = false,
             appOpsReader = { state[it] },
             originalAppOps = { original },
-            onOriginalAppOps = { _, mode -> original = mode },
+            onOriginalAppOps = { _, mode -> original = mode; true },
             appOpsOwned = { owned },
             setAppOpsOwned = { _, value -> owned = value; true }
         )
@@ -169,7 +169,7 @@ class RestrictionControllerTest {
             dryRun = false,
             standbyReader = { state[it] },
             originalStandby = { original },
-            onOriginalStandby = { _, bucket -> original = bucket },
+            onOriginalStandby = { _, bucket -> original = bucket; true },
             standbyOwned = { owned },
             setStandbyOwned = { _, value -> owned = value; true }
         )
@@ -200,7 +200,7 @@ class RestrictionControllerTest {
             dryRun = true,
             appOpsReader = { state[it] },
             originalAppOps = { null },
-            onOriginalAppOps = { _, _ -> },
+            onOriginalAppOps = { _, _ -> true },
             appOpsOwned = { owned },
             setAppOpsOwned = { _, value -> owned = value; true }
         )
@@ -232,7 +232,7 @@ class RestrictionControllerTest {
             dryRun = false,
             appOpsReader = { nextRead.also { nextRead = null } },
             originalAppOps = { original },
-            onOriginalAppOps = { _, mode -> original = mode },
+            onOriginalAppOps = { _, mode -> original = mode; true },
             appOpsOwned = { owned },
             setAppOpsOwned = { _, value -> owned = value; true }
         )
@@ -263,7 +263,7 @@ class RestrictionControllerTest {
             dryRun = false,
             appOpsReader = { state[it] },
             originalAppOps = { "allow" },
-            onOriginalAppOps = { _, _ -> },
+            onOriginalAppOps = { _, _ -> true },
             appOpsOwned = { owned },
             setAppOpsOwned = { _, value -> owned = value; true }
         )
@@ -289,7 +289,7 @@ class RestrictionControllerTest {
             dryRun = false,
             appOpsReader = { state[it] },
             originalAppOps = { "allow" },
-            onOriginalAppOps = { _, _ -> },
+            onOriginalAppOps = { _, _ -> true },
             appOpsOwned = { owned },
             setAppOpsOwned = { _, value -> owned = value; true }
         )

@@ -10,6 +10,26 @@ MODDIR=${0%/*}
 . "$MODDIR/install_guard.sh"
 install_nemu_guard
 
+# HONOR does not deliver BOOT_COMPLETED to Nemu, and LOCKED_BOOT_COMPLETED can
+# be missed if the app process dies before unlock. Ping the app once the
+# system is actually up so its BootReceiver can run the safety pass. The
+# receiver is protected by android.permission.DUMP (root/shell only).
+trigger_nemu_after_boot() {
+    i=0
+    while [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ] &&
+        [ "$i" -lt 90 ]; do
+        sleep 2
+        i=$((i + 1))
+    done
+    [ "$(getprop sys.boot_completed 2>/dev/null)" = "1" ] || return 0
+    am broadcast --user 0 \
+        -a com.nemu.dream.action.BOOT_TRIGGER \
+        -n com.nemu.dream/com.nemu.hibernate.policy.BootTriggerReceiver \
+        >/dev/null 2>&1 || true
+}
+
+trigger_nemu_after_boot &
+
 GUARD_DIR=${NEMU_GUARD_DIR:-/data/adb/nemu/boot_guard}
 GUARD="$GUARD_DIR/boot_guard.sh"
 
@@ -65,35 +85,39 @@ if [ ! -x "$GUARD" ]; then
     if [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ]; then
         exit 0
     fi
-    pm unsuspend --user 0 \
-        com.hihonor.ouc \
-        com.honor.yoyoappsug \
-        com.honor.yoyocards \
-        com.hihonor.suggestion \
-        com.hihonor.sceneservice \
-        com.hihonor.hiview \
-        com.hihonor.hiviewpush \
-        com.hihonor.hiviewtunnel \
-        com.hihonor.numberidentity \
-        com.hihonor.aipluginengine \
-        com.hihonor.assistant \
-        com.hihonor.magicvoice \
-        com.hihonor.voiceengine \
-        com.hihonor.brain \
-        com.hihonor.mageruntime \
-        com.hihonor.systemappsupdater \
-        com.hihonor.visionengine \
-        com.hihonor.magictranslate \
-        com.hihonor.magicavatar \
-        com.hihonor.lens \
-        com.hihonor.hiboard \
-        com.hihonor.magichome \
-        com.hihonor.detectrepair \
-        com.hihonor.cipservice \
-        com.hihonor.assetsync \
-        com.hihonor.assetsyncservice \
-        com.hihonor.android.hnaps \
-        com.hihonor.msdp \
-        com.hihonor.securityserver \
-        com.hihonor.awareness >/dev/null 2>&1
+    for pkg in \
+    com.hihonor.ouc \
+    com.honor.yoyoappsug \
+    com.honor.yoyocards \
+    com.hihonor.suggestion \
+    com.hihonor.sceneservice \
+    com.hihonor.hiview \
+    com.hihonor.hiviewpush \
+    com.hihonor.hiviewtunnel \
+    com.hihonor.numberidentity \
+    com.hihonor.aipluginengine \
+    com.hihonor.assistant \
+    com.hihonor.magicvoice \
+    com.hihonor.voiceengine \
+    com.hihonor.brain \
+    com.hihonor.mageruntime \
+    com.hihonor.systemappsupdater \
+    com.hihonor.visionengine \
+    com.hihonor.magictranslate \
+    com.hihonor.magicavatar \
+    com.hihonor.lens \
+    com.hihonor.hiboard \
+    com.hihonor.magichome \
+    com.hihonor.detectrepair \
+    com.hihonor.cipservice \
+    com.hihonor.assetsync \
+    com.hihonor.assetsyncservice \
+    com.hihonor.android.hnaps \
+    com.hihonor.msdp \
+    com.hihonor.securityserver \
+    com.hihonor.awareness; do
+
+        pm unsuspend --user 0 "$pkg" >/dev/null 2>&1 || true
+    done
+
 fi

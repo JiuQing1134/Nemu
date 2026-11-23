@@ -5,24 +5,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import com.nemu.hibernate.ui.NoIndication
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Nemu 的视觉主题入口，外观取自 FlClash：
+ * Nemu 的视觉主题入口。
  *
- * - 颜色：FlClash 的 HCT / prism_ui 配色，八色 iOS 系统色板，
- *   四种配色风格（鲜明 / 氛围 / 柔和 / 单色）。
- * - 形状：FlClash 的 `AppCorner` 梯度，分组卡片 26dp、页面 28dp。
- * - 字体：FlClash 的 iOS Dynamic Type 比例（17pt 正文、13pt 辅助、
- *   17pt 半粗标题、20/24pt 页标题）。
+ * 外观 token 移植自 FlClash / prism_ui（Apache-2.0，见 THIRD_PARTY_NOTICES.md）：
+ * - 颜色：HCT 配色，八色 iOS 系统色板，四种配色风格（鲜明 / 氛围 / 柔和 / 单色）。
+ * - 形状：分组卡片 26dp、页面 28dp。
+ * - 字体：iOS Dynamic Type 比例（17pt 正文、13pt 辅助、17pt 半粗标题、20/24pt 页标题）。
  *
- * 所有颜色由 [colorSchemeFor] 从 FlClashColorData.kt 读取。
+ * 所有颜色由 [colorSchemeFor] 从 NemuColorData.kt 读取。
  */
-private val FlClashShapes = Shapes(
+private val NemuShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(16.dp),
     medium = RoundedCornerShape(20.dp),
@@ -30,7 +34,7 @@ private val FlClashShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp)
 )
 
-private val FlClashTypography = Typography(
+private val NemuTypography = Typography(
     displayLarge = TextStyle(
         fontWeight = FontWeight.Bold,
         fontSize = 40.sp,
@@ -126,10 +130,11 @@ private val FlClashTypography = Typography(
 /**
  * 应用主题。
  *
- * @param style FlClash 配色风格，默认 [ThemeStyle.VIVID]。
- * @param palette FlClash 色板，默认 [ThemePalette.BLUE]。
+ * @param style Nemu 配色风格，默认 [ThemeStyle.VIVID]。
+ * @param palette Nemu 色板，默认 [ThemePalette.BLUE]。
  * @param darkTheme 是否深色；调用方可以按 [ThemeMode] 决定传入值。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NemuAppTheme(
     style: ThemeStyle = ThemeStyle.VIVID,
@@ -139,8 +144,14 @@ fun NemuAppTheme(
 ) {
     MaterialTheme(
         colorScheme = colorSchemeFor(palette, style, darkTheme),
-        shapes = FlClashShapes,
-        typography = FlClashTypography,
-        content = content
-    )
+        shapes = NemuShapes,
+        typography = NemuTypography
+    ) {
+        CompositionLocalProvider(
+            LocalIndication provides NoIndication,
+            LocalRippleConfiguration provides null
+        ) {
+            content()
+        }
+    }
 }

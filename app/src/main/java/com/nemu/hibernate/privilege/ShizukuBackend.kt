@@ -81,7 +81,11 @@ class ShizukuBackend(private val timeoutMs: Long = 15_000) : PrivilegeBackend {
                     .apply { isDaemon = true; start() }
                 stdoutReader.join(250)
                 stderrReader.join(250)
-                ShellResult(-1, "timeout after ${timeoutMs}ms")
+                ShellResult(
+                    -1,
+                    "timeout after ${timeoutMs}ms",
+                    indeterminate = true
+                )
             } else {
                 stdoutReader.join(1000)
                 stderrReader.join(1000)

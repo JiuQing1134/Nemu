@@ -79,14 +79,17 @@ object CotaParsers {
         val sizeBytes: Long,
         val mode: String,
         val uid: Int,
-        val gid: Int
+        val gid: Int,
+        val modifiedAtSeconds: Long? = null
     )
 
     fun parseStat(output: String): List<CotaStat> =
         output.lineSequence().mapNotNull { raw ->
             val line = raw.trimEnd('\r')
             val parts = line.split('|')
-            if (parts.size != 5) return@mapNotNull null
+            // Six fields with `%Y`; five fields keeps old/partial output
+            // readable instead of dropping the whole file row.
+            if (parts.size !in 5..6) return@mapNotNull null
             val prefix = CotaPaths.SOURCE_DIR + "/"
             val path = parts[0]
             if (!path.startsWith(prefix)) return@mapNotNull null
@@ -99,7 +102,11 @@ object CotaParsers {
                 !CotaPaths.isSafeMode(mode) ||
                 uid < 0 || gid < 0
             ) return@mapNotNull null
-            CotaStat(name, size, mode, uid, gid)
+            // A missing or unparseable time must never hide the file itself.
+            val modifiedAt = parts.getOrNull(5)
+                ?.toLongOrNull()
+                ?.takeIf { it > 0L }
+            CotaStat(name, size, mode, uid, gid, modifiedAt)
         }.toList()
 
     /**

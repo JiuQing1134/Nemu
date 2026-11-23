@@ -27,12 +27,23 @@ class CotaCommandBuilderTest {
     }
 
     @Test
-    fun stat_uses_pipe_format_and_quoted_paths() {
+    fun stat_uses_pipe_format_with_mtime_and_quoted_paths() {
         assertEquals(
-            "stat -c '%n|%s|%a|%u|%g' '/data/cota/para/cpuconfig' " +
+            "stat -c '%n|%s|%a|%u|%g|%Y' '/data/cota/para/cpuconfig' " +
                 "'/data/cota/para/pg_config'",
             CotaCommandBuilder.stat(
                 listOf("/data/cota/para/cpuconfig", "/data/cota/para/pg_config")
+            )
+        )
+    }
+
+    @Test
+    fun stat_keeps_paths_shell_quoted_for_spaces_and_quotes() {
+        assertEquals(
+            "stat -c '%n|%s|%a|%u|%g|%Y' '/data/cota/para/odd name' " +
+                "'/data/cota/para/it'\\''s'",
+            CotaCommandBuilder.stat(
+                listOf("/data/cota/para/odd name", "/data/cota/para/it's")
             )
         )
     }

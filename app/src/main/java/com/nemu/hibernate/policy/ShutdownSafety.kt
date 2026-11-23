@@ -103,6 +103,16 @@ object ShutdownSafety {
                         val allOk = restore.ok
                         val cleanMarkerWritten = allOk &&
                             BootGuard.markCleanShutdown(rootForMarker)
+                        if (allOk && rootForMarker != null) {
+                            // A successful pass leaves nothing to restore; do
+                            // not let the next shutdown replay stale commands.
+                            runCatching {
+                                ShutdownScript.write(
+                                    rootForMarker,
+                                    TargetPolicy(context)
+                                )
+                            }
+                        }
                         if (allOk && !cleanMarkerWritten) {
                             ActionLog.warn(
                                 "关机解冻成功，但自动救援干净关机标记未写入"

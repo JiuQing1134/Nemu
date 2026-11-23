@@ -70,7 +70,11 @@ class RootBackend(private val timeoutMs: Long = 15_000) : RootPrivilegeBackend {
         if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
             process.destroyForcibly()
             reader.join(1000)
-            return ShellResult(-1, "timeout after ${timeoutMs}ms")
+            return ShellResult(
+                -1,
+                "timeout after ${timeoutMs}ms",
+                indeterminate = true
+            )
         }
         reader.join(1000)
         return ShellResult(process.exitValue(), output.toString())

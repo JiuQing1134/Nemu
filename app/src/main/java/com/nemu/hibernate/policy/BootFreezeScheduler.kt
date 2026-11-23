@@ -13,6 +13,8 @@ import com.nemu.hibernate.core.TargetCatalog
 import com.nemu.hibernate.data.ActionLog
 import com.nemu.hibernate.data.BootFreezeSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -42,7 +44,18 @@ object BootFreezeScheduler {
         WorkInfo.State.SUCCEEDED
     )
 
+    /**
+     * Serializes the check-then-enqueue sequence. Without a lock two callers
+     * (boot trigger + UI) could both see "no work for this boot" and the
+     * second REPLACE would cancel the request the first just enqueued.
+     */
+    private val scheduleMutex = Mutex()
+
     suspend fun ensureScheduled(context: Context) {
+        scheduleMutex.withLock { ensureScheduledLocked(context) }
+    }
+
+    private suspend fun ensureScheduledLocked(context: Context) {
         val appContext = context.applicationContext
         val workManager = WorkManager.getInstance(appContext)
         val settings = BootFreezeSettings(appContext)
@@ -67,7 +80,8 @@ object BootFreezeScheduler {
         if (bootCount >= 0 &&
             (settings.lastBootFreezeBootCount == bootCount ||
                 settings.lastBootFreezeAttemptBootCount == bootCount ||
-                settings.bootFreezeSkippedBootCount == bootCount)
+                settings.bootFreezeSkippedBootCount == bootCount ||
+                settings.bootFreezeWindowMissedBootCount == bootCount)
         ) {
             return
         }
@@ -78,17 +92,51 @@ object BootFreezeScheduler {
 
         val delaySeconds = settings.bootFreezeDelaySeconds
             .coerceAtLeast(BootFreezeSettings.MIN_DELAY_SECONDS)
-        // The deadline is boot-relative (`开机 X 秒后`), not relative to the
-        // moment the user flips the switch. If the window already passed,
-        // do not run a freeze during active use.
+        // The deadline is anchored at the first moment Nemu observed this
+        // boot (module boot trigger, boot worker, or app process start), not
+        // at the moment the user flips the switch. A notification-only module
+        // or a late first app start therefore still gets one predictable
+        // freeze window instead of silently skipping the whole boot.
         val uptimeSeconds = SystemClock.elapsedRealtime() / 1000L
+        var anchor = settings.bootFreezeAnchorUptimeSeconds
+        if (bootCount >= 0) {
+            if (settings.bootFreezeAnchorBootCount != bootCount) {
+                if (uptimeSeconds >
+                    delaySeconds + FIRST_OBSERVATION_LIMIT_SECONDS
+                ) {
+                    // Opening Nemu long after boot must not freeze apps
+                    // during active use. The module's boot trigger normally
+                    // anchors this within seconds of boot.
+                    recordWindowMissed(settings, bootCount)
+                    return
+                }
+                if (!settings.anchorBootWindow(bootCount, uptimeSeconds)) {
+                    // A failed commit is not fatal: fall back to an
+                    // unanchored boot-relative delay below.
+                    ActionLog.warn("开机冻结锚点写入失败，改用开机相对时间")
+                }
+                anchor = uptimeSeconds
+            }
+        } else {
+            // Without a boot count there is no durable same-boot anchor;
+            // use the boot-relative uptime and let the worker's -1 guard
+            // fail open.
+            anchor = 0L
+        }
         val remaining = remainingBootDelaySeconds(
             delaySeconds = delaySeconds.toLong(),
-            uptimeSeconds = uptimeSeconds
+            uptimeSeconds = uptimeSeconds,
+            anchorUptimeSeconds = anchor
         )
         if (remaining == null) {
-            ActionLog.info("已过本次开机冻结窗口；本次开机不再安排")
+            if (bootCount >= 0) recordWindowMissed(settings, bootCount)
+            else ActionLog.info("已过本次开机冻结窗口；本次开机不再执行")
             return
+        }
+        if (remaining == LATE_GRACE_SECONDS) {
+            ActionLog.info(
+                "已过本次开机冻结窗口，${LATE_GRACE_SECONDS}s 后补偿执行"
+            )
         }
         val request = OneTimeWorkRequestBuilder<BootFreezeWorker>()
             .setInitialDelay(remaining, TimeUnit.SECONDS)
@@ -105,7 +153,7 @@ object BootFreezeScheduler {
             ExistingWorkPolicy.REPLACE,
             request
         )
-        ActionLog.info("已安排开机冻结：${delaySeconds}s 后（boot=$bootCount）")
+        ActionLog.info("已启用开机冻结：${delaySeconds}s 后（boot=$bootCount）")
     }
 
     fun cancel(context: Context) {
@@ -143,11 +191,74 @@ object BootFreezeScheduler {
     private fun bootTag(bootCount: Int): String =
         "${UNIQUE_WORK_NAME}_boot_$bootCount"
 
-    /** Boot-relative delay, or null when the configured window already passed. */
+    private fun recordWindowMissed(
+        settings: BootFreezeSettings,
+        bootCount: Int
+    ) {
+        if (bootCount < 0) return
+        if (settings.bootFreezeWindowMissedBootCount == bootCount) return
+        settings.bootFreezeWindowMissedBootCount = bootCount
+        ActionLog.info("已过本次开机冻结窗口；本次开机不再执行")
+    }
+
+    /**
+     * True when the worker is being delivered after the boot window has
+     * already closed. The worker uses this to skip freezing during active use;
+     * residual shutdown recovery still runs before this check.
+     */
+    fun bootWindowExpired(context: Context, bootCount: Int): Boolean {
+        if (bootCount < 0) return false
+        val settings = BootFreezeSettings(context.applicationContext)
+        if (settings.bootFreezeAnchorBootCount != bootCount) return false
+        val delay = settings.bootFreezeDelaySeconds
+            .coerceAtLeast(BootFreezeSettings.MIN_DELAY_SECONDS)
+        val uptime = SystemClock.elapsedRealtime() / 1000L
+        return isWindowExpired(
+            delaySeconds = delay.toLong(),
+            uptimeSeconds = uptime,
+            anchorUptimeSeconds = settings.bootFreezeAnchorUptimeSeconds
+        )
+    }
+
+    internal fun isWindowExpired(
+        delaySeconds: Long,
+        uptimeSeconds: Long,
+        anchorUptimeSeconds: Long
+    ): Boolean {
+        val elapsed = (uptimeSeconds - anchorUptimeSeconds).coerceAtLeast(0L)
+        return elapsed > delaySeconds + LATE_COMPENSATION_WINDOW_SECONDS
+    }
+
+    /**
+     * Delay measured from the boot-window anchor. Returns [LATE_GRACE_SECONDS]
+     * when the worker is at most that late, so a missed window still gets one
+     * bounded compensation run; null means the window is gone for this boot.
+     */
     internal fun remainingBootDelaySeconds(
         delaySeconds: Long,
-        uptimeSeconds: Long
-    ): Long? = (delaySeconds - uptimeSeconds).takeIf { it > 0L }
+        uptimeSeconds: Long,
+        anchorUptimeSeconds: Long = 0L
+    ): Long? {
+        val elapsed = (uptimeSeconds - anchorUptimeSeconds).coerceAtLeast(0L)
+        val remaining = delaySeconds - elapsed
+        return when {
+            remaining > 0L -> remaining
+            // OEM background policy can delay a non-expedited worker by a
+            // few minutes; keep that recovery bounded but not brittle.
+            elapsed - delaySeconds <= LATE_COMPENSATION_WINDOW_SECONDS ->
+                LATE_GRACE_SECONDS
+            else -> null
+        }
+    }
+
+    /** First observation must happen within this long after boot. */
+    private const val FIRST_OBSERVATION_LIMIT_SECONDS = 600L
+
+    /** Compensation delay for a window that just passed. */
+    internal const val LATE_GRACE_SECONDS = 15L
+
+    /** How late a missed window may still trigger a compensation run. */
+    internal const val LATE_COMPENSATION_WINDOW_SECONDS = 300L
 }
 
 /**

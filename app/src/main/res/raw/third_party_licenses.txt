@@ -21,3 +21,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+FlClash (https://github.com/chen08209/FlClash) and prism_ui
+(https://github.com/chen08209/prism_ui) are licensed under the Apache
+License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
+Nemu's colour tables, surface levels and typography tokens are ported from
+those projects. Reference commits:
+FlClash afe7136002271fd64f098b154e7fff40be721eb8
+prism_ui 8f5fc22ca1a6bccb064589494ca69cedb38edb50
+
+Google Material Color Utilities is licensed under the Apache License,
+Version 2.0: https://github.com/material-foundation/material-color-utilities

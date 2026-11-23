@@ -10,7 +10,7 @@ import java.util.Locale
 class CotaController(
     private val backend: RootPrivilegeBackend?,
     private val enabled: Boolean,
-    private val backupRoot: String = CotaPaths.DEFAULT_BACKUP_ROOT,
+    private val backupRoot: String,
     private val clock: () -> String = { LocalDateTime.now().format(BACKUP_ID_FORMAT) }
 ) {
     private fun activeBackend(): RootPrivilegeBackend? =
@@ -62,7 +62,8 @@ class CotaController(
                     mode = stat.mode,
                     uid = stat.uid,
                     gid = stat.gid,
-                    kind = CotaKnownFiles.kindOf(name)
+                    kind = CotaKnownFiles.kindOf(name),
+                    modifiedAtSeconds = stat.modifiedAtSeconds
                 )
             }
         )
@@ -92,6 +93,16 @@ class CotaController(
             return CotaResult.Error("文件不存在或已变化：${missing.joinToString()}")
         }
 
+        // A backup that can never be restored is not a backup. Refuse special
+        // permission bits before deleting anything from the device.
+        val unsafeModes = selected.filter {
+            !CotaPaths.isSafeRestoreMode(current.getValue(it).mode)
+        }
+        if (unsafeModes.isNotEmpty()) {
+            return CotaResult.Error(
+                "包含不可恢复的特殊权限文件，已拒绝备份：${unsafeModes.joinToString()}"
+            )
+        }
         val backupId = clock()
         if (!CotaPaths.isSafeBackupId(backupId)) {
             return CotaResult.Error("备份时间戳无效：$backupId")
@@ -186,6 +197,39 @@ class CotaController(
             }
         }
         return CotaResult.Ok(valid)
+    }
+
+    /**
+     * Deletes one backup directory after proving it still has a valid
+     * manifest. This is the only COTA operation that removes a directory;
+     * everything else uses explicit `rm -f` on validated file paths.
+     */
+    suspend fun deleteBackup(backupId: String): CotaResult<Unit> {
+        val b = activeBackend() ?: return CotaResult.Disabled
+        if (!CotaPaths.isSafeBackupId(backupId)) {
+            return CotaResult.Error("备份编号无效：$backupId")
+        }
+        val summary = CotaBackupSummary(
+            backupId,
+            CotaPaths.backupDir(backupRoot, backupId)
+        )
+        when (val loaded = loadBackup(summary)) {
+            is CotaResult.Ok -> Unit
+            is CotaResult.Error -> return loaded
+            CotaResult.Disabled -> return CotaResult.Disabled
+        }
+        val result = b.exec(CotaCommandBuilder.deleteBackup(backupRoot, backupId))
+        if (!result.ok) {
+            return CotaResult.Error(
+                "删除备份失败（${result.exitCode}）：${result.output.take(300)}"
+            )
+        }
+        val check = b.exec(CotaCommandBuilder.dirExists(summary.dir))
+        if (!check.ok || check.output.trim() != "no") {
+            return CotaResult.Error("删除后备份目录仍存在：${summary.dir}")
+        }
+        ActionLog.info("COTA 备份已删除：$backupId")
+        return CotaResult.Ok(Unit)
     }
 
     suspend fun loadBackup(summary: CotaBackupSummary): CotaResult<CotaBackup> {
