@@ -80,8 +80,14 @@ fun DetectionScreen(
         .firstOrNull { it.name == selectedCategory }
         ?: DetectionCategory.FREEZE
     val listState = rememberLazyListState()
+    // Re-entering the tab restores the saved list position; only an actual
+    // category change should jump to the top.
+    var lastCategory by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(category) {
-        listState.scrollToItem(0)
+        if (lastCategory != category.name) {
+            listState.scrollToItem(0)
+            lastCategory = category.name
+        }
     }
     LazyColumn(
         state = listState,
@@ -269,8 +275,8 @@ private fun DetectionHeader(
                     }
                     val mismatched = rows.count { it.mismatch() }
                     SectionHeader(
-                        title = "冻结状态",
-                        subtitle = "注：策略与实际分开显示；点行展开。",
+                        title = "目标状态",
+                        subtitle = "注：点应用名称一行可展开/收起。",
                         subtitleMaxLines = 1,
                         trailing = {
                             Row(
@@ -423,10 +429,23 @@ private fun FreezeStateCard(
                         fontFamily = FontFamily.Monospace
                     )
                 }
-                DetectionStatusChip(
-                    text = freeze.statusLabel(),
-                    warning = freeze.mismatch() || freeze.partiallyApplied()
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    DetectionStatusChip(
+                        text = freeze.statusLabel(),
+                        warning = freeze.mismatch() ||
+                            freeze.partiallyApplied()
+                    )
+                    // Visible affordance: only this title row is clickable.
+                    Text(
+                        if (expanded) "收起" else "展开",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -580,7 +599,10 @@ private fun CotaCard(cota: CotaState) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("COTA 厂商云控参数（仅 Root，只读）", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "COTA 厂商云控参数（仅 Root；本页只读，管理在 设置 › 高级）",
+                style = MaterialTheme.typography.titleSmall
+            )
             Text(
                 cota.describe(),
                 style = MaterialTheme.typography.bodySmall,

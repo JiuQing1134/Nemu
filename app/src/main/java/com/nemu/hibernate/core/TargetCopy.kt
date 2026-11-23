@@ -194,7 +194,15 @@ object TargetCopy {
                 if (bootPlanEnabled) {
                     "计划：下次开机会执行；勾选不立即修改手机"
                 } else {
-                    "总开关：开机自动应用已关闭，勾选只保存计划"
+                    "总开关：开机自动冻结已关闭，勾选只保存计划"
+                }
+            )
+            val warning = riskWarning(target, preset)
+            add(
+                "影响：" + if (warning != null) {
+                    "$warning；" + impactFor(target, preset)
+                } else {
+                    impactFor(target, preset)
                 }
             )
             if (dryRun) add("执行：预览，不会修改手机")

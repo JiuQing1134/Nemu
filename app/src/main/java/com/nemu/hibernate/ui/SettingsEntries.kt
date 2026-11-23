@@ -60,7 +60,7 @@ fun settingsEntries(state: DashboardState): List<SettingsEntry> = listOf(
 )
 
 internal fun bootEntrySummary(boot: BootFreezeUiState): String = when {
-    !boot.enabled -> "开机自动应用已关闭"
+    !boot.enabled -> "开机自动冻结已关闭"
     boot.plannedCount <= 0 -> "无计划目标"
     boot.lastResult == null -> "计划 ${boot.plannedCount} 个 · 尚未执行"
     else -> "计划 ${boot.plannedCount} 个 · ${boot.lastResult}"

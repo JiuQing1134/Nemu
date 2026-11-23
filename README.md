@@ -24,7 +24,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 2026-11-21：核心 + 安全解冻已完成实机验收；**FinaSU root 后端已授权并实测**（`last_shutdown_detail` 显示 `Root`，关机解冻成功）。
 - 2026-11-22：**Nemu 重设计完成**：5 Tab、冻结/解冻分页、统一目录（41 个包 /
   64 个组件，组件全部在设备 `dumpsys` 核对）、SUSPEND/COMPONENT/DISABLE_USER/HIDE/OBSERVE、
-  所有权恢复、检测页策略感知、guard v1.5。全量单测 408 个（0 失败）。
+  所有权恢复、检测页策略感知、guard v1.5。全量单测 416 个（0 失败）。
 - 2026-11-22 第二轮（v1.1）：新增 **HIDE（伪装卸载，`pm hide/unhide`，仅 Root）**、
   每个目标的“具体会发生什么”确认弹窗、冻结页直白按钮、Material3 / M3 Expressive / MIUIX
   四套风格 + 八套配色（深色纯黑 OLED）、Root/Shizuku 授权模式卡、
@@ -41,9 +41,9 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 已实现但默认关闭：AI 叶子组件（App 建议、YOYO 建议卡片集、智能提醒、荣耀智慧空间基础服务）、AI 深度冻结（AI 基础服务/YOYO/语音/运行时）、云控/遥测、反诈、COTA 温控。
 - 实机安装/模块写入由用户在明确授权后执行；助手不碰 ABL/分区/`fastboot flash`。
 - 当前版本：`versionCode 9` / `versionName 1.3.3`。最终四包在 `dist/`：
-  arm64-v8a debug 34,705,570 字节 `30c56cee…1c30`；x86_64 debug 34,706,231 字节
-  `59d1022f…76db`；arm64-v8a release 24,510,244 字节 `9f46998e…ae15`；
-  x86_64 release 24,510,905 字节 `315ee050…1126`。完整 SHA-256 见 `PROJECTS.md`。
+  arm64-v8a debug 34,756,230 字节 `436565d4…fa81`；x86_64 debug 34,756,891 字节
+  `9b6267e7…b56f`；arm64-v8a release 24,543,012 字节 `b1c28e57…4539`；
+  x86_64 release 24,543,673 字节 `bf11363f…abb2`。完整 SHA-256 见 `PROJECTS.md`。
   release 已使用私有 keystore 签名（`CN=Nemu`，证书 SHA-256
   `1f35e731…19a7`）；debug 包仍为 debug 签名。
 - 凪（`D:\win_root\nemu-update-guard`，applicationId `com.nemu.windstop`）：

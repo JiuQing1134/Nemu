@@ -92,7 +92,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** 底部导航的 5 个目的地：应用页内用“管理/恢复”分段。 */
+/** 底部导航的 5 个目的地：应用页内用“管理/解冻”分段。 */
 enum class DashboardTab(val label: String) {
     OVERVIEW("概览"),
     APPLICATIONS("应用"),
@@ -215,18 +215,34 @@ fun DashboardScreen(
     onClearFocus: () -> Unit = {},
     detectionContent: @Composable ColumnScope.() -> Unit
 ) {
-    var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialTab.ordinal) }
-    val selectedTab = DashboardTab.entries.getOrElse(selectedTabIndex) {
+    var tabNavigation by rememberSaveable(stateSaver = TabNavigation.Saver) {
+        mutableStateOf(TabNavigation.initial(initialTab.ordinal))
+    }
+    val selectedTab = DashboardTab.entries.getOrElse(
+        tabNavigation.selected
+    ) {
         DashboardTab.OVERVIEW
     }
     // Hoisted: a deep link (detection, add-custom-target) must land on the
     // manage page even if the user last left Applications in restore mode.
     var applicationsMode by rememberSaveable { mutableIntStateOf(0) }
+    // Hoisted so a deep link out of a Settings sub-page can return to that
+    // exact sub-page instead of the root list.
+    var settingsPage by rememberSaveable { mutableIntStateOf(SETTINGS_ROOT) }
     val tabStateHolder = rememberSaveableStateHolder()
     LaunchedEffect(focusPackage) {
         if (focusPackage != null) {
-            selectedTabIndex = DashboardTab.APPLICATIONS.ordinal
+            tabNavigation = tabNavigation.openProgrammatic(
+                DashboardTab.APPLICATIONS.ordinal
+            )
             applicationsMode = 0
+        }
+    }
+    BackHandler(enabled = tabNavigation.backStack.isNotEmpty()) {
+        tabNavigation.back()?.let { target ->
+            tabNavigation = target
+            // The focus deep link belongs to that Applications visit only.
+            onClearFocus()
         }
     }
 
@@ -236,7 +252,26 @@ fun DashboardScreen(
         topBar = { DashboardTopBar(state, selectedTab) },
         bottomBar = {
             DashboardNavigationBar(selectedTab) { tab ->
-                selectedTabIndex = tab.ordinal
+                if (tab == selectedTab) {
+                    // Re-tapping the current tab returns it to its root page
+                    // without discarding a deep-link return path.
+                    when (tab) {
+                        DashboardTab.APPLICATIONS -> {
+                            applicationsMode = 0
+                            // Re-tapping Applications leaves the one-app
+                            // deep-link view, but keeps the back path.
+                            onClearFocus()
+                        }
+                        DashboardTab.SETTINGS -> settingsPage = SETTINGS_ROOT
+                        else -> Unit
+                    }
+                } else {
+                    tabNavigation = tabNavigation.selectDirect(tab.ordinal)
+                    if (tab == DashboardTab.SETTINGS) {
+                        settingsPage = SETTINGS_ROOT
+                    }
+                    onClearFocus()
+                }
                 callbacks.onTabSelected(tab)
             }
         }
@@ -261,7 +296,9 @@ fun DashboardScreen(
                 callbacks = callbacks,
                 modifier = pageModifier,
                 onOpenApplications = {
-                    selectedTabIndex = DashboardTab.APPLICATIONS.ordinal
+                    tabNavigation = tabNavigation.openProgrammatic(
+                        DashboardTab.APPLICATIONS.ordinal
+                    )
                     applicationsMode = 0
                 }
             )
@@ -273,8 +310,12 @@ fun DashboardScreen(
                 state = state,
                 callbacks = callbacks,
                 onOpenOverviewAuth = {
-                    selectedTabIndex = DashboardTab.OVERVIEW.ordinal
+                    tabNavigation = tabNavigation.openProgrammatic(
+                        DashboardTab.OVERVIEW.ordinal
+                    )
                 },
+                pageIndex = settingsPage,
+                onPageChange = { settingsPage = it },
                 modifier = pageModifier
             )
         }
@@ -762,7 +803,7 @@ private fun OverviewHeroCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "开机冻结",
+                        text = "开机自动冻结",
                         style = MaterialTheme.typography.labelMedium,
                         color = scheme.onSurfaceVariant
                     )
@@ -771,7 +812,7 @@ private fun OverviewHeroCard(
                         onCheckedChange = callbacks.onBootFreezeEnabledChange,
                         enabled = !state.busy,
                         modifier = Modifier.semantics {
-                            contentDescription = "开机冻结"
+                            contentDescription = "开机自动冻结"
                         }
                     )
                 }
@@ -878,7 +919,7 @@ private fun BootFreezeCard(state: DashboardState) {
     SectionCard(
         title = "开机与安全",
         subtitle = when {
-            !boot.enabled -> "开机自动应用已关闭；总开关在概览首卡。"
+            !boot.enabled -> "开机自动冻结已关闭；总开关在概览首卡。"
             state.dryRun ->
                 "开机 ${boot.delaySeconds} 秒后执行；预览只记录，不修改手机。"
             else -> "开机 ${boot.delaySeconds} 秒后应用计划；总开关在概览首卡。"
@@ -889,7 +930,7 @@ private fun BootFreezeCard(state: DashboardState) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatusChip(
-                text = if (boot.enabled) "开机自动应用已开启" else "开机自动应用已关闭",
+                text = if (boot.enabled) "开机自动冻结已开启" else "开机自动冻结已关闭",
                 tone = if (boot.enabled) {
                     StatusChipTone.SUCCESS
                 } else {
@@ -1011,93 +1052,112 @@ private fun SettingsPage(
     state: DashboardState,
     callbacks: DashboardCallbacks,
     onOpenOverviewAuth: () -> Unit,
+    pageIndex: Int,
+    onPageChange: (Int) -> Unit,
     modifier: Modifier
 ) {
-    // Plain remember (not rememberSaveable): leaving the Settings tab discards
-    // the secondary page, so re-entering always starts at the root list.
-    var pageIndex by remember { mutableIntStateOf(SETTINGS_ROOT) }
     val entries = settingsEntries(state)
     val entryId = SettingsEntryId.entries.getOrNull(pageIndex)
     val entry = entries.firstOrNull { it.id == entryId }
-    BackHandler(enabled = entryId != null) { pageIndex = SETTINGS_ROOT }
+    BackHandler(enabled = entryId != null) { onPageChange(SETTINGS_ROOT) }
     val listState = rememberLazyListState()
+    // Scroll to top only when the page actually changes; re-entering from a
+    // deep link must keep the reading position that SaveableStateProvider
+    // restored.
+    var lastEntryId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(entryId) {
-        listState.scrollToItem(0)
+        if (lastEntryId != entryId?.name) {
+            listState.scrollToItem(0)
+            lastEntryId = entryId?.name
+        }
     }
-    LazyColumn(
-        state = listState,
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (entry == null) {
-            item {
-                SectionCard {
-                    Column {
-                        entries.forEachIndexed { index, item ->
-                            if (index > 0) {
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant
-                                )
-                            }
-                            SettingsEntryRow(item) {
-                                pageIndex = item.id.ordinal
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    Column(modifier = modifier) {
+        if (entry != null) {
+            // Pin the return affordance above the scroll area; it used to be
+            // the first list item and disappeared when the user scrolled down.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(
+                        onClick = { onPageChange(SETTINGS_ROOT) },
+                        contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
-                        TextButton(
-                            onClick = { pageIndex = SETTINGS_ROOT },
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) {
-                            Text("‹ 返回")
-                        }
-                        Text(entry.title, style = MaterialTheme.typography.titleLarge)
+                        Text("‹ 返回")
                     }
-                    Text(
-                        text = settingsPageSubtitle(entry.id),
-                        modifier = Modifier.padding(start = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(entry.title, style = MaterialTheme.typography.titleLarge)
                 }
+                Text(
+                    text = settingsPageSubtitle(entry.id),
+                    modifier = Modifier.padding(start = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            when (entry.id) {
-                SettingsEntryId.EXECUTION -> item {
-                    ExecutionSettingsContent(
-                        state,
-                        callbacks,
-                        onOpenOverviewAuth
-                    )
-                }
-                SettingsEntryId.BOOT -> {
-                    if (state.rescueMode) {
-                        item { RescueModeCard(callbacks) }
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(
+                horizontal = 16.dp,
+                vertical = 14.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (entry == null) {
+                item {
+                    SectionCard {
+                        Column {
+                            entries.forEachIndexed { index, item ->
+                                if (index > 0) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme
+                                            .outlineVariant
+                                    )
+                                }
+                                SettingsEntryRow(item) {
+                                    onPageChange(item.id.ordinal)
+                                }
+                            }
+                        }
                     }
-                    item { BootStatusContent(state, callbacks) }
                 }
-                SettingsEntryId.APPEARANCE -> item {
-                    AppearanceCard(state, callbacks)
-                }
-                SettingsEntryId.LOGS -> item {
-                    DefaultLogsContent(state, callbacks)
-                }
-                SettingsEntryId.ADVANCED -> {
-                    item {
-                        CotaSection(
-                            state = state.cota,
-                            callbacks = callbacks.cotaCallbacks
+            } else {
+                when (entry.id) {
+                    SettingsEntryId.EXECUTION -> item {
+                        ExecutionSettingsContent(
+                            state,
+                            callbacks,
+                            onOpenOverviewAuth
                         )
                     }
-                    item { ProtectionRulesCard() }
+                    SettingsEntryId.BOOT -> {
+                        if (state.rescueMode) {
+                            item { RescueModeCard(callbacks) }
+                        }
+                        item { BootStatusContent(state, callbacks) }
+                    }
+                    SettingsEntryId.APPEARANCE -> item {
+                        AppearanceCard(state, callbacks)
+                    }
+                    SettingsEntryId.LOGS -> item {
+                        DefaultLogsContent(state, callbacks)
+                    }
+                    SettingsEntryId.ADVANCED -> {
+                        item {
+                            CotaSection(
+                                state = state.cota,
+                                callbacks = callbacks.cotaCallbacks
+                            )
+                        }
+                        item { ProtectionRulesCard() }
+                    }
                 }
             }
         }
@@ -1147,9 +1207,9 @@ private fun BootStatusContent(
 ) {
     val boot = state.bootFreeze
     SectionCard(
-        title = "开机自动应用",
+        title = "开机自动冻结",
         subtitle = when {
-            !boot.enabled -> "开机自动应用已关闭；总开关在概览页。"
+            !boot.enabled -> "开机自动冻结已关闭；总开关在概览页。"
             state.dryRun ->
                 "开机 ${boot.delaySeconds} 秒后执行；预览只记录，不修改手机。"
             else -> "开机 ${boot.delaySeconds} 秒后执行；总开关在概览页。"

@@ -3,6 +3,7 @@ package com.nemu.hibernate.ui
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -46,19 +47,81 @@ import com.nemu.hibernate.core.RiskLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** How the picker groups a package. Only OS/OEM packages are "system". */
+internal enum class AppKind(val label: String) {
+    ROOT("Root/框架"),
+    SYSTEM("系统"),
+    USER("普通应用")
+}
+
+/** Packages that manage root/framework access, not part of the Honor OS. */
+private val rootToolPackages = setOf(
+    "me.weishu.kernelsu",
+    "me.yuki.fina",
+    "com.topjohnwu.magisk",
+    "com.rifsxd.ksunext",
+    "org.lsposed.manager",
+    "moe.shizuku.privileged.api"
+)
+
+private val rootToolTokens = listOf(
+    "kernelsu",
+    "magisk",
+    "lsposed",
+    "shizuku",
+    "ksunext",
+    "sukisu",
+    "apatch"
+)
+
+/**
+ * OS packages are the Honor/AOSP/vendor image, not every package that happens
+ * to carry FLAG_SYSTEM: systemless root modules and preinstalled third-party
+ * APKs can carry that flag too.
+ */
+private val osPackagePrefixes = listOf(
+    "com.android.",
+    "com.hihonor.",
+    "com.honor.",
+    "com.huawei.",
+    "com.google.android.",
+    "com.qualcomm.",
+    "com.qti.",
+    "org.codeaurora.",
+    "com.mediatek."
+)
+
+internal fun classifyApp(
+    packageName: String,
+    label: String,
+    systemFlag: Boolean
+): AppKind {
+    val rootTool = packageName.startsWith("org.lsposed.") ||
+        packageName in rootToolPackages ||
+        rootToolTokens.any { token ->
+            packageName.contains(token, ignoreCase = true) ||
+                label.contains(token, ignoreCase = true)
+        }
+    if (rootTool) return AppKind.ROOT
+    val osPackage = packageName == "android" ||
+        osPackagePrefixes.any { packageName.startsWith(it) }
+    return if (systemFlag && osPackage) AppKind.SYSTEM else AppKind.USER
+}
+
 /** One installed package, including system services without a launcher icon. */
 private data class AllAppEntry(
     val label: String,
     val packageName: String,
-    val isSystem: Boolean,
+    val kind: AppKind,
     val criticalReason: String?,
     val isSelf: Boolean
 )
 
 private enum class AllAppsFilter(val label: String) {
     ALL("全部"),
-    USER("用户"),
+    ROOT("Root/框架"),
     SYSTEM("系统"),
+    USER("普通应用"),
     ADDED("已添加")
 }
 
@@ -81,7 +144,11 @@ private fun loadAllApps(context: Context): List<AllAppEntry> {
             AllAppEntry(
                 label = label.ifBlank { info.packageName },
                 packageName = info.packageName,
-                isSystem = system,
+                kind = classifyApp(
+                    info.packageName,
+                    label,
+                    system
+                ),
                 criticalReason = if (self) {
                     null
                 } else {
@@ -94,8 +161,16 @@ private fun loadAllApps(context: Context): List<AllAppEntry> {
             )
         }
         .sortedWith(
-            compareBy<AllAppEntry> { it.isSystem }
-                .thenBy { it.label.lowercase() }
+            // Root tools first, then ordinary apps, then the long tail of
+            // iconless system services. Enum ordinal would put SYSTEM before
+            // USER, burying the user's real apps under hundreds of services.
+            compareBy<AllAppEntry> {
+                when (it.kind) {
+                    AppKind.ROOT -> 0
+                    AppKind.USER -> 1
+                    AppKind.SYSTEM -> 2
+                }
+            }.thenBy { it.label.lowercase() }
         )
 }
 
@@ -117,7 +192,6 @@ fun AllAppsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var filterIndex by rememberSaveable { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
-    var batchMode by rememberSaveable { mutableStateOf(false) }
     var pendingCritical by remember { mutableStateOf<List<AllAppEntry>>(emptyList()) }
     var riskAcknowledged by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -145,8 +219,11 @@ fun AllAppsScreen(
     val filtered = remember(all, filter, query, addedPackages) {
         val byFilter = when (filter) {
             AllAppsFilter.ALL -> all
-            AllAppsFilter.USER -> all.filter { !it.isSystem }
-            AllAppsFilter.SYSTEM -> all.filter { it.isSystem }
+            AllAppsFilter.SYSTEM -> all.filter { it.kind == AppKind.SYSTEM }
+            AllAppsFilter.ROOT -> all.filter { it.kind == AppKind.ROOT }
+            // Root/framework tools are still ordinary (non-system) apps;
+            // the Root tab is only a pinned shortcut.
+            AllAppsFilter.USER -> all.filter { it.kind != AppKind.SYSTEM }
             AllAppsFilter.ADDED -> all.filter { it.packageName in addedPackages }
         }
         if (query.isBlank()) {
@@ -161,15 +238,18 @@ fun AllAppsScreen(
     val selectable = filtered.filter {
         !it.isSelf && it.packageName !in addedPackages
     }
-    val selectedEntries = filtered.filter {
+    // Selections survive filter/search changes; only entries that left the
+    // installed list are pruned. The action bar count must reflect the whole
+    // selection, not just the currently visible subset.
+    val selectedEntries = all.filter {
         it.packageName in selected &&
             !it.isSelf &&
             it.packageName !in addedPackages
     }
-    LaunchedEffect(filterIndex, query) {
+    LaunchedEffect(apps) {
         selected = SelectionRules.prune(
             selected,
-            filtered.map { it.packageName }
+            all.map { it.packageName }
         )
     }
 
@@ -178,7 +258,9 @@ fun AllAppsScreen(
             callbacks.onCustomTargetAdd(
                 app.packageName,
                 app.label,
-                if (app.isSystem || app.criticalReason != null) {
+                if (app.kind != AppKind.USER ||
+                    app.criticalReason != null
+                ) {
                     RiskLevel.RED
                 } else {
                     RiskLevel.YELLOW
@@ -186,8 +268,14 @@ fun AllAppsScreen(
             )
         }
         message = "已添加 ${entries.size} 个；到“应用”页选择策略并应用。"
+        // The inline message is at the top of the list and can be off-screen
+        // after adding from deep in the list; make the next step visible.
+        Toast.makeText(
+            context,
+            "已添加 ${entries.size} 个；到“应用”页选择策略并应用",
+            Toast.LENGTH_LONG
+        ).show()
         selected = emptySet()
-        batchMode = false
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -202,8 +290,10 @@ fun AllAppsScreen(
                         query = query,
                         onQueryChange = { query = it },
                         placeholder = "搜索应用或包名",
-                        batchExpanded = batchMode,
-                        onBatchToggle = { batchMode = !batchMode },
+                        // Rows are always selectable here; show 全选 directly.
+                        batchExpanded = true,
+                        onBatchToggle = {},
+                        batchControlVisible = false,
                         busy = state.busy,
                         allSelected = selectable.isNotEmpty() &&
                             selectable.all { it.packageName in selected },
@@ -229,6 +319,12 @@ fun AllAppsScreen(
                             )
                         }
                     }
+                    Text(
+                        "“Root/框架”是常用的 Root/LSP/Shizuku 工具置顶，它们仍属于" +
+                            "普通应用；“系统”仅指荣耀/OS 自带应用。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -338,12 +434,15 @@ fun AllAppsScreen(
                     Button(
                         onClick = {
                             val critical = selectedEntries.filter {
-                                it.criticalReason != null
+                                it.criticalReason != null ||
+                                    it.kind == AppKind.ROOT
                             }
                             if (critical.isEmpty()) {
                                 commit(selectedEntries)
                             } else {
-                                pendingCritical = critical
+                                // Confirm exactly what will be added: the
+                                // whole selection, not only the warning rows.
+                                pendingCritical = selectedEntries
                                 riskAcknowledged = false
                             }
                         },
@@ -357,12 +456,14 @@ fun AllAppsScreen(
     }
 
     if (pendingCritical.isNotEmpty()) {
+        val rootTools = pendingCritical.filter { it.kind == AppKind.ROOT }
+        val systemTools = pendingCritical.filter { it.kind != AppKind.ROOT }
         AlertDialog(
             onDismissRequest = {
                 pendingCritical = emptyList()
                 riskAcknowledged = false
             },
-            title = { Text("添加恢复关键应用？") },
+            title = { Text("添加所选应用？") },
             text = {
                 Column(
                     modifier = Modifier
@@ -370,23 +471,60 @@ fun AllAppsScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        "以下应用被停用或隐藏后，可能导致无法开机、没有桌面、没有输入法，或无法恢复：",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    pendingCritical.forEach { app ->
+                    if (systemTools.isNotEmpty()) {
                         Text(
-                            "${app.label} · ${app.packageName}" +
-                                (app.criticalReason?.let { " · $it" } ?: ""),
+                            "以下系统/关键应用被停用或隐藏后，可能导致无法开机、" +
+                                "没有桌面、没有输入法，或无法恢复：",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (rootTools.isNotEmpty()) {
+                        Text(
+                            "以下 Root/框架工具不是系统应用，但冻结后可能丢失 " +
+                                "Root、模块管理或 Shizuku 授权，导致无法恢复：",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    val keyEntries = pendingCritical.filter {
+                        it.kind == AppKind.ROOT || it.criticalReason != null
+                    }
+                    val normalEntries = pendingCritical - keyEntries.toSet()
+                    keyEntries.forEach { app ->
+                        val note = when {
+                            app.kind == AppKind.ROOT -> " · Root/框架工具"
+                            else -> app.criticalReason?.let { " · $it" } ?: ""
+                        }
+                        Text(
+                            "${app.label} · ${app.packageName}$note",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
+                    if (normalEntries.isNotEmpty()) {
+                        Text(
+                            "同时添加（普通应用）：",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        normalEntries.forEach { app ->
+                            Text(
+                                "${app.label} · ${app.packageName}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                     Text(
-                        "添加后不会自动执行；请仍优先使用“暂停”，不要对它们使用停用/隐藏。",
+                        "添加只登记为 Nemu 目标，不会暂停、停用或隐藏任何应用；" +
+                            "真正执行时在“应用”页还会再次确认。",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            riskAcknowledged = !riskAcknowledged
+                        }
+                    ) {
                         NemuSmallCheckbox(
                             checked = riskAcknowledged,
                             enabled = true,
@@ -403,7 +541,7 @@ fun AllAppsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val entries = selectedEntries
+                        val entries = pendingCritical
                         pendingCritical = emptyList()
                         riskAcknowledged = false
                         commit(entries)
@@ -470,10 +608,20 @@ private fun AllAppRow(
                 if (app.isSelf) {
                     StatusChip("Nemu 自身", tone = StatusChipTone.ERROR)
                 } else {
-                    if (app.isSystem) {
-                        StatusChip("系统", tone = StatusChipTone.INFO)
+                    when (app.kind) {
+                        AppKind.ROOT -> StatusChip(
+                            "Root/框架",
+                            tone = StatusChipTone.WARNING
+                        )
+                        AppKind.SYSTEM -> StatusChip(
+                            "系统",
+                            tone = StatusChipTone.INFO
+                        )
+                        AppKind.USER -> Unit
                     }
-                    if (app.criticalReason != null) {
+                    if (app.kind != AppKind.ROOT &&
+                        app.criticalReason != null
+                    ) {
                         StatusChip(
                             "关键 · ${app.criticalReason}",
                             tone = StatusChipTone.ERROR

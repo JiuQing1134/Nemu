@@ -7,6 +7,16 @@ package com.nemu.hibernate.core
  * risk" step and are stored as RED so their cards show the high-risk warning.
  */
 object CustomTargetGuard {
+    /** Root/framework managers: ordinary APKs, but critical to recovery. */
+    private val rootToolPackages = setOf(
+        "me.weishu.kernelsu",
+        "me.yuki.fina",
+        "com.topjohnwu.magisk",
+        "com.rifsxd.ksunext",
+        "org.lsposed.manager",
+        "moe.shizuku.privileged.api"
+    )
+
     private val criticalPackages = setOf(
         "android",
         "com.nemu.hibernate",
@@ -15,6 +25,9 @@ object CustomTargetGuard {
         "me.yuki.fina",
         "moe.shizuku.privileged.api",
         "org.lsposed.manager",
+        "me.weishu.kernelsu",
+        "com.topjohnwu.magisk",
+        "com.rifsxd.ksunext",
         "com.android.systemui",
         "com.android.settings",
         "com.android.phone",
@@ -63,6 +76,11 @@ object CustomTargetGuard {
         dynamicRoles: Map<String, String> = emptyMap()
     ): String? {
         if (isSelf(packageName)) return "Nemu 自身"
+        if (packageName in rootToolPackages ||
+            packageName.startsWith("org.lsposed.")
+        ) {
+            return "Root/框架工具"
+        }
         dynamicRoles[packageName]?.let { return it }
         if (packageName in criticalPackages) return "系统关键应用"
         if (criticalPrefixes.any { packageName.startsWith(it) }) return "系统关键应用"

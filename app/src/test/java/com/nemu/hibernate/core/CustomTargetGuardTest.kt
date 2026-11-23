@@ -25,6 +25,23 @@ class CustomTargetGuardTest {
     }
 
     @Test
+    fun rootManagersAreLabelledRootToolsNotSystemApps() {
+        listOf(
+            "me.yuki.fina",
+            "me.weishu.kernelsu",
+            "com.topjohnwu.magisk",
+            "org.lsposed.manager",
+            "moe.shizuku.privileged.api"
+        ).forEach {
+            assertEquals(
+                it,
+                "Root/框架工具",
+                CustomTargetGuard.criticalReason(it)
+            )
+        }
+    }
+
+    @Test
     fun inputMethodsGetACriticalWarning() {
         assertNotNull(
             CustomTargetGuard.criticalReason("com.sohu.inputmethod.sogou.honor")

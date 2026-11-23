@@ -220,23 +220,25 @@ fun CotaSection(
                     val allSelected = selectedCount == group.files.size
                     val partialSelected =
                         selectedCount in 1 until group.files.size
+                    val toggleGroup: (Boolean) -> Unit = { checked ->
+                        group.files.forEach { file ->
+                            if ((file.name in state.selected) != checked) {
+                                callbacks.onToggleSelected(file.name, checked)
+                            }
+                        }
+                    }
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                enabled = state.rootAvailable && !state.busy
+                            ) { toggleGroup(!allSelected) },
                         verticalAlignment = Alignment.Top
                     ) {
                         NemuSmallCheckbox(
                             checked = allSelected,
                             enabled = state.rootAvailable && !state.busy,
-                            onCheckedChange = { checked ->
-                                group.files.forEach { file ->
-                                    if ((file.name in state.selected) != checked) {
-                                        callbacks.onToggleSelected(
-                                            file.name,
-                                            checked
-                                        )
-                                    }
-                                }
-                            },
+                            onCheckedChange = toggleGroup,
                             contentDescription =
                                 if (allSelected) {
                                     "取消选择 ${group.title}"
@@ -341,7 +343,12 @@ fun CotaSection(
                             "时才会删除，否则会拒绝；删除后请观察发热、充电和系统稳定性。",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            riskChecked = !riskChecked
+                        }
+                    ) {
                         NemuSmallCheckbox(
                             checked = riskChecked,
                             enabled = true,
@@ -425,7 +432,9 @@ private fun CotaFileRow(
     onToggle: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onToggle(!selected) },
         verticalAlignment = Alignment.Top
     ) {
         NemuSmallCheckbox(

@@ -109,10 +109,10 @@ Nemu 不再自己调色。颜色、表面层级、圆角、字体比例、分段
 
 | 包 | 字节 | SHA-256 |
 |---|---:|---|
-| `dist/Nemu-1.3.3-arm64-v8a-debug.apk` | 34,705,570 | `30c56cee6d589991cb1d885d727f29baf4b020f3b1bc3478869ad39eb60d1c30` |
-| `dist/Nemu-1.3.3-x86_64-debug.apk` | 34,706,231 | `59d1022f75d85b576b55e62a06afcbf4647c10124893d23743390dba439f76db` |
-| `dist/Nemu-1.3.3-arm64-v8a-release.apk` | 24,510,244 | `9f46998ee23bc6e221a93fa12d11e369dacca0caf6c1710dcc876106b860ae15` |
-| `dist/Nemu-1.3.3-x86_64-release.apk` | 24,510,905 | `315ee050c33f28895ee23e3ca1f072a604c99e4cf4e09ea8411578633da71126` |
+| `dist/Nemu-1.3.3-arm64-v8a-debug.apk` | 34,756,230 | `436565d4ac55a2a7303e2e5b4b7e35ab4da25e4ce72846c9e0bb90a2e336fa81` |
+| `dist/Nemu-1.3.3-x86_64-debug.apk` | 34,756,891 | `9b6267e7e1a887dd9a4a39ed0bd7c464ee769bd9b071655242987f12d754b56f` |
+| `dist/Nemu-1.3.3-arm64-v8a-release.apk` | 24,543,012 | `b1c28e57363f1dcf0864412bffa8bb8314ce9c5ccab63be702cf2f3cc4774539` |
+| `dist/Nemu-1.3.3-x86_64-release.apk` | 24,543,673 | `bf11363f726afd24f95421974a8bb0cb399f9fd1799738e7abb1034bcc6babb2` |
 
 > 2026-11-23 审计修复后重新构建；修复清单见
 > `docs/23-audit-fixes-2026-11-23.md`。

@@ -157,7 +157,7 @@
 | R2 全量审计 B | 部分完成 | 攻击者/粗心用户/数据/回归已返回；平台语义在跑。见 `docs/25` |
 | R3 交叉复核 | 完成 | 3 个复核 Agent；多数候选 FIXED，新增 N1–N4、J5 已补修 |
 | R4 修复文档 | 完成 | `docs/26-fix-plan-2026-11-23.md`（持续更新） |
-| R5 实施修复 | 完成 | 408 tests / 0 failures；lint 0 errors |
+| R5 实施修复 | 完成 | 416 tests / 0 failures；lint 0 errors |
 | R6 最终审计 | 完成 | 5 个视角；P1/P2 修复见 docs/25 §O、docs/26 实施记录 |
 | R7 最终复核 | 完成 | 安全/生命周期/UI 三路复核；R7 新增 P1/P2 已修，见 docs/25 §Q |
 | R7 最终产物 | 完成 | 四 APK 已重出、ABI/hash 校验、arm64 release 真机启动验证；见 §9 |
@@ -166,10 +166,10 @@
 
 | 包 | 字节 | SHA-256 |
 |---|---:|---|
-| `dist/Nemu-1.3.3-arm64-v8a-debug.apk` | 34,705,570 | `30c56cee6d589991cb1d885d727f29baf4b020f3b1bc3478869ad39eb60d1c30` |
-| `dist/Nemu-1.3.3-x86_64-debug.apk` | 34,706,231 | `59d1022f75d85b576b55e62a06afcbf4647c10124893d23743390dba439f76db` |
-| `dist/Nemu-1.3.3-arm64-v8a-release.apk` | 24,510,244 | `9f46998ee23bc6e221a93fa12d11e369dacca0caf6c1710dcc876106b860ae15` |
-| `dist/Nemu-1.3.3-x86_64-release.apk` | 24,510,905 | `315ee050c33f28895ee23e3ca1f072a604c99e4cf4e09ea8411578633da71126` |
+| `dist/Nemu-1.3.3-arm64-v8a-debug.apk` | 34,756,230 | `436565d4ac55a2a7303e2e5b4b7e35ab4da25e4ce72846c9e0bb90a2e336fa81` |
+| `dist/Nemu-1.3.3-x86_64-debug.apk` | 34,756,891 | `9b6267e7e1a887dd9a4a39ed0bd7c464ee769bd9b071655242987f12d754b56f` |
+| `dist/Nemu-1.3.3-arm64-v8a-release.apk` | 24,543,012 | `b1c28e57363f1dcf0864412bffa8bb8314ce9c5ccab63be702cf2f3cc4774539` |
+| `dist/Nemu-1.3.3-x86_64-release.apk` | 24,543,673 | `bf11363f726afd24f95421974a8bb0cb399f9fd1799738e7abb1034bcc6babb2` |
 
 ABI 校验：arm64 包只含 `lib/arm64-v8a/libandroidx.graphics.path.so`；x86_64 包只含
 `lib/x86_64/libandroidx.graphics.path.so`。release 已改为私有 keystore 签名

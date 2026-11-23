@@ -1,5 +1,6 @@
 package com.nemu.hibernate.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -103,6 +104,9 @@ fun ApplicationsScreen(
     focusPackage: String? = null,
     onClearFocus: () -> Unit = {}
 ) {
+    // Restore is a sub-page of Applications: back returns to Manage instead
+    // of leaving the app.
+    BackHandler(enabled = mode != 0) { onModeChange(0) }
     Column(modifier = modifier.fillMaxSize()) {
         if (mode == 0) {
             FreezeScreen(
@@ -153,7 +157,7 @@ private fun ApplicationsHeader(
         NemuFilterChip(
             selected = mode == 1,
             onClick = { onModeChange(1) },
-            label = { Text("恢复 $restoreCount", style = headerLabel) }
+            label = { Text("解冻 $restoreCount", style = headerLabel) }
         )
         Spacer(Modifier.weight(1f))
         Box(
@@ -194,7 +198,9 @@ internal fun CatalogSearchRow(
     selectedCount: Int,
     selectAllEnabled: Boolean,
     onSelectAll: () -> Unit,
-    onClearAll: () -> Unit
+    onClearAll: () -> Unit,
+    /** False when rows are always selectable and only 全选 is needed. */
+    batchControlVisible: Boolean = true
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -213,19 +219,22 @@ internal fun CatalogSearchRow(
                 .width(72.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "批量",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (busy) {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-                maxLines = 1,
-                modifier = Modifier
-                    .clickable(enabled = !busy) { onBatchToggle() }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
+            if (batchControlVisible) {
+                Text(
+                    text = "批量",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (busy) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                            .copy(alpha = 0.38f)
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clickable(enabled = !busy) { onBatchToggle() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
             if (batchExpanded) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -404,9 +413,15 @@ fun FreezeScreen(
     }
     // Only a filter/search change should jump to the top. A strategy switch
     // can change `active` and restart the prune effect; scrolling then would
-    // yank the list away from the card the user just edited.
-    LaunchedEffect(selectedFilter, focusPackage, query) {
-        listState.scrollToItem(0)
+    // yank the list away from the card the user just edited. Remember the last
+    // key so returning to the tab keeps its restored scroll position.
+    val filterKey = "$selectedFilter|${focusPackage.orEmpty()}|$query"
+    var lastFilterKey by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(filterKey) {
+        if (lastFilterKey != filterKey) {
+            listState.scrollToItem(0)
+            lastFilterKey = filterKey
+        }
     }
 
     Column(modifier = modifier) {
@@ -448,7 +463,13 @@ fun FreezeScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(onClick = onClearFocus) {
+                    TextButton(
+                        onClick = {
+                            query = ""
+                            selectedFilter = 0
+                            onClearFocus()
+                        }
+                    ) {
                         Text("显示全部")
                     }
                 }
@@ -596,7 +617,11 @@ fun FreezeScreen(
                             onClick = { query = "" }
                         ) { Text("清除搜索") }
                         focusPackage != null -> TextButton(
-                            onClick = onClearFocus
+                            onClick = {
+                                query = ""
+                                selectedFilter = 0
+                                onClearFocus()
+                            }
                         ) { Text("显示全部") }
                     }
                 }
@@ -826,7 +851,7 @@ fun FreezeScreen(
                         )
                     } else {
                         Text(
-                            "不会解冻其他应用；可在“恢复”分段撤销。",
+                            "不会解冻其他应用；可在“解冻”分段撤销。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -871,6 +896,7 @@ private fun FreezeTargetCard(
     onRemove: () -> Unit
 ) {
     var showComponents by remember { mutableStateOf(false) }
+    var showRemoveConfirm by remember { mutableStateOf(false) }
     val status = when {
         target.actual.processRunning == true &&
             target.actual.suspended == true ->
@@ -1177,10 +1203,40 @@ private fun FreezeTargetCard(
                         )
                     } else {
                         TextButton(
-                            onClick = onRemove,
+                            onClick = { showRemoveConfirm = true },
                             enabled = !busy
                         ) {
                             Text("移除自定义目标")
+                        }
+                        if (showRemoveConfirm) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    showRemoveConfirm = false
+                                },
+                                title = { Text("移除自定义目标？") },
+                                text = {
+                                    Text(
+                                        "将删除「${target.label}」以及保存的" +
+                                            "策略和开机计划；不会改变手机上" +
+                                            "任何应用状态。"
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            showRemoveConfirm = false
+                                            onRemove()
+                                        }
+                                    ) { Text("移除") }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = {
+                                            showRemoveConfirm = false
+                                        }
+                                    ) { Text("取消") }
+                                }
+                            )
                         }
                     }
                 }
@@ -1335,7 +1391,6 @@ fun UnfreezeScreen(
         }
     }
     var selection by remember { mutableStateOf(emptySet<String>()) }
-    var batchMode by remember { mutableStateOf(false) }
     var showAll by remember { mutableStateOf(false) }
     var showSelected by remember { mutableStateOf(false) }
     LaunchedEffect(visibleFrozen.map { it.packageName }) {
@@ -1374,8 +1429,11 @@ fun UnfreezeScreen(
                 query = query,
                 onQueryChange = { query = it },
                 placeholder = "搜索已冻结应用",
-                batchExpanded = batchMode,
-                onBatchToggle = { batchMode = !batchMode },
+                // Rows are always selectable on the unfreeze page; expose
+                // 全选 directly instead of behind a second 批量 mode.
+                batchExpanded = true,
+                onBatchToggle = {},
+                batchControlVisible = false,
                 busy = state.busy,
                 allSelected = visibleFrozen.isNotEmpty() &&
                     visibleFrozen.all { it.packageName in selection },
@@ -1434,7 +1492,7 @@ fun UnfreezeScreen(
             }
         } else {
         item {
-            SectionCard(title = "恢复范围") {
+            SectionCard(title = "解冻范围") {
                 if (state.lastCatalogResult != null) {
                     Text(
                         "上次结果：${state.lastCatalogResult}",
@@ -1445,7 +1503,7 @@ fun UnfreezeScreen(
                     )
                     if (state.dryRun) {
                         Text(
-                            "预览模式：恢复只记录命令，不改变实际状态。",
+                            "预览模式：解冻只记录命令，不改变实际状态。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -1584,6 +1642,33 @@ fun UnfreezeScreen(
             }
         }
     }
+        // Sticky action bar: the same button exists at the top of the list,
+        // but after selecting rows far down it would be off-screen.
+        if (selection.isNotEmpty()) {
+            Surface(tonalElevation = 3.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "已选 ${selection.size}",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = { selection = emptySet() },
+                        enabled = !state.busy
+                    ) { Text("清除") }
+                    Button(
+                        onClick = { showSelected = true },
+                        enabled = !state.busy
+                    ) { Text("解冻所选") }
+                }
+            }
+        }
     }
 
     if (showSelected) {
@@ -1597,11 +1682,11 @@ fun UnfreezeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         if (state.dryRun) {
-                            "预览：只记录恢复命令，不会真正解冻，也不会关闭冻结计划。"
+                            "预览：只记录解冻命令，不会真正解冻，也不会关闭冻结计划。"
                         } else {
-                            "将恢复所选应用；本次开机不再自动冻结。" +
+                            "将解冻所选应用；本次开机不再自动冻结。" +
                                 "只处理 Nemu 拥有所有权的状态，他人暂停不会接管。" +
-                                "已恢复且不再有所有权的目标会关闭计划；" +
+                                "已解冻且不再有所有权的目标会关闭计划；" +
                                 "若应用曾被强制停止，首次打开后会恢复后台。"
                         }
                     )
