@@ -41,9 +41,9 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 已实现但默认关闭：AI 叶子组件（App 建议、YOYO 建议卡片集、智能提醒、荣耀智慧空间基础服务）、AI 深度冻结（AI 基础服务/YOYO/语音/运行时）、云控/遥测、反诈、COTA 温控。
 - 实机安装/模块写入由用户在明确授权后执行；助手不碰 ABL/分区/`fastboot flash`。
 - 当前版本：`versionCode 9` / `versionName 1.3.3`。最终四包在 `dist/`：
-  arm64-v8a debug 34,705,466 字节 `f40bdbbb…c47c`；x86_64 debug 34,706,127 字节
-  `e18af063…5d24`；arm64-v8a release 24,510,244 字节 `84c473a2…b907`；
-  x86_64 release 24,510,905 字节 `7d220122…0053`。完整 SHA-256 见 `PROJECTS.md`。
+  arm64-v8a debug 34,705,570 字节 `30c56cee…1c30`；x86_64 debug 34,706,231 字节
+  `59d1022f…76db`；arm64-v8a release 24,510,244 字节 `9f46998e…ae15`；
+  x86_64 release 24,510,905 字节 `315ee050…1126`。完整 SHA-256 见 `PROJECTS.md`。
   release 已使用私有 keystore 签名（`CN=Nemu`，证书 SHA-256
   `1f35e731…19a7`）；debug 包仍为 debug 签名。
 - 凪（`D:\win_root\nemu-update-guard`，applicationId `com.nemu.windstop`）：

@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.core.RiskLevel
 import com.nemu.hibernate.ui.theme.flClashInset
 
@@ -46,7 +47,9 @@ fun StatusChip(
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
+            // A hair larger than Material's 11sp labelSmall; keeps every
+            // status/policy chip consistent while making it easier to read.
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
