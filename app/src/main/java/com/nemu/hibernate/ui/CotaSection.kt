@@ -920,12 +920,11 @@ private fun CotaFileRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                // Fixed-width size column at the right edge. Left alignment
-                // keeps the first digit of every size in the same column.
+                // Fixed-width size column anchored to the row's right edge.
                 Text(
                     formatSize(file.sizeBytes),
                     modifier = Modifier.width(72.dp),
-                    textAlign = TextAlign.Start,
+                    textAlign = TextAlign.End,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 10.sp
                     ),

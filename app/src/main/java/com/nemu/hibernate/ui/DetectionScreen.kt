@@ -670,7 +670,7 @@ private fun CotaFileRow(file: CotaFile) {
             Text(
                 formatBytes(file.sizeBytes),
                 modifier = Modifier.width(72.dp),
-                textAlign = TextAlign.Start,
+                textAlign = TextAlign.End,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
