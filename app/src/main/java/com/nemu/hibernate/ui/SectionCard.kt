@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nemu.hibernate.ui.theme.flClashCard
 
@@ -77,6 +78,7 @@ fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    subtitleMaxLines: Int = Int.MAX_VALUE,
     trailing: (@Composable () -> Unit)? = null
 ) {
     Row(
@@ -95,7 +97,13 @@ fun SectionHeader(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = subtitleMaxLines,
+                    overflow = if (subtitleMaxLines == Int.MAX_VALUE) {
+                        TextOverflow.Clip
+                    } else {
+                        TextOverflow.Ellipsis
+                    }
                 )
             }
         }

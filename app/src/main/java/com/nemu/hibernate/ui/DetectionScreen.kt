@@ -270,7 +270,8 @@ private fun DetectionHeader(
                     val mismatched = rows.count { it.mismatch() }
                     SectionHeader(
                         title = "冻结状态",
-                        subtitle = "策略与实际分开显示；点行展开，展开后可去应用页。",
+                        subtitle = "注：策略与实际分开显示；点行展开。",
+                        subtitleMaxLines = 1,
                         trailing = {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
