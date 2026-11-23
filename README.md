@@ -50,8 +50,10 @@ HONOR MagicOS 系统组件“安全冻结”工具。
   `versionCode 9` / `1.3.3`，`app\build\outputs\apk\debug\app-debug.apk`，
   2,653,436 字节，SHA-256 `d400b5165cf31760c613e69c555bb2719246e2c0c448e1b1ac3b2ef87ce7c7bb`。
 - 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  （10,546 字节；SHA-256 `28aca824ed187f34809715c8f6351ba529ee5bfcbdf5b99cac5243695a23ff10`；
-  FinaSU 模块 v1.9 / versionCode 10；旧模块已从设备移除，新版需在 FinaSU 中安装后生效）。
+  （33,830 字节；SHA-256 `b3c28507a7f38c1fd4463d420c15de8cb27077fb927b246d5586a419ce325a83`；
+  FinaSU 模块 v1.10 / versionCode 11；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
+  开机恢复交给应用自己的 BootReceiver/WorkManager。已安装旧模块的设备需在 FinaSU/
+  KernelSU 中用新 zip 更新（或直接卸载模块）后重启才生效）。
 - UI：中性白/灰底 + 单色强调、M3E 大圆角、深色纯黑 OLED；桌面图标使用白底亮色几何图形：Nemu 为钴蓝 Tabler 雪花，凪为翠绿三角回环与中心圆点。
 - 2026-11-22 第三轮：桌面/应用信息/通知大图标统一为白底黑色月亮/凪图形；通知显式设置大图标，不再回退系统缓存图标；请求 120 Hz（实测 `mActiveModeId=3 / renderFrameRate 120.00001`）；修复返回桌面图标闪回、隐藏图标后残留旧图标、模式芯片无响应、点击跳跃、无障碍自动开启、Nemu 点击 1 秒卡顿。系统通知左侧的小头像由 MagicOS 自行缓存，重启手机后刷新（代码不再提供任何插画资源）。
 - 2026-11-22 第四轮：凪改名并改用风停图形；LSPosed 状态三态实时显示——管理器关闭 / 已启用待重启 / 已激活；激活用模块广播 + 本次开机标记，关闭用 root 只读查询 LSPosed 的 `modules_state`；覆盖安装后 LSPosed 若自动关掉模块，App 会立即显示“已在管理器中关闭”。

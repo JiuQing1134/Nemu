@@ -90,6 +90,8 @@
 
 - `PROJECTS.md:14-22` 指向不存在的 `app-debug.apk`/`app-release.apk`；实际是 split/universal。
 - autostart zip 的字节/hash/版本与 `module.prop` 不符（实际 10,546 B、`28aca824…`、v1.9/10）。
+  **FIXED（v1.10）**：33,830 B、`b3c28507…`、v1.10/11；同时删除了 `service.sh`
+  里的 `am start`，模块不再在开机时自动打开 Nemu 页面。
 - `docs/22:112-113`、`docs/23:86-87` 重复旧 hash。
 - 修法：最终四包重编后统一重生成表格，并修正 autostart。
 

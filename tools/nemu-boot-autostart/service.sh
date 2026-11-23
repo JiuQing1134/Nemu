@@ -1,8 +1,10 @@
 #!/system/bin/sh
 # FinaSU/KernelSU late-boot service script.
-# Installs the persistent auto-unbrick guard, then clears residual suspensions
-# before starting Nemu. The guard also creates a rescue flag and disables this
-# module after repeated unsuccessful boots (see boot_guard.sh / docs/09).
+# Installs the persistent auto-unbrick guard, then clears residual suspensions.
+# The guard also creates a rescue flag and disables this module after repeated
+# unsuccessful boots (see boot_guard.sh / docs/09).
+# It deliberately does NOT launch the Nemu UI; boot recovery is handled by the
+# app's own BootReceiver/WorkManager so the user never sees an app pop up.
 
 MODDIR=${0%/*}
 . "$MODDIR/install_guard.sh"
@@ -14,7 +16,7 @@ GUARD="$GUARD_DIR/boot_guard.sh"
 run_guard() {
     if command -v timeout >/dev/null 2>&1; then
         # The guard itself bounds pm/dumpsys; this outer timeout also prevents
-        # a service-stage hang from blocking the Nemu launch forever.
+        # a service-stage hang from blocking the rest of boot forever.
         timeout 240 "$GUARD" "$@"
     else
         "$GUARD" "$@" &
@@ -49,16 +51,9 @@ if [ -f "$MODDIR/shutdown_daemon.sh" ]; then
     nohup /system/bin/sh "$MODDIR/shutdown_daemon.sh" >/dev/null 2>&1 &
 fi
 
-# Never launch Nemu before boot completion.
-if [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ]; then
-    exit 0
-fi
-
-sleep 5
-am start -n com.nemu.dream/com.nemu.hibernate.MainActivity >/dev/null 2>&1
-
-# Fallback only when the guard is unavailable. Do not run a second guard pass
-# after starting the app.
+# The module never opens the app UI. Boot recovery is performed by Nemu's
+# BootReceiver/BootWorker after USER_UNLOCKED, without stealing the foreground.
+# Fallback only when the guard is unavailable.
 if [ ! -x "$GUARD" ]; then
     pm unsuspend --user 0 \
         com.hihonor.ouc \
