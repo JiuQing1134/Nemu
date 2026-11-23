@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.core.RiskLevel
@@ -654,18 +655,27 @@ private fun CotaFileRow(file: CotaFile) {
             style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace
         )
-        Text(
-            formatBytes(file.sizeBytes),
-            style = MaterialTheme.typography.bodySmall
-        )
-        // Modification time only: toybox has no trustworthy birth time.
-        Text(
-            CotaTimestamps.displayLabel(file.modifiedAtSeconds),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                CotaTimestamps.displayLabel(file.modifiedAtSeconds),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                formatBytes(file.sizeBytes),
+                modifier = Modifier.width(72.dp),
+                textAlign = TextAlign.Start,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

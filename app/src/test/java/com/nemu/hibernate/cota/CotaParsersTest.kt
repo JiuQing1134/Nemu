@@ -228,10 +228,10 @@ class CotaParsersTest {
     }
 
     @Test
-    fun displayLabel_formats_mtime_compactly_and_labels_it_honestly() {
+    fun displayLabel_formats_mtime_compactly() {
         // 1700000000 = 2023-11-14 22:13:20 UTC.
         assertEquals(
-            "修改 2023-11-14 22:13",
+            "2023-11-14 22:13",
             CotaTimestamps.displayLabel(1_700_000_000L, ZoneOffset.UTC)
         )
     }
@@ -240,7 +240,7 @@ class CotaParsersTest {
     fun displayLabel_falls_back_without_claiming_a_creation_time() {
         listOf(null, 0L, -1L, Long.MAX_VALUE).forEach { value ->
             assertEquals(
-                "修改时间未知",
+                "时间未知",
                 CotaTimestamps.displayLabel(value, ZoneOffset.UTC)
             )
             assertNull(CotaTimestamps.formatModified(value, ZoneOffset.UTC))
