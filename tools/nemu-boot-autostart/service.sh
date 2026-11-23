@@ -53,8 +53,18 @@ fi
 
 # The module never opens the app UI. Boot recovery is performed by Nemu's
 # BootReceiver/BootWorker after USER_UNLOCKED, without stealing the foreground.
-# Fallback only when the guard is unavailable.
+# Fallback only when the guard is unavailable: wait (bounded) for boot
+# completion so PackageManager is ready.
 if [ ! -x "$GUARD" ]; then
+    i=0
+    while [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ] &&
+        [ "$i" -lt 60 ]; do
+        sleep 2
+        i=$((i + 1))
+    done
+    if [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ]; then
+        exit 0
+    fi
     pm unsuspend --user 0 \
         com.hihonor.ouc \
         com.honor.yoyoappsug \

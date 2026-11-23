@@ -50,7 +50,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
   `versionCode 9` / `1.3.3`，`app\build\outputs\apk\debug\app-debug.apk`，
   2,653,436 字节，SHA-256 `d400b5165cf31760c613e69c555bb2719246e2c0c448e1b1ac3b2ef87ce7c7bb`。
 - 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  （33,830 字节；SHA-256 `b3c28507a7f38c1fd4463d420c15de8cb27077fb927b246d5586a419ce325a83`；
+  （34,135 字节；SHA-256 `b0979b800d33fd2fc6960e7a5bf00105838f4cf4ed3ba976040b321242ae15f9`；
   FinaSU 模块 v1.10 / versionCode 11；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
   开机恢复交给应用自己的 BootReceiver/WorkManager。已安装旧模块的设备需在 FinaSU/
   KernelSU 中用新 zip 更新（或直接卸载模块）后重启才生效）。

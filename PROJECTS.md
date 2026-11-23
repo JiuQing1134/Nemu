@@ -20,8 +20,8 @@
     keystore 签名（`CN=Nemu`，证书 SHA-256 `1f35e73171516428dc80cf8e5645efe10f41bde510a4e1cb705409adcebf19a7`），
     备份在 `D:\win_root\nemu-signing-backup\`。
 - **自启动模块**：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  - 33,830 字节
-  - SHA-256：`b3c28507a7f38c1fd4463d420c15de8cb27077fb927b246d5586a419ce325a83`
+  - 34,135 字节
+  - SHA-256：`b0979b800d33fd2fc6960e7a5bf00105838f4cf4ed3ba976040b321242ae15f9`
   - 模块 ID：`nemu_boot_autostart`，v1.10/versionCode 11；v1.10 删除 `am start`
     开机拉起 UI，已安装旧模块需在 FinaSU/KernelSU 更新或卸载后重启
 - **文档**：
