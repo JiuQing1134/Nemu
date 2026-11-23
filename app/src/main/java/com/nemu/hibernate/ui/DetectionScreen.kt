@@ -655,7 +655,7 @@ private fun CotaFileRow(file: CotaFile) {
             fontFamily = FontFamily.Monospace
         )
         Text(
-            "${formatBytes(file.sizeBytes)} · ${file.kind.label}",
+            formatBytes(file.sizeBytes),
             style = MaterialTheme.typography.bodySmall
         )
         // Modification time only: toybox has no trustworthy birth time.

@@ -906,7 +906,7 @@ private fun CotaFileRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                "${file.kind.label} · ${formatSize(file.sizeBytes)}",
+                formatSize(file.sizeBytes),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 10.sp
                 ),
