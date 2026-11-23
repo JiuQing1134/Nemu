@@ -649,7 +649,7 @@ private fun CotaDirectoryRow(directory: com.nemu.hibernate.cota.CotaDirectoryInv
 
 @Composable
 private fun CotaFileRow(file: CotaFile) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             file.name,
             style = MaterialTheme.typography.bodyMedium,

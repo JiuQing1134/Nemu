@@ -895,7 +895,10 @@ private fun CotaFileRow(
             modifier = Modifier.padding(top = 2.dp)
         )
         Spacer(Modifier.width(6.dp))
-        Column(Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Text(
                 displayName,
                 style = MaterialTheme.typography.bodySmall.copy(
