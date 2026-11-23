@@ -414,7 +414,7 @@ private fun FreezeStateCard(
                 // Match DetectionHeader's 12dp inset so the count chip and
                 // every row's status chip share the same right edge.
                 .padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -649,7 +649,7 @@ private fun CotaDirectoryRow(directory: com.nemu.hibernate.cota.CotaDirectoryInv
 
 @Composable
 private fun CotaFileRow(file: CotaFile) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
             file.name,
             style = MaterialTheme.typography.bodyMedium,
