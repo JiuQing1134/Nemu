@@ -433,19 +433,23 @@ private fun FreezeStateCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Compact key/value pairs instead of one long "A · B" line:
-                // the separator dot made the row feel split apart. Labels are
-                // muted, values use the normal ink so each pair reads as one
-                // unit; the pair gap is fixed and much smaller than the old
-                // double-spaced "·".
+                // Same chip language as the Applications cards: a neutral
+                // "策略 …" chip plus an actual-state chip whose tone follows
+                // the state (positive = primary, unknown = warning).
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    StatusToken("策略", freeze.describePolicy())
+                    StatusChip(
+                        text = "策略 ${freeze.describePolicy()}",
+                        tone = StatusChipTone.NEUTRAL
+                    )
                     freeze.detailLabel()?.let { label ->
-                        StatusToken(label, freeze.detailValue())
+                        StatusChip(
+                            text = "$label ${freeze.detailValue()}",
+                            tone = detailChipTone(freeze.detailValue())
+                        )
                     }
                 }
                 // Process presence sits on the right and stays terse:
@@ -496,26 +500,12 @@ private fun FreezeStateCard(
     }
 }
 
-@Composable
-private fun StatusToken(label: String, value: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-            maxLines = 1
-        )
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+/** Positive/active values use the primary chip; unknown is a warning chip. */
+private fun detailChipTone(value: String): StatusChipTone = when {
+    value == "是" || value == "已停用" || value == "已生效" ->
+        StatusChipTone.PRIMARY
+    value.startsWith("未知") -> StatusChipTone.WARNING
+    else -> StatusChipTone.NEUTRAL
 }
 
 private fun processPresenceLabel(running: Boolean?): String = when (running) {

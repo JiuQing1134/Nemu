@@ -122,7 +122,7 @@ data class FreezeState(
         FreezeMode.HIDE -> when {
             installed -> "未生效"
             policyApplied -> "已生效"
-            else -> "未知（未安装或未应用）"
+            else -> "未知"
         }
         FreezeMode.RESTRICT ->
             if (restrictionApplied) "已生效" else "未生效"

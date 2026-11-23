@@ -12,10 +12,10 @@
 - **源码命名空间**：`com.nemu.hibernate`
 - **版本**：`1.3.3` / `versionCode 9`
 - **最终四包**（`dist/`，debug/release × arm64-v8a/x86_64）：
-  - `Nemu-1.3.3-arm64-v8a-debug.apk` — 34,708,182 字节 — `46997a949ec2ce235df982a8bc8be2c95b2d5adbd02241902cee1e22c37623f5`
-  - `Nemu-1.3.3-x86_64-debug.apk` — 34,708,843 字节 — `21f5c9ed177b9bc64f5e41e060e7e5b69898d0e38195ad43f9f9908ff58e891c`
-  - `Nemu-1.3.3-arm64-v8a-release.apk` — 24,510,244 字节 — `a51250f6e7d604ffa879294152df98fe15e112a98cdfeba8f97360c48da9a205`
-  - `Nemu-1.3.3-x86_64-release.apk` — 24,510,905 字节 — `b9e709aba6efb5a54d3cd103a68a18ea6f9989bb897b96fa1bb20a4e1831251c`
+  - `Nemu-1.3.3-arm64-v8a-debug.apk` — 34,705,466 字节 — `f40bdbbb558cb1968a751b9c08dabec45107faf1bf5bd207dda22c2fb56bc47c`
+  - `Nemu-1.3.3-x86_64-debug.apk` — 34,706,127 字节 — `e18af063fd55fac72b87e1d189536e13052ae233cddef07da03caa3960925d24`
+  - `Nemu-1.3.3-arm64-v8a-release.apk` — 24,510,244 字节 — `84c473a294bc61ee58569ddb9cd4840648f6ee6c3f0968313d1f45808c64b907`
+  - `Nemu-1.3.3-x86_64-release.apk` — 24,510,905 字节 — `7d220122d61d8464e040a3ec7ef7033b7ac34ac3868cc8de909ee8589e830053`
   - ABI 已校验：arm64 只含 `lib/arm64-v8a`，x86_64 只含 `lib/x86_64`；release 已用私有
     keystore 签名（`CN=Nemu`，证书 SHA-256 `1f35e73171516428dc80cf8e5645efe10f41bde510a4e1cb705409adcebf19a7`），
     备份在 `D:\win_root\nemu-signing-backup\`。
