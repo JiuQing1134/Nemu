@@ -98,26 +98,40 @@ data class FreezeState(
     }
 
     /**
-     * Mode-specific actual-state fragment for the detection row. Do not use
+     * Mode-specific actual-state label for the detection row. Do not use
      * "暂停" for disable/restrict: those are different system states.
+     * Null for OBSERVE rows, which only have the "未执行" value.
      */
-    fun detailLine(): String = when (mode) {
-        FreezeMode.SUSPEND -> "暂停 ${yesNo(suspended)}"
-        FreezeMode.DISABLE -> "停用 ${yesNo(!enabled)}"
-        FreezeMode.COMPONENT -> "组件 " + when (componentDisabled) {
+    fun detailLabel(): String? = when (mode) {
+        FreezeMode.SUSPEND -> "暂停"
+        FreezeMode.DISABLE -> "停用"
+        FreezeMode.COMPONENT -> "组件"
+        FreezeMode.HIDE -> "隐藏"
+        FreezeMode.RESTRICT -> "限制"
+        FreezeMode.OBSERVE -> null
+    }
+
+    fun detailValue(): String = when (mode) {
+        FreezeMode.SUSPEND -> yesNo(suspended)
+        FreezeMode.DISABLE -> yesNo(!enabled)
+        FreezeMode.COMPONENT -> when (componentDisabled) {
             true -> "已停用"
             false -> "启用"
             null -> "未知"
         }
-        FreezeMode.HIDE -> "隐藏 " + when {
+        FreezeMode.HIDE -> when {
             installed -> "未生效"
             policyApplied -> "已生效"
             else -> "未知（未安装或未应用）"
         }
         FreezeMode.RESTRICT ->
-            "限制 ${if (restrictionApplied) "已生效" else "未生效"}"
+            if (restrictionApplied) "已生效" else "未生效"
         FreezeMode.OBSERVE -> "未执行"
     }
+
+    /** Backwards-compatible single string; the UI renders label/value separately. */
+    fun detailLine(): String = detailLabel()?.let { "$it ${detailValue()}" }
+        ?: detailValue()
 
     private fun yesNo(value: Boolean): String = if (value) "是" else "否"
 

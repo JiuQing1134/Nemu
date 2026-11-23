@@ -433,14 +433,21 @@ private fun FreezeStateCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    "策略 ${freeze.describePolicy()}  ·  ${freeze.detailLine()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // Compact key/value pairs instead of one long "A · B" line:
+                // the separator dot made the row feel split apart. Labels are
+                // muted, values use the normal ink so each pair reads as one
+                // unit; the pair gap is fixed and much smaller than the old
+                // double-spaced "·".
+                Row(
                     modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    StatusToken("策略", freeze.describePolicy())
+                    freeze.detailLabel()?.let { label ->
+                        StatusToken(label, freeze.detailValue())
+                    }
+                }
                 // Process presence sits on the right and stays terse:
                 // 存活 / 无进程 / 未知.
                 Text(
@@ -486,6 +493,28 @@ private fun FreezeStateCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusToken(label: String, value: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            maxLines = 1
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
