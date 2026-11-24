@@ -75,7 +75,8 @@ HONOR MagicOS 系统组件“安全冻结”工具。
   标题行，不再占一整行；批量加入/移出计划会立即翻转对应 `catalog.enabled`，卡片开关、
   计划筛选和计划计数同步更新，不必等异步重建。
 - **选择控件合并**：顶部搜索行不再显示“已选 N”，只保留搜索框和全选；底部操作条的
-  “已选 N ×”是唯一清空入口，原“清除”胶囊删除。全选只作用于当前可见范围，× 清空全部，
+  “已选 N ×”是唯一清空入口，原“清除”胶囊删除。全选只作用于当前可见范围（冻结/解冻页
+  取消全选也只清可见项，不再 `selection = emptySet()` 误伤筛选外选择），× 清空全部，
   主按钮负责执行，三者职责不再重叠；解冻页卡片里重复的“已选 N”状态块也一并删除。
 - **空状态与反馈**：计划为空时提供“显示全部应用”；解冻页空状态提供“回到冻结页选择应用”；
   批量计划后再动单卡开关只撤掉“撤销”按钮，保留结果条，不再把整条反馈清掉。
@@ -148,7 +149,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 实机安装/模块写入由用户在明确授权后执行；助手不碰 ABL/分区/`fastboot flash`。
 - 当前版本：`versionCode 9` / `versionName 1.3.3`。2026-11-25 构建的 universal release：
   `app/build/outputs/apk/release/app-release.apk`，24,970,273 字节，SHA-256
-  `6b185185e0e52ad876401415022d2b958ba26eac0346769ab35ce6a54f4ddbcc`；
+  `c5a2c911fc08995c155de88ed64d2f9cb151909a4d2bf404516e70d1662873ac`；
   使用私有 keystore 签名（`CN=Nemu`，证书 SHA-256 `1f35e731…19a7`）。历史四包
   debug/release × arm64/x86_64 哈希见 `PROJECTS.md`。
 - 凪（`D:\win_root\nemu-update-guard`，applicationId `com.nemu.windstop`）：

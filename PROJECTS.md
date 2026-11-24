@@ -16,7 +16,7 @@
   已选×单一清空入口 / 细开关与批量同步 / 解冻页计划留存 / 检测页统一分类 /
   拼音多音词搜索 / 计划撤销与结果反馈 / P1/P2 审计修复）：
   `app/build/outputs/apk/release/app-release.apk` — 24,970,273 字节 — SHA-256
-  `6b185185e0e52ad876401415022d2b958ba26eac0346769ab35ce6a54f4ddbcc`
+  `c5a2c911fc08995c155de88ed64d2f9cb151909a4d2bf404516e70d1662873ac`
 - **历史四包**（`dist/`，debug/release × arm64-v8a/x86_64）：
   - `Nemu-1.3.3-arm64-v8a-debug.apk` — 34,756,230 字节 — `436565d4ac55a2a7303e2e5b4b7e35ab4da25e4ce72846c9e0bb90a2e336fa81`
   - `Nemu-1.3.3-x86_64-debug.apk` — 34,756,891 字节 — `9b6267e7e1a887dd9a4a39ed0bd7c464ee769bd9b071655242987f12d754b56f`
