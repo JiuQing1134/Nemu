@@ -22,6 +22,12 @@ trigger_nemu_after_boot() {
         i=$((i + 1))
     done
     [ "$(getprop sys.boot_completed 2>/dev/null)" = "1" ] || return 0
+    # Clear Nemu-owned state left by an unclean reboot before the app and the
+    # boot-freeze plan run. This is the root-side "unfreeze once every boot"
+    # safety pass; it is ownership-scoped and idempotent.
+    if [ -f "$MODDIR/boot_unfreeze.sh" ]; then
+        /system/bin/sh "$MODDIR/boot_unfreeze.sh" || true
+    fi
     am broadcast --user 0 \
         -a com.nemu.dream.action.BOOT_TRIGGER \
         -n com.nemu.dream/com.nemu.hibernate.policy.BootTriggerReceiver \
