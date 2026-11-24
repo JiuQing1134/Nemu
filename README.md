@@ -7,8 +7,14 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 > 冻结与解冻拆成独立页面，支持 SUSPEND / COMPONENT / DISABLE_USER / HIDE / OBSERVE
 > 五种策略；HIDE 即“伪装卸载”（`pm hide`，仅 Root）。
 >
-> **参考项目**：Hail（雹）— https://github.com/aistra0528/Hail  
-> 仅参考其 suspend 冻结机制与公开文档，不依赖、不调用其 API/Intent/数据。
+> **参考项目**：
+> - Hail（雹）— https://github.com/aistra0528/Hail  
+>   仅参考其 suspend 冻结机制与公开文档，不依赖、不调用其 API/Intent/数据。
+> - FlClash / prism_ui — https://github.com/chen08209/FlClash 、
+>   https://github.com/chen08209/prism_ui  
+>   仅参考配色、surface 与控件外观 token；Apache-2.0，Nemu 用 Compose 重新实现，
+>   不包含 Flutter 运行时、不调用其代码。详见
+>   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 >
 > **项目地址**：
 > - Nemu：`D:\win_root\nemu` — https://github.com/JiuQing1134/Nemu
@@ -18,6 +24,54 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 
 > 代码地图、开发流程、代码树、已知问题和审计入口：**[PROJECT.md](PROJECT.md)**。  
 > 文档索引：**[docs/README.md](docs/README.md)**。
+
+## 支持的设备
+
+- **已验证设备**：HONOR AAP-AN00
+  - 系统：MagicOS 10.0.0.102（`10DLDLD102SP1C00E100`），Android 16 / SDK 36
+  - 内核：`6.12.23-android16-5-gcd85666d7884-abogki452537391-4k`
+  - 当前槽位：`a`；GPT 逻辑扇区 4096
+  - Root：FinaSU / KernelSU（`me.yuki.fina` 或 KernelSU 管理器）
+  - 实机：模块 v1.18 已安装并重启验证；App release `1.3.3`（versionCode 9）
+- **最低要求**：Android 11（minSdk 30）。完整功能需要 root（uid 0）：
+  - 开机恢复模块、COTA 温控、`pm hide`（伪装卸载）只在 root 下工作；
+  - Shizuku 只能作为普通冻结/解冻的 shell 后端，不能替代 root 的开机模块或 COTA；
+  - 没有 root 时不要安装开机模块，也不要把“开机 early 解冻”当作可用能力。
+- **其他 HONOR / MagicOS 设备**：理论可用，但 `pm` / `dumpsys` 输出、系统应用保护和
+  组件枚举会随机型/版本变化，未做真机验证。请先用“暂停”，并在检测页核对实际状态。
+- **不承诺**：非 Android 设备；OEM 锁死 `pm hide` / `disable-user` 的设备；没有 root
+  却希望开机自动解冻的设备；强制断电/拔电池后的恢复。
+
+## 最近改动（2026-11-24，模块 v1.18）
+
+- **开机恢复覆盖全部 Nemu 拥有的冻结态**：`disable-user`、`pm hide`（伪卸载）、
+  `suspend`、组件停用、AppOps、standby。PackageManager 可用时先恢复，再让
+  `BootFreezeWorker` 按策略重新冻结。
+- **模块 v1.18**
+  - 新增 `boot_guard_runner.sh`：service.d hook 走 480s（普通）/1200s（救援）预算，
+    超时写 `guard.log`；
+  - `planned_shutdown` / `clean_shutdown` 增加 `.prev` 槽，中间一次 boot 没跑 guard
+    也不会丢掉清零；
+  - 上一 boot 到达 `sys.boot_completed` 即视为成功，解决 `adb reboot` 逃过 2 秒
+    `sys.powerctl` 轮询、把快速重启累计到 3 次误触发救援的问题；
+  - `disable-user` 校验以 `pm list packages -d` 为准，兼容某些包 dumpsys 没有
+    `enabled=` 字段；
+  - 组件/隐藏只读 User 0；组件 marker 在 `pm disable` **之前**写入；截断 dumpsys
+    fail-closed；AppOps 解析跳过 `Uid mode:` 行；
+  - 自动 rescue 只处理 Nemu 已知目标和 `*_by_nemu` marker，不再全量扫描 foreign
+    suspend；
+  - 普通/early/late/rescue/clear 共用 `/data/adb/nemu/restore.lock`；卸载会停掉
+    shutdown daemon 并清理 FIFO/restore 脚本。
+- **App**
+  - `ShutdownScript` 逐命令失败计数（`nemu_run` / `nemu_fail`），不再用最后一条命令的
+    退出码冒充整体成功；
+  - BootFreeze 门禁接受 root guard 的 planned/completed 记录（shell 秒 → App 毫秒）；
+  - 检测页 `bootloopGuardTripped` 同步包含 planned/completed；
+  - SUSPEND 在 root 可用时优先 root 身份，guard 兼容 `com.android.shell` 旧数据；
+  - 清除救援模式使用 120s root 命令预算。
+- **实机验证（2026-11-24）**：设备上 `base.apk` SHA-256 `b513e962…`；模块 v1.18 安装后
+  两次快速重启，early guard exit=0、`attempts=1`、无 `rescue.flag`；491 JVM tests /
+  0 failures，lint 0 errors。
 
 ## 状态
 
@@ -40,24 +94,21 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 - 首要目标：系统更新（`com.hihonor.ouc`）。
 - 已实现但默认关闭：AI 叶子组件（App 建议、YOYO 建议卡片集、智能提醒、荣耀智慧空间基础服务）、AI 深度冻结（AI 基础服务/YOYO/语音/运行时）、云控/遥测、反诈、COTA 温控。
 - 实机安装/模块写入由用户在明确授权后执行；助手不碰 ABL/分区/`fastboot flash`。
-- 当前版本：`versionCode 9` / `versionName 1.3.3`。最终四包在 `dist/`：
-  arm64-v8a debug 34,756,230 字节 `436565d4…fa81`；x86_64 debug 34,756,891 字节
-  `9b6267e7…b56f`；arm64-v8a release 24,543,012 字节 `b1c28e57…4539`；
-  x86_64 release 24,543,673 字节 `bf11363f…abb2`。完整 SHA-256 见 `PROJECTS.md`。
-  release 已使用私有 keystore 签名（`CN=Nemu`，证书 SHA-256
-  `1f35e731…19a7`）；debug 包仍为 debug 签名。
+- 当前版本：`versionCode 9` / `versionName 1.3.3`。2026-11-24 构建的 universal release：
+  `app/build/outputs/apk/release/app-release.apk`，24,806,433 字节，SHA-256
+  `b513e96269b665e77ad6de52edac45be63a311519219963f272fa702afb21fa3`；
+  使用私有 keystore 签名（`CN=Nemu`，证书 SHA-256 `1f35e731…19a7`）。历史四包
+  debug/release × arm64/x86_64 哈希见 `PROJECTS.md`。
 - 凪（`D:\win_root\nemu-update-guard`，applicationId `com.nemu.windstop`）：
   `versionCode 9` / `1.3.3`，`app\build\outputs\apk\debug\app-debug.apk`，
   2,653,436 字节，SHA-256 `d400b5165cf31760c613e69c555bb2719246e2c0c448e1b1ac3b2ef87ce7c7bb`。
 - 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  （13,619 字节；SHA-256 `198574b31bb36b1b575790a044521175202b4a8b68f08f09fc99fe89fc506f7c`；
-  FinaSU 模块 v1.14 / versionCode 15；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
-  v1.14 在早期 service 阶段、PackageManager 可用的第一时刻先重放一次 App 生成的
-  恢复脚本（早于桌面和 `boot_completed`，避免冻结系统应用卡在开机界面），
-  并在 `boot_completed` 后再验证一次；覆盖 `adb reboot`/强制断电这类没有
-  正常关机广播的残留；正常开机仍只恢复带
-  `suspended_by_nemu` 标记的暂停包，并且只有在读到 `suspended=false` 后才删除标记。
-  已安装旧模块的设备需在 FinaSU/KernelSU 中用新 zip 更新（或直接卸载模块）后重启才生效）。
+  （26,295 字节；SHA-256 `9ce22b583919f8a672e550452ac483976401e5ed8f8cc99c9ea58d445c01557c`；
+  模块 v1.18 / versionCode 19，含 `boot_guard_runner.sh`）。v1.18 在 PackageManager
+  可用的 early service 阶段恢复 Nemu 拥有的全部冻结态（disable-user、hide、suspend、
+  组件、AppOps、standby），再重放 App 的恢复脚本；`boot_completed` 后复核。上一 boot
+  到达 `boot_completed` 即视为成功，快速 `adb reboot` 不再累计到 3 次误触发救援。
+  正常开机只处理 Nemu 自己的 ownership marker；安装/更新后需重启。
 - UI：中性白/灰底 + 单色强调、M3E 大圆角、深色纯黑 OLED；桌面图标使用白底亮色几何图形：Nemu 为钴蓝 Tabler 雪花，凪为翠绿三角回环与中心圆点。
 - 2026-11-22 第三轮：桌面/应用信息/通知大图标统一为白底黑色月亮/凪图形；通知显式设置大图标，不再回退系统缓存图标；请求 120 Hz（实测 `mActiveModeId=3 / renderFrameRate 120.00001`）；修复返回桌面图标闪回、隐藏图标后残留旧图标、模式芯片无响应、点击跳跃、无障碍自动开启、Nemu 点击 1 秒卡顿。系统通知左侧的小头像由 MagicOS 自行缓存，重启手机后刷新（代码不再提供任何插画资源）。
 - 2026-11-22 第四轮：凪改名并改用风停图形；LSPosed 状态三态实时显示——管理器关闭 / 已启用待重启 / 已激活；激活用模块广播 + 本次开机标记，关闭用 root 只读查询 LSPosed 的 `modules_state`；覆盖安装后 LSPosed 若自动关掉模块，App 会立即显示“已在管理器中关闭”。
@@ -67,7 +118,7 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 1. **不要卸载/停用 `com.hihonor.ouc`**：用户报告的原始操作序列是“卸载系统更新 → 全量强制 dex2oat 编译 → 刷入类似 Magisk 的 root 模块 → 崩溃；重启能进桌面但马上卡住重启”。因此不能把崩溃单独归因于 OUC；Nemu 仍坚持“不卸载”，只用可逆操作。对现有日志的重新分析见 [05 OUC 崩溃分析](docs/05-ouc-crash-analysis.md)：当前 dropbox/tombstone 没有 system_server 或 OUC 崩溃证据，更多线索指向全量 dex2oat + root/zygisk 模块（LSPosed/dexoptanalyzer tombstone），原始事件日志可能已不存在；该结论不改变“不卸载”的产品规则。
 2. `suspend` 是可逆的包策略，不保证进程退出；`force-stop` 是一次性请求，系统仍可能因绑定服务重新启动进程。检测页分别展示挂起、STOPPED 标记和实际进程状态，不把命令退出码当作“后台已彻底停止”。
 3. 安全解冻始终开启：正常关机/重启前自动 `unsuspend` 全部 suspend 目标（含 AI 目标）；开机后由 `BootFreezeWorker` 在延迟（默认 120s）后自动重新冻结已启用目标。bootloop 守卫生效时，本次开机保持解冻并记录跳过原因。
-4. 实机验证：OUC `suspended=true` → 正常 `svc power reboot` → `last_shutdown_result=成功` → 开机后 `suspended=false`，手机正常启动。`adb reboot` 走 init，不会触发安全解冻。
+4. 实机验证：OUC `suspended=true` → 正常 `svc power reboot` → `last_shutdown_result=成功` → 开机后 `suspended=false`，手机正常启动。`adb reboot` 不通知 App 的 `ACTION_SHUTDOWN`，但模块 v1.18 会在下次开机 early 按 ownership marker 恢复，并用 `boot_completed` 标记避免快速重启被误计为失败 boot。
 5. `suspend` 不阻止后台运行（Hail README 与 dumpsys 均证实）；本机 OUC 在 `suspended=true` 时仍能收到 `BOOT_COMPLETED`。模块必须配合强停、AppOps/待机限制或 `disable-user` 的可逆例外。
 
 ## 云控 / 遥测（高级，默认关闭）
@@ -102,7 +153,10 @@ HONOR MagicOS 系统组件“安全冻结”工具。
 
 - 开机稳定后（默认 120s，可配置，最低 60s）由 `BootFreezeWorker` 自动冻结已启用的核心/AI 目标；FinaSU `service.sh` 或打开 Nemu 都会调度。
 - **开机恢复优先于冻结**：Worker 在评估守卫/执行冻结之前，先用 root 解冻全部安全目标，清掉强制断电或崩溃遗留的 suspend；清理失败则跳过本次冻结。因此守卫跳过新冻结时，残留 suspend 仍会先被清除。
-- 上次冻结后没有“干净关机”（`last_shutdown_result` 成功且时间晚于冻结尝试）时，下一次开机 **跳过自动冻结**，记录 `last_boot_freeze_result`，避免 bootloop。
+- 上次冻结后没有“干净关机”（App 的成功记录，或 root guard 的 `planned_shutdown` /
+  `boot_completed` 记录，且时间晚于冻结尝试）时，下一次开机 **跳过自动冻结**，记录
+  `last_boot_freeze_result`，避免 bootloop。`boot_completed` 记录专门覆盖“快速
+  `adb reboot` 来不及写 planned 标记”的情况。
 - “全部恢复”/关闭开关会取消本 boot 的自动冻结并标记跳过。
 - AI 深度冻结默认关闭；每个 AI 目标单独开关，红色目标有高风险提示；`mageruntime` 单目标已实测可冻结/重启解冻。`powergenie` 仅观察、永不执行；`iaware` 默认只读，仅在用户启用并选择“组件”策略时于开机冻结中停用两个云配置组件（PF14 实测）。
 
@@ -137,19 +191,27 @@ HONOR MagicOS 系统组件“安全冻结”工具。
   否则下一次关机的安全解冻可能不会运行。App 顶部已提供“打开「应用启动管理」允许自启动”按钮。
 - 开机安全解冻是 best-effort 第二层；主路径是关机安全解冻。
 - 关机时 Shizuku/root 必须可用，且安全服务必须在运行（打开 App 或由系统允许自启动后）。
-- **跨工具 suspend 限制**：如果目标是被 Hail、`adb shell pm suspend` 或其他工具暂停的，Nemu 的 `pm unsuspend` 可能清除不了（`suspendingPackage` 不同）；请用原工具或 adb 清除。Nemu 自己施加的 suspend 会由同一后端清除。App 的 `last_shutdown_detail` / `last_boot_detail` 会记录后端、命令和输出，便于排查。
+- **跨工具 suspend 限制**：如果目标是被 Hail、`adb shell pm suspend` 或其他第三方工具暂停的，
+  `pm unsuspend` 仍可能清除不了（`suspendingPackage` 不同），请用原工具或 adb 清除。
+  Nemu 自己新施加的 suspend 在 root 可用时优先用 root 身份；guard 会依次尝试 root 和
+  `com.android.shell` 两种身份，App 也会用原后端重试旧的 Shizuku 数据。App 的
+  `last_shutdown_detail` / `last_boot_detail` 会记录后端、命令和输出。
 
 ## 外观与授权（v1.1）
 
 - **图标**：白底亮色几何图形（Nemu=钴蓝 Tabler 雪花，凪=翠绿三角回环与中心圆点），自适应图标/单色图标/通知图标/App 内标记统一。
-- **风格**：Material 3 / M3 Expressive / MIUIX 三套可切换；**配色**：松林绿（默认）、冰川蓝、暖琥珀、极光紫、石墨灰；每种配色的控件颜色都从该色系与白色之间推导；明暗跟随系统/浅色/深色。深色背景使用纯 `#000000`（OLED 省电），卡片为中性深灰，不使用褐色。
+- **风格**：鲜明 / 氛围 / 柔和 / 单色四套（`VIVID` / `TINTED` / `SOFT` /
+  `MONOCHROME`）；**配色**：蓝（默认）、品红、玫红、红、橙、黄、绿、石墨八套；
+  每种配色的控件颜色都从该色系与白色之间推导；明暗跟随系统/浅色/深色。深色背景使用
+  纯 `#000000`（OLED 省电），卡片为中性深灰，不使用褐色。配色/外观 token 参考
+  FlClash / prism_ui，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - **授权卡**：显示当前授权模式（`Root` / `Shizuku（ADB 启动）` / `Shizuku（Root 启动）` / `未授权`），并分别列出 Root、Shizuku、ADB 调试的真实状态；“请求授权”会先尝试 Root，再请求 Shizuku 授权；提供“ADB 授权说明”（ADB 仅用于启动 Shizuku，Nemu 不能直接调用电脑 ADB）。
 - **冻结/解冻按钮**：冻结页明确区分“勾选（只加入计划）”与“立即冻结”；每个目标有“立即冻结/重新冻结”，顶部有“立即冻结已勾选的 N 个应用”，执行前逐一列出“具体会发生什么”。解冻页用“解冻所选 N 个应用 / 全部解冻”。
 
 ## 自定义冻结与关机强制解冻（v1.2）
 
 - 冻结页“添加任意应用（自定义冻结）”可搜索并冻结任意已安装应用；支持 暂停 / 停用 / 隐藏（伪装卸载）/ 只观察。桌面、设置、电话、输入法、权限控制器、Shizuku、Root 管理器等关键包会显示高风险警告并允许用户确认后执行（不硬拒绝）；请优先使用暂停。
-- 每次冻结/解冻后生成 `/data/adb/nemu/restore_frozen.sh`；模块 v1.8 通过 KernelSU `initrc` 的 `on shutdown`、root FIFO 守护进程/LSPosed 关机 hook、`sys.powerctl` 轮询三层，在**任何正常关机/重启**前执行解冻，即使 Nemu 进程没有运行。强制断电/拔电池无法执行任何代码，这是唯一覆盖不了的场景。
+- 每次冻结/解冻后生成 `/data/adb/nemu/restore_frozen.sh`；模块 v1.18 通过 KernelSU `initrc` 的 `on shutdown`、root FIFO 守护进程/LSPosed 关机 hook、`sys.powerctl` 轮询三层尝试在正常关机/重启前解冻；即使 Nemu 进程没有运行也生效。下一次开机的 early 阶段还会按 ownership marker 恢复全部 Nemu-owned 状态（disable-user、hide、suspend、组件、AppOps、standby），所以 `adb reboot`/强制断电后的残留也有第二层兜底。强制断电/拔电池本身无法执行任何关机代码，这是唯一覆盖不了的场景。
 - 下次开机后 `BootFreezeWorker` 按策略重新冻结（含自定义目标）。
 - 详见 [docs/13-custom-freeze-and-shutdown.md](docs/13-custom-freeze-and-shutdown.md)。
 
@@ -208,7 +270,7 @@ adb install -r D:\win_root\nemu\app\build\outputs\apk\debug\app-debug.apk
 
 - 本机 root 方案是 **FinaSU**（包名 `me.yuki.fina`，基于 KernelSU）。Nemu 的 `RootBackend` 会依次尝试 `su`、`/system/bin/su`、`/data/adb/ksu/bin/su`；请在 FinaSU 管理器中给 Nemu 授权 root（建议“始终允许”）。
 - 有 root 时 Nemu 自动优先 root 后端；关机安全解冻也优先 root，以匹配 Nemu 自己施加 suspend 的 `suspendingPackage`。
-- 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`，在 FinaSU 模块管理器中安装（或 `ksud module install`）。v1.8 会安装独立 `boot_guard.sh` 到 `/data/adb/nemu/boot_guard/`：按 boot id 计数、逐包解冻、按原始状态恢复 Nemu 所有的组件与 disable-user 标记；连续 3 次未确认成功则写 rescue flag、禁用模块并在 boot_completed 后重试恢复。
+- 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`，在 FinaSU 模块管理器中安装（或 `ksud module install`）。v1.18 会安装独立 `boot_guard.sh` 与带超时的 `boot_guard_runner.sh` 到 `/data/adb/nemu/boot_guard/`：按 boot id 计数、early PM-ready 恢复全部 Nemu-owned 冻结态、`boot_completed` 后复核；连续 3 次未确认完成启动则写 rescue flag、禁用模块并在后续启动重试恢复。快速 `adb reboot` 不会因为错过 `sys.powerctl` 轮询而被误计为失败 boot。
 - 如果 FinaSU 模块安装后仍无法自启动，请检查 FinaSU 日志；不要修改分区。
 
 ## 非目标
@@ -217,7 +279,8 @@ adb install -r D:\win_root\nemu\app\build\outputs\apk\debug\app-debug.apk
 - 不修改 `build.prop`/系统版本号。
 - 不依赖 Hail；不使用 Hail 的 API/Intent。
 - 不默认处理反诈/温控/云控；这些作为单独的高级模块，需明确开关和风险确认。
-- 不承诺 100% bootloop 防护：强制断电、`adb reboot` 或系统崩溃可能跳过安全解冻。
+- 不承诺 100% bootloop 防护：强制断电/拔电池无法执行任何用户态代码；`adb reboot`
+  由下一次开机的 early 恢复兜底，但不能保证早于所有系统组件；系统崩溃本身不在恢复范围内。
 - COTA 不承诺提升性能；只提供备份/删除/恢复云控参数的能力。
 
 ## 命名与地址
@@ -231,4 +294,16 @@ adb install -r D:\win_root\nemu\app\build\outputs\apk\debug\app-debug.apk
   - applicationId：`com.nemu.windstop`（源码命名空间 `com.nemu.updateguard`）
   - 本地地址：`D:\win_root\nemu-update-guard`
 - 地址与产物汇总：`D:\win_root\PROJECTS.md`
-- 参考项目：Hail（雹）https://github.com/aistra0528/Hail
+- 参考项目：
+  - Hail（雹）— https://github.com/aistra0528/Hail  
+    仅参考 suspend 机制与公开文档，不依赖、不调用其 API/Intent/数据。
+  - FlClash — https://github.com/chen08209/FlClash；prism_ui —
+    https://github.com/chen08209/prism_ui  
+    仅参考配色/surface/控件外观 token（Apache-2.0）；用 Compose 重新实现，
+    不包含 Flutter 运行时，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+  - Material Color Utilities —
+    https://github.com/material-foundation/material-color-utilities  
+    仅用于生成静态 HCT 色表（Apache-2.0）。
+  - KernelSU / FinaSU、Shizuku：作为 root 与 shell 权限运行时平台使用，
+    不复制其代码；模块格式参考 KernelSU 模块规范。
+- 支持的设备与限制：见上文 **[支持的设备](#支持的设备)**。
