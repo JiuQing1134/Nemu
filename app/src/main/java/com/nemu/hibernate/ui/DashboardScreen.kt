@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -143,6 +144,21 @@ data class LogUiState(
     val fileLines: List<String> = emptyList()
 )
 
+/** 批量操作结果条的语义色：成功用主题色，跳过/失败用错误色。 */
+enum class BatchFeedbackTone { SUCCESS, WARNING, ERROR, NEUTRAL }
+
+/**
+ * 一次批量操作的常驻结果。比 Toast 更容易回看，也承载“撤销上次计划变更”
+ * 与完整跳过清单；[undoAvailable] 只在开机计划批量操作后为 true。
+ */
+data class BatchFeedbackUi(
+    val title: String,
+    val detail: String? = null,
+    val skipped: List<String> = emptyList(),
+    val tone: BatchFeedbackTone = BatchFeedbackTone.NEUTRAL,
+    val undoAvailable: Boolean = false
+)
+
 /**
  * 仪表盘渲染所需的全部状态。此类型不持有 controller，也不写设置；
  * caller 负责读取 Settings / BootFreezeSettings / Logger 后组装。
@@ -166,9 +182,16 @@ data class DashboardState(
     val rootAvailable: Boolean = false,
     /** Plain-language authorization snapshot; null while the first read runs. */
     val privilege: PrivilegeOverview? = null,
+    /** The overview “开始使用” card was dismissed; Settings can re-enable it. */
+    val onboardingDismissed: Boolean = false,
     val themeStyle: ThemeStyle = ThemeStyle.VIVID,
     val themePalette: ThemePalette = ThemePalette.BLUE,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** Last non-empty batch selection, for the “上次选择” restore chip. */
+    val lastFreezeSelection: Set<String> = emptySet(),
+    val lastUnfreezeSelection: Set<String> = emptySet(),
+    /** Persistent result of the last batch operation on the Applications tab. */
+    val batchFeedback: BatchFeedbackUi? = null
 )
 
 /**
@@ -187,11 +210,19 @@ data class DashboardCallbacks(
     val onClearRescue: () -> Unit = {},
     val onTabSelected: (DashboardTab) -> Unit = {},
     val onCatalogToggle: (String, Boolean) -> Unit = { _, _ -> },
+    val onCatalogPlanBatch: (Set<String>, Boolean) -> Unit = { _, _ -> },
+    /** Close the persistent batch result bar (also drops the plan undo). */
+    val onDismissBatchFeedback: () -> Unit = {},
+    /** Restore the plan enabled-flags recorded by the last plan batch. */
+    val onUndoPlanBatch: () -> Unit = {},
     val onCatalogPresetChange: (String, StrategyPreset) -> Unit = { _, _ -> },
     val onCatalogComponentsChange: (String, Set<String>) -> Unit = { _, _ -> },
     val onCatalogApply: (Set<String>) -> Unit = {},
-    val onCatalogRestore: (Set<String>) -> Unit = {},
+    /** second arg = keep the boot plan after a temporary unfreeze. */
+    val onCatalogRestore: (Set<String>, Boolean) -> Unit = { _, _ -> },
     val onCatalogRestoreAll: () -> Unit = {},
+    val onCatalogSelectionRemember: (Boolean, Set<String>) -> Unit =
+        { _, _ -> },
     val onCatalogRefresh: () -> Unit = {},
     val onCustomTargetAdd: (String, String, RiskLevel) -> Unit =
         { _, _, _ -> },
@@ -199,6 +230,10 @@ data class DashboardCallbacks(
     val onAuthorizeRoot: () -> Unit = {},
     val onAuthorizeShizuku: () -> Unit = {},
     val onRefreshPrivilege: () -> Unit = {},
+    /** Hide the overview onboarding card and persist the choice. */
+    val onDismissOnboarding: () -> Unit = {},
+    /** Bring the card back from the settings root. */
+    val onShowOnboarding: () -> Unit = {},
     val onThemeStyleChange: (ThemeStyle) -> Unit = {},
     val onThemePaletteChange: (ThemePalette) -> Unit = {},
     val onThemeModeChange: (ThemeMode) -> Unit = {}
@@ -298,18 +333,33 @@ fun DashboardScreen(
         val pageModifier = Modifier
             .padding(padding)
             .fillMaxSize()
+            // targetSdk 36 is edge-to-edge; without this the IME covers the
+            // bottom selection bar and the list's lower rows.
+            .imePadding()
         tabStateHolder.SaveableStateProvider(selectedTab.name) {
         when (selectedTab) {
             DashboardTab.OVERVIEW -> OverviewPage(state, callbacks, pageModifier)
-            DashboardTab.APPLICATIONS -> ApplicationsScreen(
-                state = state,
-                callbacks = callbacks,
-                modifier = pageModifier,
-                mode = applicationsMode,
-                onModeChange = { applicationsMode = it },
-                focusPackage = focusPackage,
-                onClearFocus = onClearFocus
-            )
+            DashboardTab.APPLICATIONS -> Column(modifier = pageModifier) {
+                // Persistent batch result above the app list. weight(1f)
+                // gives the list every remaining dp; the bar itself is
+                // intrinsic-height and never squeezes the page to nothing.
+                state.batchFeedback?.let { feedback ->
+                    BatchFeedbackBar(
+                        feedback = feedback,
+                        onDismiss = callbacks.onDismissBatchFeedback,
+                        onUndo = callbacks.onUndoPlanBatch
+                    )
+                }
+                ApplicationsScreen(
+                    state = state,
+                    callbacks = callbacks,
+                    modifier = Modifier.weight(1f),
+                    mode = applicationsMode,
+                    onModeChange = { applicationsMode = it },
+                    focusPackage = focusPackage,
+                    onClearFocus = onClearFocus
+                )
+            }
             DashboardTab.ALL_APPS -> AllAppsScreen(
                 state = state,
                 callbacks = callbacks,
@@ -328,7 +378,7 @@ fun DashboardScreen(
             DashboardTab.SETTINGS -> SettingsPage(
                 state = state,
                 callbacks = callbacks,
-                onOpenOverviewAuth = {
+                onOpenOverview = {
                     tabNavigation = tabNavigation.openProgrammatic(
                         DashboardTab.OVERVIEW.ordinal
                     )
@@ -398,19 +448,33 @@ private fun DashboardTopBar(
                 // The freeze/unfreeze switch replaces the oversized title and
                 // the separate mode row: one 30dp control instead of a 28sp
                 // heading plus a 40dp chip row, leaving more room for apps.
+                // Match the unfreeze page's “可解冻 M”: owned AND actually
+                // in a frozen state. A stale ownership marker whose package
+                // was re-enabled externally is not restorable.
                 val restoreCount = state.catalog.count {
-                    it.hasFrozenState || it.applied
+                    it.ownsAnyState && it.hasFrozenState
+                }
+                val planCount = state.catalog.count {
+                    it.enabled && it.active
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     TopBarModePill(
-                        text = "冻结 ${state.catalog.size}",
+                        text = "冻结",
                         selected = applicationsMode == 0,
                         onClick = { onApplicationsModeChange(0) }
                     )
                     TopBarModePill(
-                        text = "解冻 $restoreCount",
+                        text = if (restoreCount == 0 && planCount > 0) {
+                            if (state.bootFreeze.enabled) {
+                                "计划 $planCount"
+                            } else {
+                                "计划 $planCount·未启用"
+                            }
+                        } else {
+                            "可解冻 $restoreCount"
+                        },
                         selected = applicationsMode == 1,
                         onClick = { onApplicationsModeChange(1) }
                     )
@@ -441,7 +505,9 @@ private fun DashboardTopBar(
                             enabled = canRefresh,
                             onClick = onRefreshApplications
                         )
-                        .padding(horizontal = 6.dp, vertical = 8.dp)
+                        // Invisible padding so the bare label still has a
+                        // 48dp-tall touch target inside the top bar.
+                        .padding(horizontal = 10.dp, vertical = 16.dp)
                 )
             }
             if (state.busy) {
@@ -733,9 +799,66 @@ private fun OverviewPage(
         item {
             OverviewHeroCard(state = state, callbacks = callbacks)
         }
+        if (!state.onboardingDismissed) {
+            item {
+                OnboardingCard(
+                    privilege = state.privilege,
+                    onDismiss = callbacks.onDismissOnboarding,
+                    modifier = Modifier.animateItem()
+                )
+            }
+        }
         item { PrivilegeCard(state, callbacks) }
         if (state.rescueMode) item { RescueModeCard(callbacks) }
         item { BootFreezeCard(state) }
+    }
+}
+
+/**
+ * What the current authorization can do. Pure so the four states are
+ * unit-testable without Compose; null means the first privilege read is
+ * still running.
+ */
+internal fun onboardingMessage(privilege: PrivilegeOverview?): String = when {
+    privilege == null -> "正在检查权限…"
+    privilege.rootAvailable ->
+        "已就绪：可冻结应用、停用组件、伪装卸载，并启用开机自动恢复。"
+    privilege.shizukuGranted ->
+        "可用：冻结和解冻。开机自动恢复、隐藏和停用组件需要 Root。"
+    else ->
+        "可先浏览目标并加入开机计划；执行冻结前需要授权 Root 或 Shizuku。"
+}
+
+/**
+ * Non-blocking first-run guide above the privilege card. The buttons live in
+ * the privilege card immediately below; duplicating them here gave a Root
+ * user an irrelevant “授权 Shizuku” action and four authorization buttons on
+ * the first screen. “知道了” hides the card until Settings re-enables it.
+ */
+@Composable
+private fun OnboardingCard(
+    privilege: PrivilegeOverview?,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SectionCard(
+        modifier = modifier,
+        title = "开始使用",
+        subtitle = "按当前授权说明可用能力；可随时关闭，并在设置中重新打开。"
+    ) {
+        Text(
+            text = onboardingMessage(privilege),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = "具体授权按钮在下方“授权”卡中；这里不会自动请求权限。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        NemuFilledButton(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("知道了") }
     }
 }
 
@@ -857,11 +980,7 @@ private fun OverviewHeroCard(
         if (paused > 0) add("$paused 个已暂停")
     }.joinToString("、")
     // A plan is not "planned" for boot while the master switch is off.
-    val planned = if (state.bootFreeze.enabled) {
-        state.catalog.count { it.enabled && it.active }
-    } else {
-        0
-    }
+    val planned = state.catalog.count { it.enabled && it.active }
     val scheme = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -961,7 +1080,14 @@ private fun OverviewHeroCard(
                             .height(22.dp)
                             .background(scheme.outlineVariant.copy(alpha = 0.55f))
                     )
-                    InlineStat(value = "$planned", label = "计划中")
+                    InlineStat(
+                        value = "$planned",
+                        label = if (state.bootFreeze.enabled) {
+                            "计划中"
+                        } else {
+                            "计划·未启用"
+                        }
+                    )
                 }
             }
             if (state.dryRun) {
@@ -1077,7 +1203,7 @@ private fun BootFreezeCard(state: DashboardState) {
         Text(
             text = when {
                 !boot.enabled -> "未启用 · 总开关关闭"
-                boot.windowMissed -> "本 boot 窗口已过，下次重试"
+                boot.windowMissed -> "本次开机窗口已过，下次重试"
                 boot.plannedCount == 0 -> "无计划"
                 else -> "已启用 · ${boot.delaySeconds}s 后执行"
             },
@@ -1192,7 +1318,7 @@ private const val SETTINGS_ROOT = -1
 private fun SettingsPage(
     state: DashboardState,
     callbacks: DashboardCallbacks,
-    onOpenOverviewAuth: () -> Unit,
+    onOpenOverview: () -> Unit,
     pageIndex: Int,
     onPageChange: (Int) -> Unit,
     modifier: Modifier
@@ -1266,6 +1392,17 @@ private fun SettingsPage(
                                     onPageChange(item.id.ordinal)
                                 }
                             }
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                            SettingsActionRow(
+                                title = "重新显示使用引导",
+                                summary = "回到概览页显示“开始使用”卡片。",
+                                onClick = {
+                                    callbacks.onShowOnboarding()
+                                    onOpenOverview()
+                                }
+                            )
                         }
                     }
                 }
@@ -1275,7 +1412,7 @@ private fun SettingsPage(
                         ExecutionSettingsContent(
                             state,
                             callbacks,
-                            onOpenOverviewAuth
+                            onOpenOverview
                         )
                     }
                     SettingsEntryId.BOOT -> {
@@ -1342,6 +1479,44 @@ private fun SettingsEntryRow(
     }
 }
 
+/** Settings-root row that runs a callback instead of opening a sub-page. */
+@Composable
+private fun SettingsActionRow(
+    title: String,
+    summary: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .nemuClickable(
+                spec = NemuPressSpec.Row,
+                haptic = NemuHaptic.KeyboardTap,
+                onClick = onClick
+            )
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = "显示",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
 /**
  * 开机页只读展示：总开关留在概览，避免两个开关同时改同一设置。
  */
@@ -1386,7 +1561,7 @@ private fun BootStatusContent(
             label = "执行状态",
             value = when {
                 !boot.enabled -> "总开关关闭"
-                boot.windowMissed -> "本 boot 已过"
+                boot.windowMissed -> "本次开机已过"
                 boot.plannedCount == 0 -> "无计划"
                 else -> "已启用 · ${boot.delaySeconds}s"
             },
@@ -1485,7 +1660,7 @@ private fun ProtectionRulesCard() {
 private fun ExecutionSettingsContent(
     state: DashboardState,
     callbacks: DashboardCallbacks,
-    onOpenOverviewAuth: () -> Unit
+    onOpenOverview: () -> Unit
 ) {
     var showActualConfirm by remember { mutableStateOf(false) }
     SectionCard(title = "冻结与权限") {
@@ -1572,7 +1747,7 @@ private fun ExecutionSettingsContent(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            TextButton(onClick = onOpenOverviewAuth) {
+            TextButton(onClick = onOpenOverview) {
                 Text(
                     "去授权",
                     style = MaterialTheme.typography.labelMedium

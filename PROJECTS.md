@@ -1,6 +1,6 @@
 # 两个项目的地址与产物
 
-> 更新：2026-11-24（模块 v1.18 / App 重新构建）  
+> 更新：2026-11-25（交互批次 + P1/P2 审计修复 / App 重新构建）  
 > **已验证设备**：HONOR AAP-AN00，MagicOS 10.0.0.102（Android 16，SDK 36），
 > 内核 `6.12.23-android16-5-gcd85666d7884-abogki452537391-4k`，当前槽位 `a`。  
 > 远程仓库：https://github.com/JiuQing1134/Nemu 与 https://github.com/JiuQing1134/Nagi（公开）。
@@ -12,9 +12,11 @@
 - **applicationId**：`com.nemu.dream`
 - **源码命名空间**：`com.nemu.hibernate`
 - **版本**：`1.3.3` / `versionCode 9`
-- **当前 universal release**（2026-11-24，含模块 v1.18 配套 App 修复）：
-  `app/build/outputs/apk/release/app-release.apk` — 24,806,433 字节 — SHA-256
-  `b513e96269b665e77ad6de52edac45be63a311519219963f272fa702afb21fa3`
+- **当前 universal release**（2026-11-25，含批量开机计划 / 选择跨筛选保留 /
+  已选×单一清空入口 / 细开关与批量同步 / 解冻页计划留存 / 检测页统一分类 /
+  拼音多音词搜索 / 计划撤销与结果反馈 / P1/P2 审计修复）：
+  `app/build/outputs/apk/release/app-release.apk` — 24,970,273 字节 — SHA-256
+  `6b185185e0e52ad876401415022d2b958ba26eac0346769ab35ce6a54f4ddbcc`
 - **历史四包**（`dist/`，debug/release × arm64-v8a/x86_64）：
   - `Nemu-1.3.3-arm64-v8a-debug.apk` — 34,756,230 字节 — `436565d4ac55a2a7303e2e5b4b7e35ab4da25e4ce72846c9e0bb90a2e336fa81`
   - `Nemu-1.3.3-x86_64-debug.apk` — 34,756,891 字节 — `9b6267e7e1a887dd9a4a39ed0bd7c464ee769bd9b071655242987f12d754b56f`

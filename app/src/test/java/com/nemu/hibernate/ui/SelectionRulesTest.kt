@@ -33,6 +33,29 @@ class SelectionRulesTest {
     )
 
     @Test
+    fun rootOnlyStrategyCanBePlannedWithoutRootButNotApplied() {
+        val hide = row(
+            preset = StrategyPreset.HIDE,
+            strategy = FreezeStrategy.HIDE
+        )
+
+        assertFalse(SelectionRules.isSelectable(hide, rootAvailable = false))
+        assertTrue(SelectionRules.isSelectableForPlan(hide))
+        assertEquals(
+            1,
+            SelectionRules.selectedForPlan(listOf(hide), setOf(hide.packageName)).size
+        )
+        assertTrue(
+            SelectionRules.selectedForApply(
+                listOf(hide),
+                setOf(hide.packageName),
+                rootAvailable = false,
+                canFreeze = false
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun selectionAppliesEvenWhenNotInBootPlan() {
         val catalog = listOf(row(enabled = false))
 
@@ -60,6 +83,10 @@ class SelectionRulesTest {
         )
 
         assertEquals(1, SelectionRules.planCount(catalog))
+        assertEquals(
+            listOf("com.example.on"),
+            SelectionRules.planTargets(catalog).map { it.packageName }
+        )
     }
 
     @Test
@@ -89,6 +116,33 @@ class SelectionRulesTest {
                 row(),
                 rootAvailable = true
             )
+        )
+    }
+
+    @Test
+    fun planningSelectionDoesNotRequireAFreezeBackend() {
+        val catalog = listOf(row(preset = StrategyPreset.FREEZE))
+
+        assertTrue(
+            SelectionRules.isSelectable(
+                catalog.single(),
+                rootAvailable = false
+            )
+        )
+        assertEquals(
+            1,
+            SelectionRules.selectedForPlan(
+                catalog,
+                setOf("com.example.app")
+            ).size
+        )
+        assertTrue(
+            SelectionRules.selectedForApply(
+                catalog,
+                setOf("com.example.app"),
+                rootAvailable = false,
+                canFreeze = false
+            ).isEmpty()
         )
     }
 
@@ -123,6 +177,30 @@ class SelectionRulesTest {
                 setOf(pushagent.packageName),
                 rootAvailable = true
             ).size
+        )
+    }
+
+    @Test
+    fun unfreezeScopeLabelOmitsRestorableCountWhenAllRowsAreOurs() {
+        assertEquals(
+            "当前冻结 5",
+            unfreezeScopeLabel(frozenCount = 5, selectableCount = 5)
+        )
+    }
+
+    @Test
+    fun unfreezeScopeLabelShowsRestorableCountWhenSomeRowsAreReadOnly() {
+        assertEquals(
+            "当前冻结 5 · 可解冻 3",
+            unfreezeScopeLabel(frozenCount = 5, selectableCount = 3)
+        )
+    }
+
+    @Test
+    fun unfreezeScopeLabelHandlesEmptyScope() {
+        assertEquals(
+            "当前冻结 0",
+            unfreezeScopeLabel(frozenCount = 0, selectableCount = 0)
         )
     }
 }

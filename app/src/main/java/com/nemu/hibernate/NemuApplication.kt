@@ -37,6 +37,16 @@ class NemuApplication : Application() {
                 // Seed before any screen reads dryRun; old builds never
                 // persisted the key, so an upgrade must keep real execution.
                 settings.ensureDryRunDefault()
+                runCatching {
+                    val info = appContext.packageManager.getPackageInfo(
+                        appContext.packageName,
+                        0
+                    )
+                    settings.ensureOnboardingDefault(
+                        info.firstInstallTime,
+                        info.lastUpdateTime
+                    )
+                }
                 TargetCatalog.setCustomTargets(
                     settings.customTargets().map { record ->
                         TargetCatalog.customTarget(

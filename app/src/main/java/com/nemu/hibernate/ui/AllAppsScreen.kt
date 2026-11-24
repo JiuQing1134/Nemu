@@ -491,7 +491,7 @@ internal fun AppSortButton(
             modifier = Modifier
                 // No 30dp circle / ripple: the hit area hugs the glyph; a
                 // press dims the bars instead of flashing a grey circle.
-                .size(24.dp)
+                .size(36.dp)
                 .noRippleClickable { expanded = true }
                 .semantics { contentDescription = "排序" },
             contentAlignment = Alignment.Center
@@ -656,8 +656,7 @@ fun AllAppsScreen(
             byFilter
         } else {
             byFilter.filter {
-                it.label.contains(query, ignoreCase = true) ||
-                    it.packageName.contains(query, ignoreCase = true)
+                matchesAppQuery(it.label, it.packageName, query)
             }
         }
         sortApps(
@@ -718,17 +717,22 @@ fun AllAppsScreen(
         CatalogSearchRow(
             query = query,
             onQueryChange = { query = it },
-            placeholder = "搜索应用或包名",
+            placeholder = "应用 / 包名 / 拼音 / 首字母",
             busy = state.busy,
             allSelected = selectable.isNotEmpty() &&
                 selectable.all { it.packageName in selected },
-            selectedCount = selectedEntries.size,
             selectAllEnabled = selectable.isNotEmpty(),
             onSelectAll = {
                 selected = selected +
                     selectable.map { it.packageName }
             },
-            onClearAll = { selected = emptySet() },
+            onClearVisible = {
+                // 全选 pill toggles only the current visible/filtered set;
+                // hidden selections survive because the catalog keeps them.
+                // The bottom bar's × pill clears everything.
+                selected = selected -
+                    selectable.mapTo(mutableSetOf()) { it.packageName }
+            },
             modifier = Modifier.padding(
                 start = 16.dp,
                 end = 16.dp,
@@ -849,7 +853,8 @@ fun AllAppsScreen(
                     SectionCard(title = "没有匹配的应用") {
                         Text(
                             if (query.isNotBlank()) {
-                                "没有名称或包名包含“$query”的应用。"
+                                "没有名称、包名或拼音包含“$query”的应用。" +
+                                    "可尝试全拼或首字母，如 xitong、xtgx。"
                             } else if (filter == AllAppsFilter.ADDED) {
                                 "还没有添加到 Nemu 的应用。"
                             } else {
@@ -945,17 +950,14 @@ fun AllAppsScreen(
                 ) {
                     if (systemTools.isNotEmpty()) {
                         Text(
-                            "以下系统/关键应用被停用或隐藏后，可能导致无法开机、" +
-                                "没有桌面、没有输入法，或无法恢复：",
+                            "以下系统/关键应用被停用或隐藏后，可能导致无法开机、没有桌面、没有输入法，或无法恢复：",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
                     }
                     if (toolEntries.isNotEmpty()) {
                         Text(
-                            "以下 Root 管理器 / Shizuku / LSPosed / LSP 插件" +
-                                "不是系统应用，但冻结后可能丢失 Root、模块、插件或" +
-                                "授权，导致无法恢复：",
+                            "以下 Root 管理器 / Shizuku / LSPosed / LSP 插件不是系统应用，但冻结后可能丢失 Root、模块、插件或授权，导致无法恢复：",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )

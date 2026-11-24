@@ -89,7 +89,7 @@ data class CatalogTargetUiState(
         if (preset == StrategyPreset.PAUSE) "暂停" else "冻结"
 
     fun actualText(): String = when {
-        ownershipPending -> "所有权待清理"
+        ownershipPending -> "状态待确认"
         actual.hidden == true && ownedHidden -> "已隐藏"
         actual.hidden == true -> "他人隐藏"
         strategy == FreezeStrategy.HIDE ->

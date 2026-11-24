@@ -63,6 +63,8 @@ import com.nemu.hibernate.privilege.PrivilegeBackend
 import com.nemu.hibernate.privilege.PrivilegeLabels
 import com.nemu.hibernate.privilege.PrivilegeOverview
 import com.nemu.hibernate.privilege.PrivilegeOverviewReader
+import com.nemu.hibernate.ui.BatchFeedbackTone
+import com.nemu.hibernate.ui.BatchFeedbackUi
 import com.nemu.hibernate.ui.BootFreezeUiState
 import com.nemu.hibernate.ui.CatalogTargetUiState
 import com.nemu.hibernate.ui.CotaCallbacks
@@ -94,6 +96,12 @@ import java.util.Date
 import java.util.Locale
 import rikka.shizuku.Shizuku
 import java.io.File
+
+/**
+ * One-step undo for the last plan batch: the enabled flag each changed
+ * package had before the operation. Unchanged/skipped packages are absent.
+ */
+private data class PlanUndoState(val previous: Map<String, Boolean>)
 
 class MainActivity : ComponentActivity() {
     /** App-private COTA backups: other apps cannot rewrite manifest + files. */
@@ -216,6 +224,9 @@ class MainActivity : ComponentActivity() {
                 var privilegeOverview by remember {
                     mutableStateOf<PrivilegeOverview?>(null)
                 }
+                var onboardingDismissed by remember {
+                    mutableStateOf(settings.onboardingDismissed)
+                }
                 var busy by remember { mutableStateOf(false) }
                 // Freezing/restoring can take several seconds. Do not let an
                 // accidental Back destroy the activity and cancel the work.
@@ -318,6 +329,15 @@ class MainActivity : ComponentActivity() {
                 var lastCatalogResult by remember {
                     mutableStateOf<String?>(null)
                 }
+                // Persistent batch result for the Applications page. The
+                // one-step plan undo sits beside it: showing a feedback bar
+                // without an undo action drops the stale undo entry.
+                var batchFeedback by remember {
+                    mutableStateOf<BatchFeedbackUi?>(null)
+                }
+                var planUndo by remember {
+                    mutableStateOf<PlanUndoState?>(null)
+                }
                 var catalogRefreshing by remember { mutableStateOf(false) }
                 var focusPackage by remember {
                     mutableStateOf<String?>(null)
@@ -392,6 +412,16 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
+
+                /**
+                 * Single entry for the persistent results bar. Feedback that
+                 * cannot be undone must not leave a previous plan undo behind
+                 * (the bar would hide the entry point but keep stale data).
+                 */
+                fun publishBatchFeedback(feedback: BatchFeedbackUi) {
+                    batchFeedback = feedback
+                    if (!feedback.undoAvailable) planUndo = null
                 }
 
                 fun cleanupStaleHiddenMarkers() {
@@ -826,9 +856,13 @@ class MainActivity : ComponentActivity() {
                         catalogRefreshing = catalogRefreshing,
                         rootAvailable = cotaRootAvailable,
                         privilege = privilegeOverview,
+                        onboardingDismissed = onboardingDismissed,
                         themeStyle = themeStyle,
                         themePalette = themePalette,
-                        themeMode = themeMode
+                        themeMode = themeMode,
+                        lastFreezeSelection = settings.lastSelection(false),
+                        lastUnfreezeSelection = settings.lastSelection(true),
+                        batchFeedback = batchFeedback
                     ),
                     callbacks = DashboardCallbacks(
                         onDryRunChange = {
@@ -916,6 +950,14 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onRefreshPrivilege = { refreshPrivilege(notify = true) },
+                        onDismissOnboarding = {
+                            settings.onboardingDismissed = true
+                            onboardingDismissed = true
+                        },
+                        onShowOnboarding = {
+                            settings.onboardingDismissed = false
+                            onboardingDismissed = false
+                        },
                         onThemeStyleChange = { style ->
                             themeStyle = style
                             settings.themeStyle = style.name
@@ -1219,6 +1261,8 @@ class MainActivity : ComponentActivity() {
                             val target = TargetCatalog.byPackage(packageName)
                             if (target == null) {
                                 ActionLog.warn("未知目标：$packageName")
+                            } else if (rescueMode) {
+                                ActionLog.warn("自动救砖模式：先清除救援模式再改计划")
                             } else if (value &&
                                 !TargetPolicy(this@MainActivity).isActive(target)
                             ) {
@@ -1226,10 +1270,13 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 val policy = TargetPolicy(this@MainActivity)
                                 val reason = if (value) {
+                                    // Planning is executed later by the boot
+                                    // module, which may have root even when
+                                    // this session does not.
                                     TargetCopy.unavailableReason(
                                         target,
                                         policy.preset(target),
-                                        cotaRootAvailable
+                                        rootAvailable = true
                                     )
                                 } else {
                                     null
@@ -1241,12 +1288,25 @@ class MainActivity : ComponentActivity() {
                                     )
                                 } else {
                                     policy.setEnabled(target, value)
-                                    // Flip the row immediately: selection is
-                                    // pure policy and must never wait on a
-                                    // shell read.
+                                    // A single-row plan edit after a batch
+                                    // invalidates the batch snapshot; undo
+                                    // must not silently overwrite it.
+                                    planUndo = null
+                                    if (batchFeedback?.undoAvailable == true) {
+                                        // Keep the batch result visible, but
+                                        // remove the now-stale undo action.
+                                        batchFeedback = batchFeedback?.copy(
+                                            undoAvailable = false
+                                        )
+                                    }
+                                    // Flip the row immediately: the switch
+                                    // must not wait for the async catalog
+                                    // rebuild.
                                     catalog = catalog.map { row ->
                                         if (row.packageName == packageName) {
-                                            row.copy(enabled = value)
+                                            row.copy(
+                                                enabled = value && row.active
+                                            )
                                         } else {
                                             row
                                         }
@@ -1257,6 +1317,198 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
+                        onCatalogPlanBatch = { selected, value ->
+                            val policy = TargetPolicy(this@MainActivity)
+                            // Previous enabled value for every package this
+                            // batch actually flips; unchanged/skipped rows are
+                            // deliberately absent so undo cannot clobber them.
+                            val previous = LinkedHashMap<String, Boolean>()
+                            val skipped = mutableListOf<String>()
+                            selected.forEach { packageName ->
+                                val target = TargetCatalog.byPackage(packageName)
+                                if (target == null) {
+                                    skipped += packageName
+                                    return@forEach
+                                }
+                                if (value && !policy.isActive(target)) {
+                                    skipped += "${target.label}（仅观察）"
+                                    return@forEach
+                                }
+                                if (value) {
+                                    // Root-only strategies can still be
+                                    // planned; execution happens at boot.
+                                    val reason = TargetCopy.unavailableReason(
+                                        target,
+                                        policy.preset(target),
+                                        rootAvailable = true
+                                    )
+                                    if (reason != null) {
+                                        skipped += "${target.label}（$reason）"
+                                        return@forEach
+                                    }
+                                }
+                                val wasEnabled = policy.isEnabled(target)
+                                if (wasEnabled != value) {
+                                    previous[packageName] = wasEnabled
+                                    policy.setEnabled(target, value)
+                                }
+                            }
+                            val changed = previous.keys
+                            if (changed.isNotEmpty()) {
+                                val changedSet = changed.toSet()
+                                // Flip the rows immediately so every card's
+                                // plan switch and the plan filter agree with
+                                // the batch before the async rebuild lands.
+                                // The rebuild only reconciles derived fields.
+                                catalog = catalog.map { row ->
+                                    if (row.packageName in changedSet) {
+                                        row.copy(enabled = value && row.active)
+                                    } else {
+                                        row
+                                    }
+                                }
+                                rebuildCatalog()
+                                scheduleShutdownScriptWrite()
+                                refreshBootFreezeSchedule()
+                            }
+                            val action = if (value) "加入" else "移出"
+                            val title = if (changed.isNotEmpty()) {
+                                "已${action}开机计划 ${changed.size} 个"
+                            } else {
+                                "没有变更"
+                            }
+                            val detail = buildString {
+                                if (changed.isEmpty()) {
+                                    val unchanged = selected.size - skipped.size
+                                    if (unchanged > 0) {
+                                        append(
+                                            if (value) {
+                                                "$unchanged 个已在开机计划中"
+                                            } else {
+                                                "$unchanged 个不在开机计划中"
+                                            }
+                                        )
+                                    }
+                                }
+                                if (skipped.isNotEmpty()) {
+                                    if (isNotEmpty()) append("；")
+                                    append("跳过 ${skipped.size} 个：")
+                                    append(
+                                        skipped.take(3).joinToString("、")
+                                    )
+                                    if (skipped.size > 3) append("…")
+                                }
+                            }.ifBlank { null }
+                            val tone = when {
+                                changed.isNotEmpty() && skipped.isEmpty() ->
+                                    BatchFeedbackTone.SUCCESS
+                                changed.isNotEmpty() || skipped.isNotEmpty() ->
+                                    BatchFeedbackTone.WARNING
+                                else -> BatchFeedbackTone.NEUTRAL
+                            }
+                            // A new plan batch always replaces the old undo
+                            // target, including a no-op batch (no undo shown).
+                            planUndo = if (changed.isNotEmpty()) {
+                                PlanUndoState(previous.toMap())
+                            } else {
+                                null
+                            }
+                            publishBatchFeedback(
+                                BatchFeedbackUi(
+                                    title = title,
+                                    detail = detail,
+                                    skipped = skipped.toList(),
+                                    tone = tone,
+                                    undoAvailable = changed.isNotEmpty()
+                                )
+                            )
+                            lastCatalogResult = if (detail == null) {
+                                title
+                            } else {
+                                "$title；$detail"
+                            }
+                            if (changed.isNotEmpty()) {
+                                ActionLog.info(lastCatalogResult!!)
+                            } else {
+                                ActionLog.warn(lastCatalogResult!!)
+                            }
+                        },
+                        onDismissBatchFeedback = {
+                            batchFeedback = null
+                            planUndo = null
+                        },
+                        onUndoPlanBatch = {
+                            val undo = planUndo
+                            if (undo != null) {
+                                val policy = TargetPolicy(this@MainActivity)
+                                val restored = mutableListOf<String>()
+                                val skipped = mutableListOf<String>()
+                                undo.previous.forEach { (packageName, enabled) ->
+                                    val target =
+                                        TargetCatalog.byPackage(packageName)
+                                    // A preset switch to OBSERVE disables the
+                                    // plan; blindly writing enabled=true would
+                                    // create an “已加入计划” card that the
+                                    // scheduler ignores. Skip and report it.
+                                    if (target != null && policy.isActive(target)) {
+                                        policy.setEnabled(target, enabled)
+                                        restored += packageName
+                                    } else {
+                                        skipped += packageName
+                                    }
+                                }
+                                if (restored.isNotEmpty()) {
+                                    val restoredSet = restored.toSet()
+                                    catalog = catalog.map { row ->
+                                        if (row.packageName in restoredSet) {
+                                            row.copy(
+                                                enabled = undo.previous.getValue(
+                                                    row.packageName
+                                                )
+                                            )
+                                        } else {
+                                            row
+                                        }
+                                    }
+                                    rebuildCatalog()
+                                    scheduleShutdownScriptWrite()
+                                    refreshBootFreezeSchedule()
+                                }
+                                val title = if (restored.isEmpty()) {
+                                    "没有可撤销的目标"
+                                } else {
+                                    "已撤销上次计划变更（${restored.size} 个）"
+                                }
+                                publishBatchFeedback(
+                                    BatchFeedbackUi(
+                                        title = title,
+                                        detail = if (skipped.isNotEmpty()) {
+                                            "${skipped.size} 个目标已不在目录或已改为观察"
+                                        } else {
+                                            null
+                                        },
+                                        skipped = skipped.map { packageName ->
+                                            catalog.firstOrNull {
+                                                it.packageName == packageName
+                                            }?.label ?: packageName
+                                        },
+                                        tone = when {
+                                            restored.isEmpty() ->
+                                                BatchFeedbackTone.WARNING
+                                            skipped.isNotEmpty() ->
+                                                BatchFeedbackTone.WARNING
+                                            else -> BatchFeedbackTone.SUCCESS
+                                        },
+                                        undoAvailable = false
+                                    )
+                                )
+                                lastCatalogResult = title
+                                ActionLog.info(title)
+                            }
+                        },
+                        onCatalogSelectionRemember = { unfreeze, packages ->
+                            settings.setLastSelection(unfreeze, packages)
+                        },
                         onCatalogPresetChange = { packageName, preset ->
                             launchBusy {
                                 val target = TargetCatalog.byPackage(packageName)
@@ -1264,6 +1516,17 @@ class MainActivity : ComponentActivity() {
                                     val policy = TargetPolicy(this@MainActivity)
                                     val previous = policy.preset(target)
                                     if (previous != preset) {
+                                        // setPreset(OBSERVE) clears the plan;
+                                        // any preset switch can change whether
+                                        // the batch snapshot is still valid.
+                                        planUndo = null
+                                        if (batchFeedback?.undoAvailable == true) {
+                                            // Keep the result, drop only the
+                                            // undo that no longer matches.
+                                            batchFeedback = batchFeedback?.copy(
+                                                undoAvailable = false
+                                            )
+                                        }
                                         val row = catalog.firstOrNull {
                                             it.packageName == packageName
                                         }
@@ -1461,6 +1724,11 @@ class MainActivity : ComponentActivity() {
                                         refreshTargetActual()
                                         refreshDetection()
                                         backendStatus = manager.status()
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            lastCatalogResult,
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 }
                             }
@@ -1522,6 +1790,12 @@ class MainActivity : ComponentActivity() {
                                                 ResultReason.BACKEND_UNAVAILABLE
                                             ).line()
                                         ActionLog.warn("无可用权限；无法应用冻结策略")
+                                        publishBatchFeedback(
+                                            BatchFeedbackUi(
+                                                title = "无法冻结：无可用权限",
+                                                tone = BatchFeedbackTone.ERROR
+                                            )
+                                        )
                                     }
                                     targets.isEmpty() -> {
                                         lastCatalogResult =
@@ -1529,6 +1803,13 @@ class MainActivity : ComponentActivity() {
                                                 ResultReason.NO_ENABLED_TARGETS
                                             ).line()
                                         ActionLog.warn(lastCatalogResult!!)
+                                        publishBatchFeedback(
+                                            BatchFeedbackUi(
+                                                title = "没有可冻结的目标",
+                                                detail = lastCatalogResult,
+                                                tone = BatchFeedbackTone.WARNING
+                                            )
+                                        )
                                     }
                                     rescueBlocks -> {
                                         lastCatalogResult =
@@ -1542,6 +1823,17 @@ class MainActivity : ComponentActivity() {
                                             ).line()
                                         ActionLog.warn(
                                             "自动救砖模式/状态未知：请先清除救援标记再冻结"
+                                        )
+                                        publishBatchFeedback(
+                                            BatchFeedbackUi(
+                                                title = "冻结被拒绝：自动救砖模式",
+                                                detail = if (rescue == true) {
+                                                    null
+                                                } else {
+                                                    "救援状态未知"
+                                                },
+                                                tone = BatchFeedbackTone.ERROR
+                                            )
                                         )
                                     }
                                     else -> {
@@ -1558,6 +1850,13 @@ class MainActivity : ComponentActivity() {
                                                     ).line()
                                                 ActionLog.warn(
                                                     "冻结尝试无法持久化，未执行命令"
+                                                )
+                                                publishBatchFeedback(
+                                                    BatchFeedbackUi(
+                                                        title = "冻结未执行：恢复记录写入失败",
+                                                        detail = lastCatalogResult,
+                                                        tone = BatchFeedbackTone.ERROR
+                                                    )
                                                 )
                                                 return@launchBusy
                                             }
@@ -1597,6 +1896,34 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             ActionLog.warn(logText)
                                         }
+                                        publishBatchFeedback(
+                                            when {
+                                                settings.dryRun -> BatchFeedbackUi(
+                                                    title = "预览：冻结 ${targets.size} 项未执行",
+                                                    detail = summary,
+                                                    skipped = result.reasons
+                                                        .map { it.line() }
+                                                        .distinct(),
+                                                    tone = BatchFeedbackTone.NEUTRAL
+                                                )
+                                                result.ok -> BatchFeedbackUi(
+                                                    title = "冻结完成 ${targets.size} 项",
+                                                    detail = summary,
+                                                    skipped = result.reasons
+                                                        .map { it.line() }
+                                                        .distinct(),
+                                                    tone = BatchFeedbackTone.SUCCESS
+                                                )
+                                                else -> BatchFeedbackUi(
+                                                    title = "冻结有失败",
+                                                    detail = summary,
+                                                    skipped = result.reasons
+                                                        .map { it.line() }
+                                                        .distinct(),
+                                                    tone = BatchFeedbackTone.ERROR
+                                                )
+                                            }
+                                        )
                                         refreshBootFreezeState()
                                         refreshTargetActual()
                                         refreshDetection()
@@ -1605,7 +1932,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onCatalogRestore = { selected ->
+                        onCatalogRestore = { selected, keepPlan ->
                             launchBusy {
                                 val backend = manager.get()
                                 val targets = TargetCatalog.all.filter {
@@ -1618,11 +1945,24 @@ class MainActivity : ComponentActivity() {
                                                 ResultReason.BACKEND_UNAVAILABLE
                                             ).line()
                                         ActionLog.warn("无可用权限；无法解冻所选")
+                                        publishBatchFeedback(
+                                            BatchFeedbackUi(
+                                                title = "无法解冻：无可用权限",
+                                                tone = BatchFeedbackTone.ERROR
+                                            )
+                                        )
                                     }
                                     targets.isEmpty() -> {
                                         lastCatalogResult =
                                             ResultNote(ResultReason.NO_SELECTION).line()
                                         ActionLog.warn(lastCatalogResult!!)
+                                        publishBatchFeedback(
+                                            BatchFeedbackUi(
+                                                title = "没有可解冻的目标",
+                                                detail = lastCatalogResult,
+                                                tone = BatchFeedbackTone.WARNING
+                                            )
+                                        )
                                     }
                                     else -> {
                                         val policy = TargetPolicy(this@MainActivity)
@@ -1638,6 +1978,13 @@ class MainActivity : ComponentActivity() {
                                             lastCatalogResult =
                                                 "所选目标没有 Nemu 所有权，未解冻他人暂停"
                                             ActionLog.warn(lastCatalogResult!!)
+                                            publishBatchFeedback(
+                                                BatchFeedbackUi(
+                                                    title = "未解冻：没有 Nemu 所有权",
+                                                    detail = "不会解冻其他工具暂停的应用",
+                                                    tone = BatchFeedbackTone.WARNING
+                                                )
+                                            )
                                             return@launchBusy
                                         }
                                         val foreignCount =
@@ -1683,7 +2030,7 @@ class MainActivity : ComponentActivity() {
                                         // keeps its plan. Do not use the batch
                                         // result, which would leave successful
                                         // targets planned after a partial fail.
-                                        if (!settings.dryRun) {
+                                        if (!settings.dryRun && !keepPlan) {
                                             ownedTargets.forEach { target ->
                                                 val stillOwned =
                                                     policy.isApplied(target) ||
@@ -1695,21 +2042,57 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             }
                                         }
+                                        val restoreDetail = buildString {
+                                            append(result.summary())
+                                            append("；组件：${components.summary()}")
+                                            if (keepPlan) {
+                                                append("；开机计划保留")
+                                            }
+                                            if (foreignCount > 0) {
+                                                append("；跳过 $foreignCount 项他人暂停")
+                                            }
+                                        }
                                         lastCatalogResult =
                                             (if (settings.dryRun) "预览：" else "") +
                                                 "解冻所选 ${ownedTargets.size} 项：" +
-                                                result.summary() +
-                                                "；组件：${components.summary()}" +
-                                                if (foreignCount > 0) {
-                                                    "；跳过 $foreignCount 项他人暂停"
-                                                } else {
-                                                    ""
-                                                }
+                                                restoreDetail
                                         if (result.ok && components.ok) {
                                             ActionLog.info(lastCatalogResult!!)
                                         } else {
                                             ActionLog.warn(lastCatalogResult!!)
                                         }
+                                        publishBatchFeedback(
+                                            when {
+                                                settings.dryRun -> BatchFeedbackUi(
+                                                    title = "预览：解冻 ${ownedTargets.size} 项未执行",
+                                                    detail = restoreDetail,
+                                                    skipped = (result.reasons +
+                                                        components.reasons)
+                                                        .map { it.line() }
+                                                        .distinct(),
+                                                    tone = BatchFeedbackTone.NEUTRAL
+                                                )
+                                                result.ok && components.ok ->
+                                                    BatchFeedbackUi(
+                                                        title = "解冻完成 ${ownedTargets.size} 项",
+                                                        detail = restoreDetail,
+                                                        skipped = (result.reasons +
+                                                            components.reasons)
+                                                            .map { it.line() }
+                                                            .distinct(),
+                                                        tone = BatchFeedbackTone.SUCCESS
+                                                    )
+                                                else -> BatchFeedbackUi(
+                                                    title = "解冻有失败",
+                                                    detail = restoreDetail,
+                                                    skipped = (result.reasons +
+                                                        components.reasons)
+                                                        .map { it.line() }
+                                                        .distinct(),
+                                                    tone = BatchFeedbackTone.ERROR
+                                                )
+                                            }
+                                        )
                                         refreshBootFreezeState()
                                         refreshTargetActual()
                                         refreshDetection()
@@ -1727,6 +2110,12 @@ class MainActivity : ComponentActivity() {
                                             ResultReason.BACKEND_UNAVAILABLE
                                         ).line()
                                     ActionLog.warn("无可用权限；无法全部解冻")
+                                    publishBatchFeedback(
+                                        BatchFeedbackUi(
+                                            title = "无法全部解冻：无可用权限",
+                                            tone = BatchFeedbackTone.ERROR
+                                        )
+                                    )
                                 } else {
                                     val policy = TargetPolicy(this@MainActivity)
                                     if (!settings.dryRun) {
@@ -1756,26 +2145,78 @@ class MainActivity : ComponentActivity() {
                                     // A preview must not touch the device. The
                                     // always-on residual path still runs for
                                     // real restores, shutdown and boot recovery.
-                                    val residualText =
+                                    val residual =
                                         if (RestoreExecutionPolicy.runsResidualCleanup(
                                                 settings.dryRun
                                             )
                                         ) {
-                                            val residual = withContext(Dispatchers.IO) {
+                                            withContext(Dispatchers.IO) {
                                                 safetyService(backend).residualUnfreeze()
                                             }
-                                            "${RestoreExecutionPolicy.residualLabel(false)}：${residual.summary()}"
                                         } else {
-                                            RestoreExecutionPolicy.residualLabel(true)
+                                            null
                                         }
+                                    // Residual failures are rollback safety
+                                    // failures: a green “全部解冻完成” while a
+                                    // package is still suspended is worse than
+                                    // no feedback at all.
+                                    val residualOk = residual?.ok ?: true
+                                    val residualText = if (residual != null) {
+                                        "${RestoreExecutionPolicy.residualLabel(false)}：${residual.summary()}"
+                                    } else {
+                                        RestoreExecutionPolicy.residualLabel(true)
+                                    }
                                     lastCatalogResult =
                                         (if (settings.dryRun) "预览：" else "") +
                                             "全部解冻：${result.summary()}；$residualText"
-                                    if (result.ok) {
+                                    if (result.ok && residualOk) {
                                         ActionLog.info(lastCatalogResult!!)
                                     } else {
                                         ActionLog.warn(lastCatalogResult!!)
                                     }
+                                    val allDetail =
+                                        "${result.summary()}；$residualText"
+                                    publishBatchFeedback(
+                                        when {
+                                            targets.isEmpty() -> BatchFeedbackUi(
+                                                title = "没有需要解冻的目标",
+                                                detail = "没有检测到由 Nemu 拥有的冻结状态",
+                                                tone = BatchFeedbackTone.NEUTRAL
+                                            )
+                                            settings.dryRun -> BatchFeedbackUi(
+                                                title = "预览：全部解冻未执行",
+                                                detail = allDetail,
+                                                skipped = result.reasons
+                                                    .map { it.line() }
+                                                    .distinct(),
+                                                tone = BatchFeedbackTone.NEUTRAL
+                                            )
+                                            result.ok && residualOk -> BatchFeedbackUi(
+                                                title = "全部解冻完成 ${targets.size} 项",
+                                                detail = allDetail,
+                                                skipped = (
+                                                    result.reasons +
+                                                        (residual?.reasons
+                                                            ?: emptyList())
+                                                    )
+                                                    .map { it.line() }
+                                                    .distinct(),
+                                                tone = BatchFeedbackTone.SUCCESS
+                                            )
+                                            else -> BatchFeedbackUi(
+                                                title = "解冻有失败",
+                                                detail = allDetail,
+                                                skipped = (
+                                                    result.reasons +
+                                                        (residual?.reasons
+                                                            ?: emptyList())
+                                                    )
+                                                    .map { it.line() }
+                                                    .distinct(),
+                                                tone = BatchFeedbackTone.ERROR
+                                            )
+                                        }
+                                    )
                                     refreshBootFreezeState()
                                     refreshTargetActual()
                                     refreshDetection()

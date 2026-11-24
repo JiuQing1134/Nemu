@@ -349,14 +349,16 @@ data class BootSafetyState(
     /** Mirrors the precedence in [BootFreezePolicy.evaluate]. */
     /** Non-default guard event, or null when the chips already say everything. */
     fun guardNote(): String? = when {
+        // Report a tripped guard even when the master switch is now off;
+        // otherwise the row says “未启用” while the overview says 异常.
+        bootloopGuardTripped() ->
+            "守卫触发 · 上次未净关机"
         !bootFreezeEnabled -> null
         skippedThisBoot() -> "手动解冻，已跳过"
         bootCount >= 0 && lastBootFreezeBootCount == bootCount ->
             "本 boot 已处理"
         bootCount >= 0 && lastBootFreezeAttemptBootCount == bootCount ->
             "本 boot 已尝试"
-        bootloopGuardTripped() ->
-            "守卫触发 · 上次未净关机"
         else -> null
     }
 

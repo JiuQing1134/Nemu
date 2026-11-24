@@ -236,7 +236,7 @@ class CopyContractTest {
                         lines.forEach { line ->
                             assertTrue(
                                 "弹窗前缀不符：$line",
-                                line.matches(Regex("^(执行|影响|恢复|计划)：.+"))
+                                line.matches(Regex("^(执行|影响|恢复|计划|总开关)：.+"))
                             )
                         }
                     }

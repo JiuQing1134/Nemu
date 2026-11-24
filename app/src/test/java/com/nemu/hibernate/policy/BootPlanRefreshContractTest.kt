@@ -16,13 +16,19 @@ class BootPlanRefreshContractTest {
             "src/main/java/com/nemu/hibernate/MainActivity.kt"
         )
         val toggle = main.substringAfter("onCatalogToggle =")
-            .substringBefore("onCatalogPresetChange =")
+            .substringBefore("onCatalogPlanBatch =")
+        val batch = main.substringAfter("onCatalogPlanBatch =")
+            .substringBefore("onCatalogSelectionRemember =")
         val preset = main.substringAfter("onCatalogPresetChange =")
             .substringBefore("onCatalogComponentsChange =")
 
         assertTrue(
-            "启用/停用目标后必须重新评估开机计划",
+            "单卡开关改计划后必须重新评估开机计划",
             toggle.contains("refreshBootFreezeSchedule()")
+        )
+        assertTrue(
+            "批量加入/移出开机计划后必须重新评估开机计划",
+            batch.contains("refreshBootFreezeSchedule()")
         )
         assertTrue(
             "切换预设后必须重新评估开机计划",

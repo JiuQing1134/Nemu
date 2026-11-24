@@ -9,6 +9,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,24 +19,33 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CheckboxColors
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -44,6 +55,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,6 +138,87 @@ fun NemuSwitch(
                         )
                     }
                     .size(24.dp)
+                    .align(Alignment.CenterStart)
+                    .clip(CircleShape)
+                    .background(thumb)
+            )
+        }
+    }
+}
+
+/**
+ * Compact plan switch for dense target cards: 34 x 18dp track inside a
+ * 44 x 28dp touch target. Same colors/behavior as [NemuSwitch], without the
+ * full-width row a 52 x 32dp switch needs.
+ */
+@Composable
+fun NemuMiniSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val scheme = androidx.compose.material3.MaterialTheme.colorScheme
+    val active = enabled && onCheckedChange != null
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = rememberNemuHaptics()
+    val progress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "miniSwitch"
+    )
+    val track by animateColorAsState(
+        targetValue = when {
+            checked && active -> scheme.primary
+            checked -> scheme.primary.copy(alpha = 0.55f)
+            active -> scheme.nemuInset()
+            else -> scheme.nemuInset().copy(alpha = 0.5f)
+        },
+        animationSpec = tween(durationMillis = 180),
+        label = "miniSwitchTrack"
+    )
+    val thumb by animateColorAsState(
+        targetValue = when {
+            checked && active -> scheme.onPrimary
+            checked -> scheme.onPrimary.copy(alpha = 0.75f)
+            active -> scheme.outline
+            else -> scheme.onSurfaceVariant.copy(alpha = 0.38f)
+        },
+        animationSpec = tween(durationMillis = 180),
+        label = "miniSwitchThumb"
+    )
+    Box(
+        modifier = modifier
+            .size(width = 44.dp, height = 28.dp)
+            .toggleable(
+                value = checked,
+                enabled = active,
+                role = Role.Switch,
+                indication = null,
+                interactionSource = interaction,
+                onValueChange = {
+                    haptics.perform(NemuHaptic.SegmentTick)
+                    onCheckedChange?.invoke(it)
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 34.dp, height = 18.dp)
+                .nemuPressFeedback(interaction, NemuPressSpec.Switch, active)
+                .clip(CircleShape)
+                .background(track)
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            x = (2.dp + 16.dp * progress).roundToPx(),
+                            y = 0
+                        )
+                    }
+                    .size(14.dp)
                     .align(Alignment.CenterStart)
                     .clip(CircleShape)
                     .background(thumb)
@@ -337,7 +430,9 @@ fun NemuFilledButton(
 
 /**
  * "已选 N" is a fixed-left label followed by a left-aligned number, so 9→10
- * only grows to the right; the pill itself never shifts the label.
+ * only grows to the right; the pill itself never shifts the label. When
+ * [onClick] is supplied the pill gains a trailing × and becomes the single
+ * “clear all selection” control.
  */
 @Composable
 internal fun SelectedCountPill(
@@ -385,6 +480,18 @@ internal fun SelectedCountPill(
                 ),
                 maxLines = 1
             )
+            if (onClick != null) {
+                // A visible × makes the pill's clear action discoverable
+                // instead of looking like a read-only status chip.
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = "×",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 13.sp
+                    ),
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -440,7 +547,11 @@ internal fun SelectionActionBar(
     actionLabel: String,
     enabled: Boolean,
     onClear: () -> Unit,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    actionEnabled: Boolean = enabled,
+    secondaryLabel: String? = null,
+    secondaryEnabled: Boolean = enabled,
+    onSecondary: () -> Unit = {}
 ) {
     // Floating card instead of a full-width band: a 12dp inset + rounded
     // card + soft shadow separates it from the page and the bottom nav.
@@ -461,28 +572,205 @@ internal fun SelectionActionBar(
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            // One clear affordance only: the count pill itself clears the
+            // whole selection. A separate 清除 pill duplicated it and made
+            // the narrow bar wider than necessary.
             SelectedCountPill(
                 count = selectedCount,
                 enabled = enabled,
                 onClick = onClear
             )
-            Spacer(Modifier.weight(1f))
-            PillAction(
-                text = "清除",
-                enabled = enabled,
-                primary = false,
-                onClick = onClear
-            )
-            PillAction(
-                text = actionLabel,
-                enabled = enabled,
-                primary = true,
-                onClick = onAction
-            )
+            // FlowRow lets the remaining actions wrap to a second line on a
+            // 320dp screen or a large font scale. A plain Row measured the
+            // primary action last and clipped its label first.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(
+                    6.dp,
+                    Alignment.End
+                ),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                secondaryLabel?.let { label ->
+                    PillAction(
+                        text = label,
+                        enabled = secondaryEnabled,
+                        primary = false,
+                        onClick = onSecondary
+                    )
+                }
+                PillAction(
+                    text = actionLabel,
+                    enabled = actionEnabled,
+                    primary = true,
+                    onClick = onAction
+                )
+            }
         }
         }
+    }
+}
+
+/**
+ * Persistent batch-result bar above the Applications list. One compact row:
+ * title (+ optional 2-line detail), a 详情 action when targets were skipped,
+ * 撤销 for the last plan batch, and a 44dp close target. No shadow: the bar
+ * sits on the page like an inset card, not a floating snackbar.
+ */
+@Composable
+internal fun BatchFeedbackBar(
+    feedback: BatchFeedbackUi,
+    onDismiss: () -> Unit,
+    onUndo: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    var showSkipped by remember { mutableStateOf(false) }
+    // In landscape/split-screen the list is already short. Collapse the
+    // detail text so the result bar does not consume the remaining rows.
+    val compact = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp() < 480.dp
+    }
+    val container = when (feedback.tone) {
+        BatchFeedbackTone.SUCCESS -> scheme.primary.copy(alpha = 0.12f)
+        BatchFeedbackTone.WARNING -> scheme.tertiary.copy(alpha = 0.14f)
+        BatchFeedbackTone.ERROR -> scheme.error.copy(alpha = 0.12f)
+        BatchFeedbackTone.NEUTRAL -> scheme.surfaceVariant
+    }
+    val titleColor = when (feedback.tone) {
+        BatchFeedbackTone.ERROR -> scheme.error
+        else -> scheme.onSurface
+    }
+    val actionColor = when (feedback.tone) {
+        BatchFeedbackTone.SUCCESS -> scheme.primary
+        BatchFeedbackTone.ERROR -> scheme.error
+        else -> scheme.onSurface
+    }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = container,
+        contentColor = scheme.onSurface
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                start = 14.dp,
+                top = if (compact) 3.dp else 6.dp,
+                bottom = if (compact) 3.dp else 6.dp,
+                end = 2.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Text(
+                    text = feedback.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = titleColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!compact) {
+                    feedback.detail?.let { detail ->
+                        Text(
+                            text = detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (feedback.skipped.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .noRippleClickable { showSkipped = true }
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "查看结果详情"
+                        }
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "详情",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (feedback.undoAvailable) {
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .noRippleClickable { onUndo() }
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "撤销上次计划变更"
+                        }
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "撤销",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = actionColor
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .noRippleClickable { onDismiss() }
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "关闭结果提示"
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "×",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = scheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+    if (showSkipped) {
+        AlertDialog(
+            onDismissRequest = { showSkipped = false },
+            title = { Text("结果详情") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    feedback.skipped.forEach { line ->
+                        Text(
+                            text = "· $line",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSkipped = false }) {
+                    Text("关闭")
+                }
+            }
+        )
     }
 }
 
