@@ -38,6 +38,7 @@ CLEAN_SHUTDOWN_FILE="$GUARD_DIR/clean_shutdown"
 CLEAN_SHUTDOWN_PREV_FILE="$GUARD_DIR/clean_shutdown.prev"
 PLANNED_SHUTDOWN_FILE="$GUARD_DIR/planned_shutdown"
 PLANNED_SHUTDOWN_PREV_FILE="$GUARD_DIR/planned_shutdown.prev"
+BOOT_COMPLETED_FILE="$GUARD_DIR/boot_completed"
 LAST_SHUTDOWN_FILE="$GUARD_DIR/last_shutdown"
 DISABLED_MARKER_DIR="$GUARD_DIR/disabled_by_nemu"
 SUSPEND_MARKER_DIR="$GUARD_DIR/suspended_by_nemu"
@@ -326,6 +327,13 @@ count_attempt() {
     case "$planned_prev_epoch" in
         ''|*[!0-9]*) planned_prev_epoch=0 ;;
     esac
+    completed_raw=$(cat "$BOOT_COMPLETED_FILE" 2>/dev/null)
+    completed_boot=${completed_raw%% *}
+    completed_epoch=${completed_raw#* }
+    [ "$completed_epoch" = "$completed_raw" ] && completed_epoch=0
+    case "$completed_epoch" in
+        ''|*[!0-9]*) completed_epoch=0 ;;
+    esac
     reset_reason=
     reset_epoch=0
     if [ -n "$last" ]; then
@@ -340,6 +348,12 @@ count_attempt() {
             # run; without this slot a missed boot could hide the reset.
             reset_reason=planned_shutdown
             reset_epoch=$planned_prev_epoch
+        elif [ "$completed_boot" = "$last" ]; then
+            # The previous boot reached the system UI. A fast adb reboot can
+            # outrun the shutdown daemon's powerctl poll, but that is not a
+            # boot-screen hang and must not contribute to the rescue count.
+            reset_reason=boot_completed
+            reset_epoch=$completed_epoch
         fi
     fi
     if [ -n "$reset_reason" ]; then
@@ -355,6 +369,9 @@ count_attempt() {
     if [ "$reset_reason" = "planned_shutdown" ]; then
         printf '%s planned %s %s\n' \
             "$current" "$last" "${reset_epoch:-0}" > "$last_tmp"
+    elif [ "$reset_reason" = "boot_completed" ]; then
+        printf '%s completed %s %s\n' \
+            "$current" "$last" "${reset_epoch:-0}" > "$last_tmp"
     elif [ "$reset_reason" = "clean_shutdown" ]; then
         printf '%s clean %s 0\n' "$current" "$last" > "$last_tmp"
     else
@@ -364,7 +381,8 @@ count_attempt() {
     chmod 600 "$last_tmp" 2>/dev/null &&
         mv -f "$last_tmp" "$LAST_SHUTDOWN_FILE" 2>/dev/null
     rm -f "$CLEAN_SHUTDOWN_FILE" "$CLEAN_SHUTDOWN_PREV_FILE" \
-        "$PLANNED_SHUTDOWN_FILE" "$PLANNED_SHUTDOWN_PREV_FILE" 2>/dev/null
+        "$PLANNED_SHUTDOWN_FILE" "$PLANNED_SHUTDOWN_PREV_FILE" \
+        "$BOOT_COMPLETED_FILE" 2>/dev/null
     attempts=$((attempts + 1))
     printf '%s\n' "$attempts" > "$ATTEMPTS_FILE"
     printf '%s\n' "$current" > "$BOOT_ID_FILE"
@@ -1080,6 +1098,21 @@ wait_boot_completed() {
     return 1
 }
 
+record_boot_completed() {
+    # A boot that reaches sys.boot_completed=1 is not a boot-screen hang.
+    # Record it so the next boot does not count a fast adb reboot as a failed
+    # start even when the shutdown daemon misses the short powerctl window.
+    mkdir -p "$GUARD_DIR" 2>/dev/null
+    boot_completed_tmp="$BOOT_COMPLETED_FILE.$$"
+    if printf '%s %s\n' "$(boot_id)" "$(date '+%s' 2>/dev/null)" \
+        > "$boot_completed_tmp" 2>/dev/null; then
+        chmod 600 "$boot_completed_tmp" 2>/dev/null
+        mv -f "$boot_completed_tmp" "$BOOT_COMPLETED_FILE" 2>/dev/null ||
+            rm -f "$boot_completed_tmp" 2>/dev/null
+    fi
+    chmod 600 "$BOOT_COMPLETED_FILE" 2>/dev/null
+}
+
 arm_success_watchdog() {
     current=$(boot_id)
     # Background subshell: after the stability window, if this same boot is
@@ -1189,6 +1222,7 @@ case "${1:-service}" in
         # The late pass always gets a chance to run: every wait above is bounded
         # and every pm/dumpsys call is individually timed out.
         if wait_boot_completed; then
+            record_boot_completed
             if acquire_restore_lock 60; then
                 restore_owned_state ||
                     log_line "WARN late owned-state restore incomplete"
@@ -1267,7 +1301,8 @@ case "${1:-service}" in
         rm -f "$ATTEMPTS_FILE" "$BOOT_ID_FILE" "$GUARD_DIR/last_success" \
             "$CLEAN_SHUTDOWN_FILE" "$CLEAN_SHUTDOWN_PREV_FILE" \
             "$PLANNED_SHUTDOWN_FILE" "$PLANNED_SHUTDOWN_PREV_FILE" \
-            "$LAST_SHUTDOWN_FILE" "$GUARD_DIR/early_done" 2>/dev/null || {
+            "$BOOT_COMPLETED_FILE" "$LAST_SHUTDOWN_FILE" \
+            "$GUARD_DIR/early_done" 2>/dev/null || {
             clear_refuse "rescue clear refused: could not clear guard counters"
         }
         rm -f "$RESCUE_FILE" 2>/dev/null || {

@@ -123,6 +123,27 @@ check_eq \
     "last_shutdown records the prev planned epoch"
 rm -rf "$counter_dir"
 
+# A fast adb reboot can outrun the powerctl poll. Reaching boot_completed on
+# the previous boot is still proof that it was not a boot-screen hang.
+completed_dir=$(mktemp -d)
+completed_attempts=$(
+    export NEMU_GUARD_DIR="$completed_dir"
+    export NEMU_BOOT_ID=boot-new
+    export NEMU_RESCUE_THRESHOLD=99
+    export NEMU_GUARD_LIB_ONLY=1
+    . "$SCRIPT_DIR/../boot_guard.sh"
+    printf 'boot-old\n' > "$GUARD_DIR/last_boot_id"
+    printf 'boot-old 1500000000\n' > "$GUARD_DIR/boot_completed"
+    count_attempt
+    cat "$GUARD_DIR/attempts"
+)
+check_eq "1" "$completed_attempts" "boot_completed resets the counter"
+check_eq \
+    "boot-new completed boot-old 1500000000" \
+    "$(cat "$completed_dir/last_shutdown")" \
+    "last_shutdown records the boot_completed epoch"
+rm -rf "$completed_dir"
+
 if [ "$failures" -ne 0 ]; then
     echo "FAILED $failures fixture(s)"
     exit 1

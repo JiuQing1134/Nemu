@@ -204,7 +204,7 @@ class ModuleBootRestoreContractTest {
     fun moduleDescriptionMatchesTheRestoredStateSet() {
         val prop = TestSources.read("tools/nemu-boot-autostart/module.prop")
 
-        assertTrue("模块版本必须递增到 1.17", prop.contains("version=1.17"))
+        assertTrue("模块版本必须递增到 1.18", prop.contains("version=1.18"))
         assertTrue(
             "模块描述必须说明开机恢复 disable-user 等全部状态",
             prop.contains("disable-user")

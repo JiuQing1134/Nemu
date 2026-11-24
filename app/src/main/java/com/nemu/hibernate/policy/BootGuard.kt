@@ -106,9 +106,10 @@ object BootGuard {
     }
 
     /**
-     * Epoch of the previous boot's user-requested shutdown, as classified by
-     * the root guard. Returns null when the guard did not run this boot, the
-     * record is from an older boot, or the shutdown was not planned.
+     * Epoch of the previous boot's planned shutdown or of its successful
+     * sys.boot_completed, as classified by the root guard. Both prove the
+     * previous boot was not a boot-screen hang. Returns null when the guard
+     * did not run this boot, the record is stale, or the boot was unclean.
      */
     suspend fun lastPlannedShutdownTime(
         backend: RootPrivilegeBackend?
@@ -129,7 +130,11 @@ object BootGuard {
         val currentBootId = parts[0].trim()
         val fields = parts[1].trim().split(Regex("\\s+"))
         if (currentBootId.isEmpty() || fields.size != 4) return null
-        if (fields[0] != currentBootId || fields[1] != "planned") return null
+        if (fields[0] != currentBootId ||
+            (fields[1] != "planned" && fields[1] != "completed")
+        ) {
+            return null
+        }
         // The guard writes epoch seconds; all App timestamps are milliseconds.
         return fields[3].toLongOrNull()?.times(1000L)
     }

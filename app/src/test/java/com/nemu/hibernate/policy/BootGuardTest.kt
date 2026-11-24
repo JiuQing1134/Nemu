@@ -71,11 +71,24 @@ class BootGuardTest {
                     "boot-current clean boot-prev 1720000000\n"
             )
         }
+        val completed = object : RootPrivilegeBackend {
+            override val name = "Root"
+            override suspend fun isAvailable() = true
+            override suspend fun exec(command: String) = ShellResult(
+                0,
+                "boot-current\nNEMU_SEPARATOR\n" +
+                    "boot-current completed boot-prev 1710000000\n"
+            )
+        }
 
         // Guard writes epoch seconds; the App compares milliseconds.
         assertEquals(
             1_720_000_000_000L,
             BootGuard.lastPlannedShutdownTime(planned)
+        )
+        assertEquals(
+            1_710_000_000_000L,
+            BootGuard.lastPlannedShutdownTime(completed)
         )
         assertNull(BootGuard.lastPlannedShutdownTime(otherBoot))
         assertNull(BootGuard.lastPlannedShutdownTime(clean))

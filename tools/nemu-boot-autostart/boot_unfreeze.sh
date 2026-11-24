@@ -248,6 +248,21 @@ else
     log_line "boot unfreeze $MODE script empty or missing; guard pass only"
 fi
 
+if [ "$WAIT_PM" -eq 0 ] &&
+    [ "$(getprop sys.boot_completed 2>/dev/null)" = "1" ]; then
+    # Fallback proof for the next boot's rescue counter: this boot reached the
+    # system UI, even if the shutdown daemon later misses a fast adb reboot.
+    mkdir -p "$NEMU_DIR/boot_guard" 2>/dev/null
+    completed_tmp="$NEMU_DIR/boot_guard/boot_completed.$$"
+    if printf '%s %s\n' "$(boot_id)" "$(date '+%s' 2>/dev/null)" \
+        > "$completed_tmp" 2>/dev/null; then
+        chmod 600 "$completed_tmp" 2>/dev/null
+        mv -f "$completed_tmp" "$NEMU_DIR/boot_guard/boot_completed" \
+            2>/dev/null || rm -f "$completed_tmp" 2>/dev/null
+    fi
+    chmod 600 "$NEMU_DIR/boot_guard/boot_completed" 2>/dev/null
+fi
+
 log_line "boot unfreeze $MODE done" \
     "(boot_completed=$(getprop sys.boot_completed 2>/dev/null)" \
     "guard=$guard_status script=$script_status)"
