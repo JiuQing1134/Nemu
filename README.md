@@ -50,10 +50,12 @@ HONOR MagicOS 系统组件“安全冻结”工具。
   `versionCode 9` / `1.3.3`，`app\build\outputs\apk\debug\app-debug.apk`，
   2,653,436 字节，SHA-256 `d400b5165cf31760c613e69c555bb2719246e2c0c448e1b1ac3b2ef87ce7c7bb`。
 - 自启动模块：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  （13,066 字节；SHA-256 `d7615413a5fb639dc5dd8ecd680391fc269fbc0b5dab7d2790c64fc14f728e92`；
-  FinaSU 模块 v1.13 / versionCode 14；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
-  v1.13 在 `boot_completed` 后、通知 App 之前先重放一次 App 生成的恢复脚本，
-  覆盖 `adb reboot`/强制断电这类没有正常关机广播的残留；正常开机仍只恢复带
+  （13,619 字节；SHA-256 `198574b31bb36b1b575790a044521175202b4a8b68f08f09fc99fe89fc506f7c`；
+  FinaSU 模块 v1.14 / versionCode 15；v1.10 起 **不再在开机时自动打开 Nemu 页面**，
+  v1.14 在早期 service 阶段、PackageManager 可用的第一时刻先重放一次 App 生成的
+  恢复脚本（早于桌面和 `boot_completed`，避免冻结系统应用卡在开机界面），
+  并在 `boot_completed` 后再验证一次；覆盖 `adb reboot`/强制断电这类没有
+  正常关机广播的残留；正常开机仍只恢复带
   `suspended_by_nemu` 标记的暂停包，并且只有在读到 `suspended=false` 后才删除标记。
   已安装旧模块的设备需在 FinaSU/KernelSU 中用新 zip 更新（或直接卸载模块）后重启才生效）。
 - UI：中性白/灰底 + 单色强调、M3E 大圆角、深色纯黑 OLED；桌面图标使用白底亮色几何图形：Nemu 为钴蓝 Tabler 雪花，凪为翠绿三角回环与中心圆点。

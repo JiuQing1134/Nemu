@@ -10,6 +10,15 @@ MODDIR=${0%/*}
 . "$MODDIR/install_guard.sh"
 install_nemu_guard
 
+# Earliest supported unfreeze: as soon as PackageManager's binder answers,
+# replay Nemu's ownership restore script. This runs before the launcher/desktop
+# and before sys.boot_completed, so a frozen system app cannot keep the device
+# stuck on the boot screen. The final pass runs again after boot_completed.
+if [ -f "$MODDIR/boot_unfreeze.sh" ]; then
+    nohup /system/bin/sh "$MODDIR/boot_unfreeze.sh" --wait-pm \
+        >/dev/null 2>&1 &
+fi
+
 # HONOR does not deliver BOOT_COMPLETED to Nemu, and LOCKED_BOOT_COMPLETED can
 # be missed if the app process dies before unlock. Ping the app once the
 # system is actually up so its BootReceiver can run the safety pass. The
