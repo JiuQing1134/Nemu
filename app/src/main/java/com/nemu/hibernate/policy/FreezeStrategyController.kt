@@ -188,6 +188,35 @@ class FreezeStrategyController(
             plan.commands.forEach { ActionLog.info("DRY-RUN（策略）: $it") }
             return result(true, target, strategy, plan.commands, reasons)
         }
+        if (strategy == FreezeStrategy.COMPONENT) {
+            // Write the guard marker before the first pm disable. If the
+            // process dies after the command but before the post-read, the
+            // guard must still know which components Nemu owns and their
+            // exact original state.
+            val writtenMarkers = mutableListOf<TargetComponent>()
+            for (component in plan.components) {
+                if (!markComponentByNemu(component, true)) {
+                    // No pm disable ran; roll back the markers written earlier
+                    // in this loop so they do not claim components that are
+                    // still enabled.
+                    writtenMarkers.forEach { written ->
+                        markComponentByNemu(written, false)
+                    }
+                    val note = ResultReason.MARKER_WRITE_FAILED.at(
+                        component.label
+                    )
+                    ActionLog.warn(note.line())
+                    return result(
+                        false,
+                        target,
+                        strategy,
+                        plan.commands,
+                        reasons + note
+                    )
+                }
+                writtenMarkers += component
+            }
+        }
         val exec = executeAll(plan.commands)
         if (!exec.ok) {
             if (strategy == FreezeStrategy.COMPONENT && !exec.indeterminate) {
@@ -200,8 +229,11 @@ class FreezeStrategyController(
                         // Unknown readback: keep the exact-state baseline so a
                         // later restore can still recover the component.
                         state == null -> Unit
-                        ComponentRestoreState.isRestored(state) ->
+                        ComponentRestoreState.isRestored(state) -> {
                             onComponentOriginalState(component, null)
+                            // Pre-written marker is now false ownership.
+                            markComponentByNemu(component, false)
+                        }
                         else -> markComponentByNemu(component, true)
                     }
                 }
@@ -246,6 +278,14 @@ class FreezeStrategyController(
                                 component.label
                             )
                             onComponentOriginalState(component, null)
+                            // The pre-written marker was a no-op command; do
+                            // not let it keep ownership of an enabled component.
+                            if (!markComponentByNemu(component, false)) {
+                                reasons +=
+                                    ResultReason.COMPONENT_OWNERSHIP_FAILED.at(
+                                        component.label
+                                    )
+                            }
                         }
                         else -> if (!markComponentByNemu(component, true)) {
                             reasons += ResultReason.COMPONENT_OWNERSHIP_FAILED.at(

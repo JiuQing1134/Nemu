@@ -23,6 +23,12 @@ data class BootFreezeDecision(
     val reason: String
 )
 
+/** Combined App/root-guard shutdown evidence for the boot-freeze gate. */
+data class BootShutdownGate(
+    val time: Long,
+    val clean: Boolean
+)
+
 /**
  * Pure bootloop-guard policy (design docs/07 §5.3).
  *
@@ -40,6 +46,24 @@ data class BootFreezeDecision(
  * earlier attempt was unclean; the guard must not disable auto-freeze forever.
  */
 object BootFreezePolicy {
+    /**
+     * Merges the App's verified clean-shutdown record with the root guard's
+     * planned-shutdown epoch. Both inputs and the result are milliseconds.
+     * A planned shutdown only proves cleanliness when it happened at/after the
+     * last freeze attempt; an older planned record must not unlock the gate.
+     */
+    fun shutdownGate(
+        plannedShutdownMs: Long,
+        appShutdownOk: Boolean,
+        appShutdownTimeMs: Long,
+        lastAttemptTimeMs: Long
+    ): BootShutdownGate = BootShutdownGate(
+        time = maxOf(appShutdownTimeMs, plannedShutdownMs),
+        clean = appShutdownOk ||
+            (plannedShutdownMs > 0 &&
+                plannedShutdownMs >= lastAttemptTimeMs)
+    )
+
     fun shouldRun(input: BootFreezeInput): Boolean = evaluate(input).shouldRun
 
     fun evaluate(input: BootFreezeInput): BootFreezeDecision {

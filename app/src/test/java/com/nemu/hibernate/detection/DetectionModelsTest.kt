@@ -490,6 +490,30 @@ class DetectionModelsTest {
     }
 
     @Test
+    fun bootloopGuardClearsWithPlannedShutdownAfterAttempt() {
+        val state = BootSafetyState(
+            bootCount = 10,
+            lastBootFreezeAttemptBootCount = 9,
+            lastBootFreezeAttemptTime = 5_000,
+            lastPlannedShutdownTime = 6_000
+        )
+
+        assertFalse(state.bootloopGuardTripped())
+    }
+
+    @Test
+    fun bootloopGuardIgnoresPlannedShutdownBeforeAttempt() {
+        val state = BootSafetyState(
+            bootCount = 10,
+            lastBootFreezeAttemptBootCount = 9,
+            lastBootFreezeAttemptTime = 5_000,
+            lastPlannedShutdownTime = 4_000
+        )
+
+        assertTrue(state.bootloopGuardTripped())
+    }
+
+    @Test
     fun bootloopGuardIgnoresOldAttempts() {
         val state = BootSafetyState(
             bootCount = 10,

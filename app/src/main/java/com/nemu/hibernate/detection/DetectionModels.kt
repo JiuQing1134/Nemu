@@ -312,7 +312,9 @@ data class BootSafetyState(
     val lastBootFreezeSucceeded: Boolean = false,
     val lastBootFreezeBootCount: Int = -1,
     val lastBootFreezeAttemptBootCount: Int = -1,
-    val skippedBootCount: Int = -1
+    val skippedBootCount: Int = -1,
+    /** Root guard's planned-shutdown epoch, already converted to millis. */
+    val lastPlannedShutdownTime: Long = 0L
 ) {
     fun lastShutdownClean(): Boolean = lastShutdownResult
         ?.let { it.startsWith("成功") || it.contains("安全解冻成功") } == true
@@ -328,7 +330,11 @@ data class BootSafetyState(
     fun bootloopGuardTripped(): Boolean {
         if (bootCount <= 0) return false
         if (lastBootFreezeAttemptBootCount != bootCount - 1) return false
-        return !(lastShutdownClean() && lastShutdownTime >= lastBootFreezeAttemptTime)
+        val appClean = lastShutdownClean() &&
+            lastShutdownTime >= lastBootFreezeAttemptTime
+        val plannedClean = lastPlannedShutdownTime > 0 &&
+            lastPlannedShutdownTime >= lastBootFreezeAttemptTime
+        return !(appClean || plannedClean)
     }
 
     fun describeLastShutdown(zone: ZoneId = ZoneId.systemDefault()): String =

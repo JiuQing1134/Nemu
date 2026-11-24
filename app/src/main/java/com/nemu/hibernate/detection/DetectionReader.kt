@@ -24,6 +24,7 @@ import com.nemu.hibernate.data.Settings
 import com.nemu.hibernate.privilege.AndroidComponentStateReader
 import com.nemu.hibernate.privilege.ComponentStateReader
 import com.nemu.hibernate.policy.BootCount
+import com.nemu.hibernate.policy.BootGuard
 import com.nemu.hibernate.policy.RestrictionController
 import com.nemu.hibernate.policy.TargetPolicy
 import com.nemu.hibernate.privilege.PackageStatusReader
@@ -356,10 +357,12 @@ class DetectionReader(
 
     // ---- Boot / safety ----
 
-    private fun readBootSafetyState(settings: Settings): BootSafetyState =
+    private suspend fun readBootSafetyState(settings: Settings): BootSafetyState =
         BootSafetyState(
             readOk = true,
             bootCount = readBootCount(),
+            lastPlannedShutdownTime =
+                BootGuard.lastPlannedShutdownTime(rootBackend) ?: 0L,
             lastShutdownResult = settings.lastShutdownResult,
             lastShutdownDetail = settings.lastShutdownDetail,
             lastShutdownTime = readLong(KEY_LAST_SHUTDOWN_TIME, 0L),

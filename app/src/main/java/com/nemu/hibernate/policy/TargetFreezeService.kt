@@ -268,11 +268,17 @@ class TargetFreezeService(
             }
             // `pm hide` needs MANAGE_USERS (uid 0). Prefer the root marker
             // backend when the selected general backend is Shizuku-ADB.
+            // SUSPEND also prefers root when available: Android records the
+            // suspending package, and the boot guard can only clear the
+            // "root" suspension early (it also retries shell for old data).
             val commandBackend = if (
-                strategy == FreezeStrategy.HIDE &&
-                !backend.canSetHidden &&
-                markerBackend != null &&
-                markerBackend.canSetHidden
+                (
+                    strategy == FreezeStrategy.HIDE &&
+                        !backend.canSetHidden &&
+                        markerBackend != null &&
+                        markerBackend.canSetHidden
+                    ) ||
+                (strategy == FreezeStrategy.SUSPEND && markerBackend != null)
             ) {
                 markerBackend
             } else {
@@ -537,6 +543,23 @@ class TargetFreezeService(
                     reasons.addResult(target.label, false, result.reasons)
                     continue
                 }
+                if (strategy == FreezeStrategy.COMPONENT && !dryRun &&
+                    result.reasons.any {
+                        it.reason == ResultReason.MARKER_WRITE_FAILED
+                    }
+                ) {
+                    // The prewrite failed before any pm disable; drop the
+                    // baselines persisted just before it, otherwise
+                    // hasComponentOwnership() would keep the target marked as
+                    // applied even though every component is still enabled.
+                    (componentOverride ?: target.components).forEach {
+                        policy.setComponentOriginalState(
+                            target,
+                            it.className,
+                            null
+                        )
+                    }
+                }
                 // A failed SUSPEND with a verified live package needs no
                 // recovery marker; a stale marker would make the guard try
                 // an unsuspend next boot for no reason. Keep it when the
@@ -712,6 +735,12 @@ class TargetFreezeService(
             // COMPONENT/DISABLE policy (legacy or manually). Always clear the
             // suspension first; otherwise the row would report success while
             // the package stays suspended.
+            //
+            // Android records the suspending package. New freezes prefer the
+            // root backend so the boot guard can clear the "root" suspension;
+            // old Shizuku ("com.android.shell") suspensions are retried with
+            // the general backend.
+            val suspendBackend = markerBackend ?: backend
             var suspendOk = true
             val ownsSuspension = isOwnedSuspension(
                 applied = policy.isApplied(target),
@@ -729,11 +758,21 @@ class TargetFreezeService(
                     )
                 } else {
                     val u = SafetyUnfreezer.runUnsuspendPackages(
-                        backend,
+                        suspendBackend,
                         listOf(target.packageName)
                     )
                     suspendOk = u.ok &&
                         suspendedStateReader(target.packageName) == false
+                    if (!suspendOk && suspendBackend !== backend) {
+                        // Clear a legacy suspension recorded under Shizuku's
+                        // com.android.shell identity.
+                        val retry = SafetyUnfreezer.runUnsuspendPackages(
+                            backend,
+                            listOf(target.packageName)
+                        )
+                        suspendOk = retry.ok &&
+                            suspendedStateReader(target.packageName) == false
+                    }
                     if (!suspendOk) {
                         ActionLog.warn("仍处于暂停：${target.packageName}")
                     }

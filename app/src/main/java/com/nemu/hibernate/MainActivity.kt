@@ -1184,7 +1184,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onClearRescue = {
                             scope.launch {
-                                val backend = manager.getRoot()
+                                val backend = manager.getRootForRescueClear()
                                 if (backend == null) {
                                     lastCatalogResult = "无 Root，无法清除救援模式"
                                     ActionLog.warn(lastCatalogResult!!)

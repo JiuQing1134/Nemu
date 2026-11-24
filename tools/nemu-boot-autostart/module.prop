@@ -1,6 +1,6 @@
 id=nemu_boot_autostart
 name=Nemu Boot Guard
-version=1.14
-versionCode=15
+version=1.17
+versionCode=18
 author=Nemu
-description=Auto-unbrick guard (3 failed boots): verified clean shutdowns reset the counter; bounded recovery with verification; only Nemu-owned suspend/disable-user/components/hidden/AppOps/standby states are restored. v1.14 replays Nemu's ownership restore script as soon as PackageManager answers at the early service stage (before the launcher/desktop and before boot_completed), then verifies again after boot_completed; this covers unclean adb reboot/power loss and a frozen system app keeping the device on the boot screen. On a normal boot it restores only packages carrying Nemu's suspended_by_nemu marker, and clears a marker only after a positive suspended=false readback.
+description=Auto-unbrick guard (3 failed boots): a verified clean shutdown or a user-requested root-side planned shutdown is not counted as a failed boot; watchdog/thermal reboots still count. v1.17 restores every Nemu-owned freeze state -- disable-user, hidden (pseudo-uninstall), suspend, disabled components, AppOps and standby buckets -- as soon as PackageManager answers at the early service stage (best-effort before the launcher), then verifies again after boot_completed; this covers unclean adb reboot/power loss and a frozen system app keeping the device on the boot screen. Normal/early passes are ownership-marker scoped; automatic rescue additionally restores Nemu's known target list but never scans arbitrary foreign suspensions.

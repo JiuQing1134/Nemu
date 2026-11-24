@@ -28,6 +28,59 @@ class BootGuardTest {
 
         assertTrue(root.commands.single().contains("/proc/sys/kernel/random/boot_id"))
         assertTrue(root.commands.single().contains("chmod 600"))
+        assertTrue(root.commands.single().contains("clean_shutdown.prev"))
+        assertTrue(root.commands.single().contains("mv -f"))
+    }
+
+    @Test
+    fun plannedShutdownTimeRequiresTheCurrentBootObservation() = runBlocking {
+        val planned = object : RootPrivilegeBackend {
+            override val name = "Root"
+            override suspend fun isAvailable() = true
+            override suspend fun exec(command: String): ShellResult {
+                assertTrue(command.contains("last_shutdown"))
+                assertTrue(command.contains("NEMU_SEPARATOR"))
+                assertTrue(command.contains("/proc/sys/kernel/random/boot_id"))
+                return ShellResult(
+                    0,
+                    "boot-current\nNEMU_SEPARATOR\n" +
+                        "boot-current planned boot-prev 1720000000\n"
+                )
+            }
+        }
+        val stale = object : RootPrivilegeBackend {
+            override val name = "Root"
+            override suspend fun isAvailable() = true
+            override suspend fun exec(command: String) = ShellResult(1, "")
+        }
+        val otherBoot = object : RootPrivilegeBackend {
+            override val name = "Root"
+            override suspend fun isAvailable() = true
+            override suspend fun exec(command: String) = ShellResult(
+                0,
+                "boot-current\nNEMU_SEPARATOR\n" +
+                    "boot-other planned boot-prev 1720000000\n"
+            )
+        }
+        val clean = object : RootPrivilegeBackend {
+            override val name = "Root"
+            override suspend fun isAvailable() = true
+            override suspend fun exec(command: String) = ShellResult(
+                0,
+                "boot-current\nNEMU_SEPARATOR\n" +
+                    "boot-current clean boot-prev 1720000000\n"
+            )
+        }
+
+        // Guard writes epoch seconds; the App compares milliseconds.
+        assertEquals(
+            1_720_000_000_000L,
+            BootGuard.lastPlannedShutdownTime(planned)
+        )
+        assertNull(BootGuard.lastPlannedShutdownTime(otherBoot))
+        assertNull(BootGuard.lastPlannedShutdownTime(clean))
+        assertNull(BootGuard.lastPlannedShutdownTime(stale))
+        assertNull(BootGuard.lastPlannedShutdownTime(null))
     }
 
     @Test

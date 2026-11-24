@@ -138,7 +138,69 @@ class FreezeStrategyControllerTest {
         assertFalse(
             backend.commands.any { it.contains("UserDisabledService") }
         )
-        assertEquals(2, markers.count { it.second })
+        assertEquals(
+            setOf(ownedComponent, enabledComponent),
+            markers.filter { it.second }.map { it.first }.toSet()
+        )
+    }
+
+    @Test
+    fun componentMarkerIsWrittenBeforeDisableCommand() = runBlocking {
+        var disabled = false
+        var markersAtFirstDisable: List<Pair<TargetComponent, Boolean>>? = null
+        val markers = mutableListOf<Pair<TargetComponent, Boolean>>()
+        val backend = FakeBackend(onExec = { command ->
+            if (command.contains("pm disable") && markersAtFirstDisable == null) {
+                markersAtFirstDisable = markers.toList()
+                disabled = true
+            }
+        })
+        val controller = FreezeStrategyController(
+            backend = backend,
+            dryRun = false,
+            componentStateReader = { if (disabled) 2 else 0 },
+            markComponentByNemu = { component, owned ->
+                markers += component to owned
+                true
+            }
+        )
+
+        val result = controller.apply(target, FreezeStrategy.COMPONENT)
+
+        assertTrue(result.ok)
+        val before = markersAtFirstDisable
+        assertTrue("必须先在本次 pm disable 前写入 guard marker", before != null)
+        assertTrue(
+            "OwnedReceiver 的 marker 必须在命令执行前已存在",
+            before!!.any { it.first == ownedComponent && it.second }
+        )
+        assertTrue(
+            "EnabledService 的 marker 必须在命令执行前已存在",
+            before.any { it.first == enabledComponent && it.second }
+        )
+    }
+
+    @Test
+    fun componentMarkerIsRemovedWhenDisableDidNotTakeEffect() = runBlocking {
+        val markers = mutableListOf<Pair<TargetComponent, Boolean>>()
+        val controller = FreezeStrategyController(
+            backend = FakeBackend(),
+            dryRun = false,
+            // pm exits 0 but the readback still says enabled/default.
+            componentStateReader = { 0 },
+            markComponentByNemu = { component, owned ->
+                markers += component to owned
+                true
+            }
+        )
+
+        val result = controller.apply(target, FreezeStrategy.COMPONENT)
+
+        assertFalse(result.ok)
+        assertTrue(
+            "命令后必须为未生效的组件清除 guard marker",
+            markers.any { it.first == ownedComponent && !it.second }
+        )
     }
 
     @Test
@@ -292,7 +354,7 @@ class FreezeStrategyControllerTest {
     }
 
     @Test
-    fun componentMarkerFailureIsReportedButDisabledComponentsKeepOwnership() = runBlocking {
+    fun componentMarkerFailureAbortsBeforeAnyCommand() = runBlocking {
         var disabled = false
         val backend = FakeBackend(onExec = { command ->
             if (command.contains("pm disable")) disabled = true
@@ -312,8 +374,12 @@ class FreezeStrategyControllerTest {
         val result = controller.apply(target, FreezeStrategy.COMPONENT)
 
         assertFalse(result.ok)
-        // The component is already disabled and owned; re-apply is idempotent
-        // even though marker rewriting failed.
+        assertTrue(
+            "marker 预写失败时不得执行任何 pm disable",
+            backend.commands.isEmpty()
+        )
+        // Baseline persistence happens before the marker prewrite; the service
+        // layer is responsible for clearing it when no command ran.
         assertEquals(0, persisted[ownedComponent])
     }
 

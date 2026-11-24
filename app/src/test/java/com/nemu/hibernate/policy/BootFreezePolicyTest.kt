@@ -1,5 +1,6 @@
 package com.nemu.hibernate.policy
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,6 +29,18 @@ class BootFreezePolicyTest {
         lastShutdownTime = lastShutdownTime,
         lastShutdownOk = lastShutdownOk
     )
+
+    @Test
+    fun workerUsesTheSharedShutdownGate() {
+        val source = com.nemu.hibernate.TestSources.read(
+            "src/main/java/com/nemu/hibernate/policy/BootFreezeWorker.kt"
+        )
+
+        assertTrue(
+            "worker 必须使用统一的秒→毫秒 planned 判据",
+            source.contains("BootFreezePolicy.shutdownGate")
+        )
+    }
 
     @Test
     fun first_boot_runs() {
@@ -62,6 +75,44 @@ class BootFreezePolicyTest {
         )
 
         assertTrue(decision.shouldRun)
+    }
+
+    @Test
+    fun plannedShutdownAfterAttemptUnlocksTheGate() {
+        val gate = BootFreezePolicy.shutdownGate(
+            plannedShutdownMs = 1_720_000_000_000L,
+            appShutdownOk = false,
+            appShutdownTimeMs = 0L,
+            lastAttemptTimeMs = 1_700_000_000_000L
+        )
+
+        assertTrue(gate.clean)
+        assertEquals(1_720_000_000_000L, gate.time)
+    }
+
+    @Test
+    fun plannedShutdownBeforeAttemptDoesNotUnlockTheGate() {
+        val gate = BootFreezePolicy.shutdownGate(
+            plannedShutdownMs = 1_600_000_000_000L,
+            appShutdownOk = false,
+            appShutdownTimeMs = 0L,
+            lastAttemptTimeMs = 1_700_000_000_000L
+        )
+
+        assertFalse(gate.clean)
+    }
+
+    @Test
+    fun appCleanShutdownStillWinsWhenPlannedIsStale() {
+        val gate = BootFreezePolicy.shutdownGate(
+            plannedShutdownMs = 1_600_000_000_000L,
+            appShutdownOk = true,
+            appShutdownTimeMs = 1_800_000_000_000L,
+            lastAttemptTimeMs = 1_700_000_000_000L
+        )
+
+        assertTrue(gate.clean)
+        assertEquals(1_800_000_000_000L, gate.time)
     }
 
     @Test

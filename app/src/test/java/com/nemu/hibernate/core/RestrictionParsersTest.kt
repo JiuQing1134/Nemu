@@ -24,6 +24,41 @@ class RestrictionParsersTest {
     }
 
     @Test
+    fun skipsUidModeAndParsesThePackageMode() {
+        val output = """
+            Uid mode: RUN_ANY_IN_BACKGROUND: ignore
+            RUN_ANY_IN_BACKGROUND: allow; time=+1h2m3s ago
+        """.trimIndent()
+
+        assertEquals("allow", RestrictionParsers.parseAppOpsMode(output))
+    }
+
+    @Test
+    fun uidOnlyOutputIsNotAPackageMode() {
+        assertNull(
+            RestrictionParsers.parseAppOpsMode(
+                "Uid mode: RUN_ANY_IN_BACKGROUND: ignore"
+            )
+        )
+    }
+
+    @Test
+    fun appOpsSuffixAndModePrefixAreStripped() {
+        assertEquals(
+            "ignore",
+            RestrictionParsers.parseAppOpsMode(
+                "RUN_ANY_IN_BACKGROUND: mode=ignore (running)"
+            )
+        )
+        assertEquals(
+            "allow",
+            RestrictionParsers.parseAppOpsMode(
+                "RUN_ANY_IN_BACKGROUND: allow; rejectTime=+1s ago"
+            )
+        )
+    }
+
+    @Test
     fun unknownAppOpsOutputIsNull() {
         assertNull(RestrictionParsers.parseAppOpsMode("No operations."))
         assertNull(RestrictionParsers.parseAppOpsMode(""))

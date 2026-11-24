@@ -76,8 +76,10 @@ Nemu 自己隐藏的包。
 2. **root FIFO 守护进程**：`shutdown_daemon.sh` 由 `service.sh` 启动，阻塞读取
    `/data/adb/nemu/shutdown.pipe`；LSPosed 更新守卫在 `ShutdownThread.run` 前写入
    FIFO，然后等待 `/data/adb/nemu/restore_done`。
-3. **sys.powerctl 轮询兜底**：仅当 `restore_frozen.sh` 非空时每 1 秒检查一次
-   `sys.powerctl`，看到关机请求就执行脚本。它只在有冻结目标时运行。
+3. **sys.powerctl 轮询兜底**：每 2 秒无条件检查 `sys.powerctl`（即使没有冻结目标，
+   也要记录 planned shutdown）；看到新的关机请求时，按原因白名单决定是否把本次
+   关机记为 planned（userrequested/shell/recovery/bootloader/fastboot/sideload；
+   watchdog/thermal 仍计为失败启动），有 restore 脚本时只重放一次。
 
 ### 3.3 覆盖范围与限制
 

@@ -7,6 +7,9 @@ import rikka.shizuku.Shizuku
 class BackendManager(private val settings: Settings) {
     private val root = RootBackend()
     private val shutdownRoot = RootBackend(timeoutMs = 3_000)
+    // Rescue clear may wait for the guard's restore lock and then run several
+    // pm/dumpsys reads; the normal 15s command bound is too short.
+    private val rescueRoot = RootBackend(timeoutMs = 120_000)
     private val shizuku = ShizukuBackend()
     private val shutdownShizuku = ShizukuBackend(timeoutMs = 3_000)
 
@@ -26,6 +29,10 @@ class BackendManager(private val settings: Settings) {
      */
     suspend fun getRoot(): RootPrivilegeBackend? =
         root.takeIf { it.isAvailable() }
+
+    /** Root with a longer bound for the multi-step rescue-clear verification. */
+    suspend fun getRootForRescueClear(): RootPrivilegeBackend? =
+        rescueRoot.takeIf { it.isAvailable() }
 
     /** Root backend with a short command bound for shutdown-only marker writes. */
     suspend fun getRootForShutdown(): RootPrivilegeBackend? =

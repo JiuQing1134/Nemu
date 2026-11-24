@@ -1020,7 +1020,7 @@ private fun RescueModeCard(callbacks: DashboardCallbacks) {
             text = {
                 Text(
                     "先检查并恢复 Nemu 拥有的状态；任一步失败都会保留救援模式。" +
-                        "boot_guard 的清除动作还会解冻其扫描到的暂停包，可能包括其他工具暂停的应用。"
+                        "清除只处理 Nemu 自己标记的状态，不会解冻其他工具暂停的应用。"
                 )
             },
             confirmButton = {

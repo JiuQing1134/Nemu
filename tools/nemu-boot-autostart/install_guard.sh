@@ -3,13 +3,14 @@
 # Called from the module's post-fs-data.sh and service.sh.
 MODDIR=${MODDIR:-${0%/*}}
 GUARD_DIR=${NEMU_GUARD_DIR:-/data/adb/nemu/boot_guard}
-GUARD_HOOK=/data/adb/nemu/boot_guard/boot_guard.sh
+GUARD_HOOK="$GUARD_DIR/boot_guard.sh"
+GUARD_RUNNER="$GUARD_DIR/boot_guard_runner.sh"
 
 install_owned_hook() {
     hook_path=$1
     hook_mode=$2
     temp_path="${hook_path}.tmp.$$"
-    printf '#!/system/bin/sh\nexec %s %s\n' "$GUARD_HOOK" "$hook_mode" \
+    printf '#!/system/bin/sh\nexec %s %s\n' "$GUARD_RUNNER" "$hook_mode" \
         > "$temp_path" || return 1
 
     # Replace Nemu-owned historical hooks (different guard path or CRLF)
@@ -22,7 +23,7 @@ install_owned_hook() {
         if [ "$lines" = "2" ] &&
             [ "$first" = "#!/system/bin/sh" ] &&
             printf '%s\n' "$second" |
-                grep -Eq "^exec [^ ]*boot_guard\.sh $hook_mode$"; then
+                grep -Eq "^exec [^ ]*boot_guard(_runner)?\.sh $hook_mode$"; then
             managed=1
         fi
         if [ "$managed" -ne 1 ]; then
@@ -51,6 +52,13 @@ install_nemu_guard() {
     tr -d '\015' < "$MODDIR/boot_guard.sh" > "$temp_guard" || return 1
     chmod 755 "$temp_guard" && mv -f "$temp_guard" "$GUARD_HOOK" || {
         rm -f "$temp_guard"
+        return 1
+    }
+
+    temp_runner="$GUARD_DIR/boot_guard_runner.sh.tmp.$$"
+    tr -d '\015' < "$MODDIR/boot_guard_runner.sh" > "$temp_runner" || return 1
+    chmod 755 "$temp_runner" && mv -f "$temp_runner" "$GUARD_RUNNER" || {
+        rm -f "$temp_runner"
         return 1
     }
     chmod 700 "$GUARD_DIR" || return 1

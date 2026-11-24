@@ -87,10 +87,51 @@ object BootGuard {
     /** Marks a successful normal unfreeze so quick clean reboots do not count as failures. */
     suspend fun markCleanShutdown(backend: RootPrivilegeBackend?): Boolean {
         if (backend == null) return false
+        // Keep one unconsumed marker in a .prev slot, and publish the new one
+        // atomically. A boot where the guard did not run must not make the
+        // next shutdown overwrite the only clean-shutdown record.
         val command = "mkdir -p '$GUARD_DIR' && " +
-            "cat /proc/sys/kernel/random/boot_id > '$GUARD_DIR/clean_shutdown' && " +
-            "chmod 600 '$GUARD_DIR/clean_shutdown'"
+            "new=\$(cat /proc/sys/kernel/random/boot_id 2>/dev/null); " +
+            "[ -n \"\$new\" ] || exit 1; " +
+            "old=\$(cat '$GUARD_DIR/clean_shutdown' 2>/dev/null); " +
+            "if [ -n \"\$old\" ] && [ \"\$old\" != \"\$new\" ]; then " +
+            "cp '$GUARD_DIR/clean_shutdown' " +
+            "'$GUARD_DIR/clean_shutdown.prev' && " +
+            "chmod 600 '$GUARD_DIR/clean_shutdown.prev'; fi; " +
+            "tmp=\"$GUARD_DIR/.clean_shutdown.\$\$\"; " +
+            "printf '%s\\n' \"\$new\" > \"\$tmp\" && " +
+            "chmod 600 \"\$tmp\" && " +
+            "mv -f \"\$tmp\" '$GUARD_DIR/clean_shutdown'"
         return backend.exec(command).ok
+    }
+
+    /**
+     * Epoch of the previous boot's user-requested shutdown, as classified by
+     * the root guard. Returns null when the guard did not run this boot, the
+     * record is from an older boot, or the shutdown was not planned.
+     */
+    suspend fun lastPlannedShutdownTime(
+        backend: RootPrivilegeBackend?
+    ): Long? {
+        if (backend == null) return null
+        // Emit the current boot id, a separator, then the guard's record:
+        //   <observed-boot-id> <planned|clean|unclean> <previous> <epoch-s>
+        // Parsing in Kotlin keeps the token contract unit-testable instead of
+        // depending on `read` variable count and shell field splitting.
+        val command =
+            "cat /proc/sys/kernel/random/boot_id 2>/dev/null; " +
+                "echo NEMU_SEPARATOR; " +
+                "cat '$GUARD_DIR/last_shutdown' 2>/dev/null"
+        val result = backend.exec(command)
+        if (!result.ok) return null
+        val parts = result.output.split("NEMU_SEPARATOR", limit = 2)
+        if (parts.size != 2) return null
+        val currentBootId = parts[0].trim()
+        val fields = parts[1].trim().split(Regex("\\s+"))
+        if (currentBootId.isEmpty() || fields.size != 4) return null
+        if (fields[0] != currentBootId || fields[1] != "planned") return null
+        // The guard writes epoch seconds; all App timestamps are milliseconds.
+        return fields[3].toLongOrNull()?.times(1000L)
     }
 
     /** The boot rescue only re-enables disable-user changes Nemu owns. */

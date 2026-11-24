@@ -233,6 +233,18 @@ class BootFreezeWorker(
             }
         }
 
+        // The root daemon also sees adb reboot/poweroff, which never reaches
+        // the App's ACTION_SHUTDOWN path. Treat a guard-classified planned
+        // shutdown after our last attempt as clean for this gate; otherwise
+        // the first auto-freeze after every adb reboot would be skipped.
+        val plannedShutdownTime =
+            BootGuard.lastPlannedShutdownTime(markerBackend) ?: 0L
+        val shutdownGate = BootFreezePolicy.shutdownGate(
+            plannedShutdownMs = plannedShutdownTime,
+            appShutdownOk = bootSettings.lastShutdownOk,
+            appShutdownTimeMs = bootSettings.lastShutdownTime,
+            lastAttemptTimeMs = bootSettings.lastBootFreezeAttemptTime
+        )
         val decision = BootFreezePolicy.evaluate(
             BootFreezeInput(
                 bootFreezeEnabled = bootSettings.bootFreezeEnabled,
@@ -243,8 +255,8 @@ class BootFreezeWorker(
                 lastAttemptTime = bootSettings.lastBootFreezeAttemptTime,
                 lastFreezeSucceeded = bootSettings.lastBootFreezeSucceeded,
                 lastFreezeTime = bootSettings.lastBootFreezeTime,
-                lastShutdownTime = bootSettings.lastShutdownTime,
-                lastShutdownOk = bootSettings.lastShutdownOk
+                lastShutdownTime = shutdownGate.time,
+                lastShutdownOk = shutdownGate.clean
             )
         )
         if (!decision.shouldRun) {
