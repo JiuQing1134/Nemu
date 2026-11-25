@@ -133,6 +133,24 @@ class CatalogModelsTest {
     }
 
     @Test
+    fun uninstalledPackageIsNotFrozenOrOwned() {
+        // Deep uninstall removes the package for user 0. A stale applied
+        // marker must not keep it on the freeze/unfreeze pages as if the
+        // package still had a restorable state.
+        val row = CatalogTargetUiState(
+            target = suspendTarget,
+            strategy = FreezeStrategy.SUSPEND,
+            applied = true,
+            actual = TargetActualUiState(present = false),
+            ownershipPending = true
+        )
+        assertFalse(row.isInstalled)
+        assertFalse(row.hasFrozenState)
+        assertFalse(row.ownsAnyState)
+        assertEquals("未安装", row.actualText())
+    }
+
+    @Test
     fun componentStateIsShownAndCountsAsFrozen() {
         val row = CatalogTargetUiState(
             target = componentTarget,

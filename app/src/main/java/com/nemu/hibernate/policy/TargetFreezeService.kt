@@ -300,7 +300,13 @@ class TargetFreezeService(
                     reasons += ResultReason.BASELINE_READ_FAILED.at(target.label)
                     continue
                 }
-                if (!before.exists || before.installed != true) {
+                // installed is null when the OEM dump omits or duplicates
+                // the User 0 line. Only an explicit “not installed and not
+                // hidden” proves the package is absent; a null state must
+                // fall through to HIDE_STATE_UNKNOWN, not claim “未安装”.
+                if (!before.exists ||
+                    (before.installed == false && before.hidden != true)
+                ) {
                     failed++
                     reasons += ResultReason.NOT_INSTALLED.at(target.label)
                     continue

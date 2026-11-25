@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -83,7 +84,7 @@ object CotaCopy {
         "风险：删除会真实移除云控温控/充电参数，可能导致过热、充电变慢或系统不稳定；" +
             "删除前先备份。"
     const val OFF_HINT = "默认关闭；开启后可查看、备份或恢复。"
-    const val PATH_COPIED = "地址已复制"
+    const val PATH_COPIED = "路径已复制"
 }
 
 data class CotaUiState(
@@ -196,7 +197,7 @@ fun CotaSection(
             }
             if (state.moduleEnabled && !state.rootAvailable) {
                 Text(
-                    "当前没有 Root，模块不可用。请先在 KSU 管理器中授权 Nemu。",
+                    "当前没有可用的 Root 权限，模块不可用。请在 KernelSU、Magisk 或 APatch 中授权 Nemu 后重试。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -438,7 +439,7 @@ fun CotaSection(
             title = { Text("删除备份 $pendingBackupDelete？") },
             text = {
                 Text(
-                    "只删除 Nemu 私有目录中的这份备份副本，" +
+                    "只删除 Nemu 备份目录中的这份副本，" +
                         "不会修改 /data/cota/para 中的当前文件。" +
                         "删除后无法再用它恢复。"
                 )
@@ -855,7 +856,7 @@ private fun CotaFileRow(
                 contentDescription =
                     "文件 ${file.name}，${file.kind.label}，" +
                         formatSize(file.sizeBytes) +
-                        "，${CotaTimestamps.displayLabel(file.modifiedAtSeconds)}" +
+                        "，修改时间 ${CotaTimestamps.displayLabel(file.modifiedAtSeconds)}" +
                         if (selected) "，已选择" else "，未选择"
                 role = Role.Checkbox
                 toggleableState = if (selected) {
@@ -914,7 +915,8 @@ private fun CotaFileRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    CotaTimestamps.displayLabel(file.modifiedAtSeconds),
+                    "修改时间 " +
+                        CotaTimestamps.displayLabel(file.modifiedAtSeconds),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 10.sp
@@ -926,7 +928,7 @@ private fun CotaFileRow(
                 // Fixed-width size column anchored to the row's right edge.
                 Text(
                     formatSize(file.sizeBytes),
-                    modifier = Modifier.width(72.dp),
+                    modifier = Modifier.widthIn(min = 72.dp),
                     textAlign = TextAlign.End,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 10.sp

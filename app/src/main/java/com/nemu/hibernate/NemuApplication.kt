@@ -2,9 +2,11 @@ package com.nemu.hibernate
 
 import android.app.Application
 import android.content.Context
+import android.os.Process
 import com.nemu.hibernate.core.TargetCatalog
 import com.nemu.hibernate.data.Settings
 import com.nemu.hibernate.logging.PersistentLogger
+import java.io.File
 
 /**
  * 进程入口：初始化文件日志并记录一次启动。不启动服务、不请求权限。
@@ -13,6 +15,7 @@ import com.nemu.hibernate.logging.PersistentLogger
 class NemuApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        installCrashHandler()
         // Direct boot can start this process for LOCKED_BOOT_COMPLETED while
         // credential-encrypted prefs are unavailable. All Settings access is
         // inside reloadAfterUnlock's runCatching and runs again on unlock.
@@ -21,6 +24,34 @@ class NemuApplication : Application() {
         // Cold start after a process kill between locked boot and unlock:
         // resume the boot-safety pass the runtime receiver never saw.
         runCatching { com.nemu.hibernate.policy.BootReceiver.ensureBootSafetyIfPending(this) }
+    }
+
+    /**
+     * Keep the last uncaught exception in app-private storage so an
+     * intermittent crash can be diagnosed without a connected PC. The
+     * previous handler still runs and terminates the process normally.
+     */
+    private fun installCrashHandler() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                val trace = buildString {
+                    append("time=")
+                    append(System.currentTimeMillis())
+                    append("\nthread=")
+                    append(thread.name)
+                    append('\n')
+                    append(error.stackTraceToString())
+                }
+                File(filesDir, "last-crash.txt").writeText(trace)
+                PersistentLogger.log("ERROR", "crash", trace)
+            }
+            if (previous != null) {
+                previous.uncaughtException(thread, error)
+            } else {
+                runCatching { Process.killProcess(Process.myPid()) }
+            }
+        }
     }
 
     companion object {
@@ -37,16 +68,6 @@ class NemuApplication : Application() {
                 // Seed before any screen reads dryRun; old builds never
                 // persisted the key, so an upgrade must keep real execution.
                 settings.ensureDryRunDefault()
-                runCatching {
-                    val info = appContext.packageManager.getPackageInfo(
-                        appContext.packageName,
-                        0
-                    )
-                    settings.ensureOnboardingDefault(
-                        info.firstInstallTime,
-                        info.lastUpdateTime
-                    )
-                }
                 TargetCatalog.setCustomTargets(
                     settings.customTargets().map { record ->
                         TargetCatalog.customTarget(

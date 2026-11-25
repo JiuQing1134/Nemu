@@ -489,7 +489,7 @@ FinaSU 模块：在 FinaSU 模块管理器中安装
 
 ```powershell
 cd D:\win_root\nemu
-# 不应出现 uninstall 命令
+# uninstall 只允许出现在深度卸载命令构造器（DeepUninstallService）
 rg -n "pm uninstall|uninstall" app\src\main\java
 # disable-user 只应出现在 CloudController / AntiFraudController 白名单路径
 rg -n "disable-user" app\src\main\java
@@ -499,7 +499,8 @@ rg -n "fastboot|efisp|abl_|set_active|mkfs|dd if=" app\src\main\java
 rg -n "hail|Hail" app\src\main\java app\build.gradle.kts
 ```
 
-预期：无 `pm uninstall`；`disable-user` 只在云控 DM 和反诈 numberidentity 的
+预期：`pm uninstall -k --user 0` 只出现在深度卸载的
+`DeepUninstallCommands`；`disable-user` 只在云控 DM 和反诈 numberidentity 的
 白名单控制器中；无 ABL/fastboot/分区代码；无 Hail 依赖。
 
 ### 9.2 关键不变量

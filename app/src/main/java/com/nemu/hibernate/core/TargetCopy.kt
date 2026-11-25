@@ -79,6 +79,14 @@ object TargetCopy {
     fun functionLine(packageName: String): String =
         functionLines[packageName] ?: "用户添加的应用"
 
+    /**
+     * Function description for packages we actually know. Null means the app
+     * was added by the user and we have nothing useful to say, so the card
+     * omits the 功能 row instead of printing placeholder text.
+     */
+    fun knownFunctionLine(packageName: String): String? =
+        functionLines[packageName]
+
     /** Main strategy choices shown on a target card (restrictions excluded). */
     val mainPresets: List<StrategyPreset> = listOf(
         StrategyPreset.OBSERVE,
@@ -117,7 +125,7 @@ object TargetCopy {
     fun label(strategy: FreezeStrategy): String = when (strategy) {
         FreezeStrategy.OBSERVE -> "观察"
         FreezeStrategy.SUSPEND -> "暂停"
-        FreezeStrategy.COMPONENT -> "组件"
+        FreezeStrategy.COMPONENT -> "停用组件"
         FreezeStrategy.DISABLE_USER -> "停用"
         FreezeStrategy.HIDE -> "隐藏"
     }
@@ -126,7 +134,7 @@ object TargetCopy {
         StrategyPreset.OBSERVE -> "观察"
         StrategyPreset.PAUSE -> "暂停"
         StrategyPreset.FREEZE -> "冻结"
-        StrategyPreset.COMPONENT -> "组件"
+        StrategyPreset.COMPONENT -> "停用组件"
         StrategyPreset.DISABLE_USER -> "停用"
         StrategyPreset.HIDE -> "隐藏"
         StrategyPreset.RESTRICT_BACKGROUND -> "限制后台"
@@ -135,10 +143,10 @@ object TargetCopy {
 
     fun impact(strategy: FreezeStrategy): String = when (strategy) {
         FreezeStrategy.OBSERVE -> "不改动，只显示状态"
-        FreezeStrategy.SUSPEND -> "暂停并结束当前进程；系统可能重新拉起服务"
+        FreezeStrategy.SUSPEND -> "暂停应用并结束当前进程；系统可能重启其后台服务"
         FreezeStrategy.COMPONENT -> "停用登记的后台组件；应用本身仍可打开"
-        FreezeStrategy.DISABLE_USER -> "整包禁用，入口消失；数据保留"
-        FreezeStrategy.HIDE -> "伪装成未安装；APK 和数据保留"
+        FreezeStrategy.DISABLE_USER -> "停用整个应用，桌面入口消失；数据保留"
+        FreezeStrategy.HIDE -> "对系统伪装成未安装；安装包和数据保留"
     }
 
     fun impactFor(target: Target, strategy: FreezeStrategy): String =
@@ -146,8 +154,8 @@ object TargetCopy {
 
     fun impact(preset: StrategyPreset): String = when (preset) {
         StrategyPreset.OBSERVE -> impact(FreezeStrategy.OBSERVE)
-        StrategyPreset.PAUSE -> "暂停但不结束进程；后台服务仍可能被唤起"
-        StrategyPreset.FREEZE -> "冻结并结束当前进程；系统可能重新拉起服务"
+        StrategyPreset.PAUSE -> "暂停应用但不结束进程；后台服务仍可能被唤起"
+        StrategyPreset.FREEZE -> "冻结应用并结束当前进程；系统可能重启其后台服务"
         StrategyPreset.COMPONENT -> impact(FreezeStrategy.COMPONENT)
         StrategyPreset.DISABLE_USER -> impact(FreezeStrategy.DISABLE_USER)
         StrategyPreset.HIDE -> impact(FreezeStrategy.HIDE)
@@ -160,21 +168,21 @@ object TargetCopy {
     fun impactFor(target: Target, preset: StrategyPreset): String = when (preset) {
         StrategyPreset.PAUSE -> impact(StrategyPreset.PAUSE)
         StrategyPreset.FREEZE ->
-            "冻结并结束当前进程；系统可能重新拉起服务"
+            "冻结应用并结束当前进程；系统可能重启其后台服务"
         else -> impactFor(target, baseStrategy(preset))
     }
 
     fun restoreLine(strategy: FreezeStrategy): String = when (strategy) {
         FreezeStrategy.OBSERVE -> "无需恢复"
-        FreezeStrategy.SUSPEND -> "取消暂停；若曾被强停，首次打开后恢复后台"
-        FreezeStrategy.COMPONENT -> "按原状态恢复组件；若曾被强停，首次打开后恢复后台"
-        FreezeStrategy.DISABLE_USER -> "重新启用；入口与数据回来"
-        FreezeStrategy.HIDE -> "解除隐藏；入口与数据回来"
+        FreezeStrategy.SUSPEND -> "取消暂停；若之前结束过进程，重新打开后恢复后台"
+        FreezeStrategy.COMPONENT -> "恢复组件原状态；若之前结束过进程，重新打开后恢复后台"
+        FreezeStrategy.DISABLE_USER -> "重新启用应用；桌面入口恢复，数据保留"
+        FreezeStrategy.HIDE -> "解除隐藏；桌面入口恢复，数据保留"
     }
 
     fun restoreLine(preset: StrategyPreset): String = when (preset) {
         StrategyPreset.PAUSE -> "取消暂停；进程保持原样"
-        StrategyPreset.FREEZE -> "取消冻结；若曾被强停，首次打开后恢复后台"
+        StrategyPreset.FREEZE -> "取消冻结；若之前结束过进程，重新打开后恢复后台"
         StrategyPreset.RESTRICT_BACKGROUND -> "恢复原始后台模式"
         StrategyPreset.RESTRICT_STANDBY -> "恢复原始待机桶"
         else -> restoreLine(baseStrategy(preset))
@@ -230,7 +238,20 @@ object TargetCopy {
         target: Target,
         strategy: FreezeStrategy
     ): String? = if (FreezeStrategyPolicy.requiresHighRiskWarning(target, strategy)) {
-        "高风险，可能影响系统/安全功能"
+        when {
+            target.packageName == "com.hihonor.ouc" ->
+                "高风险：将停止系统更新，长期可能收不到安全补丁"
+            target.packageName == "com.hihonor.numberidentity" ->
+                "高风险：可能影响支付保护、反诈或安全校验"
+            target.category == TargetCategory.CLOUD ->
+                "高风险：将停止云控参数更新，现有参数继续生效"
+            target.category == TargetCategory.THERMAL ->
+                "高风险：可能影响温控、充电或画面稳定性"
+            target.packageName.contains("push") ->
+                "高风险：可能导致通知和推送异常"
+            else ->
+                "高风险：可能影响系统功能，请确认后再继续"
+        }
     } else {
         null
     }
@@ -249,12 +270,12 @@ object TargetCopy {
     ): String? {
         if (strategy == FreezeStrategy.OBSERVE) return null
         if (platformRejected[target.packageName]?.contains(strategy) == true) {
-            return "平台拒绝"
+            return "系统不支持"
         }
         if (strategy == FreezeStrategy.COMPONENT && target.components.isEmpty()) {
             // There is no component discovery in this version, so "none" is
             // not proven. Never claim the package has no components at all.
-            return "未发现组件"
+            return "没有可停用的组件"
         }
         if (!rootAvailable &&
             (strategy == FreezeStrategy.COMPONENT ||

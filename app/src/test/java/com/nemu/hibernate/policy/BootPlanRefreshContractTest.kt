@@ -23,15 +23,15 @@ class BootPlanRefreshContractTest {
             .substringBefore("onCatalogComponentsChange =")
 
         assertTrue(
-            "单卡开关改计划后必须重新评估开机计划",
+            "单卡开关改计划后必须重新评估开机冻结",
             toggle.contains("refreshBootFreezeSchedule()")
         )
         assertTrue(
-            "批量加入/移出开机计划后必须重新评估开机计划",
+            "批量加入/移出开机冻结后必须重新评估开机冻结",
             batch.contains("refreshBootFreezeSchedule()")
         )
         assertTrue(
-            "切换预设后必须重新评估开机计划",
+            "切换预设后必须重新评估开机冻结",
             preset.contains("refreshBootFreezeSchedule()")
         )
         assertTrue(

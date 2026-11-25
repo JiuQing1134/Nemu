@@ -50,14 +50,14 @@ enum class ResultReason(
     PROCESS_STILL_RUNNING("进程仍存活"),
     BACKEND_UNAVAILABLE("无可用权限", blocking = true),
     NOT_INSTALLED("当前用户未安装", blocking = true),
-    HIDE_NOT_OWNED("没有本应用写入的隐藏记录", blocking = true),
+    HIDE_NOT_OWNED("没有 Nemu 写入的隐藏记录", blocking = true),
     RESTORE_UNVERIFIED("恢复后状态未确认", blocking = true),
     PARTIAL_SUCCESS("部分成功"),
     PRECHECK_FAILED("预检未通过", blocking = true),
     NO_SELECTION("没有可用目标", blocking = true),
     NO_ENABLED_TARGETS("没有启用的目标"),
     COMPONENT_SELECTION_EMPTY("至少选择 1 个组件", blocking = true),
-    RESCUE_MODE("自动救砖模式，已拒绝执行", blocking = true),
+    RESCUE_MODE("救援模式，已拒绝执行", blocking = true),
     SUSPEND_RESIDUAL("暂停残留未清除"),
     UNKNOWN("操作未完成");
 
@@ -118,10 +118,10 @@ object ResultCopy {
         failed: Int,
         reasons: List<ResultNote>
     ): String = buildString {
-        append(if (ok) "成功" else "有失败")
-        append("，尝试 ")
+        append(if (ok) "已完成" else "有失败")
+        append("：尝试 ")
         append(attempted)
-        append("，成功 ")
+        append(" 个，成功 ")
         append(applied)
         append("，失败 ")
         append(failed)

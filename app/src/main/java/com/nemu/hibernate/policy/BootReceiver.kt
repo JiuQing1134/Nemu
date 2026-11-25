@@ -23,7 +23,7 @@ class BootReceiver : BroadcastReceiver() {
         // receive this registered-only broadcast) and then enqueues the safety
         // worker after unlock; MY_PACKAGE_REPLACED is a later fallback.
         if (intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
-            onBootTrigger(context)
+            runCatching { onBootTrigger(context) }
             return
         }
 
@@ -47,7 +47,7 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        enqueueBootSafety(context)
+        runCatching { enqueueBootSafety(context) }
     }
 
     companion object {
@@ -144,7 +144,12 @@ class BootReceiver : BroadcastReceiver() {
         private fun unlockAfterDirectBoot(context: Context) {
             val appContext = context.applicationContext ?: context
             NemuApplication.reloadAfterUnlock(appContext)
-            enqueueBootSafety(appContext)
+            runCatching { enqueueBootSafety(appContext) }
+                .onFailure {
+                com.nemu.hibernate.data.ActionLog.warn(
+                    "开机安全解冻排队失败：${it.message ?: it.javaClass.simpleName}"
+                )
+            }
         }
 
         private fun enqueueBootSafety(context: Context) {

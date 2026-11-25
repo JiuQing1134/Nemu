@@ -25,33 +25,6 @@ class Settings(context: Context) {
         set(value) = prefs.edit().putBoolean("dry_run", value).apply()
 
     /**
-     * The overview “开始使用” card was dismissed. Reset from the settings
-     * root so a returning user can read the permission guide again.
-     */
-    var onboardingDismissed: Boolean
-        get() = prefs.getBoolean("onboarding_dismissed", false)
-        set(value) = prefs.edit().putBoolean("onboarding_dismissed", value).apply()
-
-    /**
-     * The guide is for new installs. Existing users upgrading to this build
-     * already know the app; seed the dismissal once so they do not get a
-     * first-run card. Install/update timestamps distinguish the two without
-     * depending on preference keys that the dry-run migration may have just
-     * written.
-     */
-    fun ensureOnboardingDefault(
-        firstInstallTime: Long,
-        lastUpdateTime: Long
-    ) {
-        val seed = onboardingDismissedForUpgrade(
-            hasKey = prefs.contains("onboarding_dismissed"),
-            firstInstallTime = firstInstallTime,
-            lastUpdateTime = lastUpdateTime
-        ) ?: return
-        prefs.edit().putBoolean("onboarding_dismissed", seed).commit()
-    }
-
-    /**
      * One-time cleanup of states written by builds before the unified catalog
      * validated stored strategies. Kept false until a restore succeeds.
      */
@@ -93,6 +66,21 @@ class Settings(context: Context) {
                 if (unfreeze) "selection_unfreeze" else "selection_freeze",
                 packages
             )
+            .apply()
+    }
+
+    /**
+     * Last batch the user actually confirmed for freezing. Kept separate from
+     * [lastSelection] because that memory is also written when adding to the
+     * boot plan; repeating “上次冻结” must never freeze apps that were only
+     * planned.
+     */
+    fun lastAppliedFreezeSelection(): Set<String> =
+        prefs.getStringSet("last_applied_freeze", emptySet()).orEmpty()
+
+    fun setLastAppliedFreezeSelection(packages: Set<String>) {
+        prefs.edit()
+            .putStringSet("last_applied_freeze", packages)
             .apply()
     }
 
@@ -366,19 +354,5 @@ class Settings(context: Context) {
             else -> true
         }
 
-        /**
-         * null = nothing to seed (fresh install keeps showing the guide);
-         * true = upgrade, hide the guide once. 60s tolerates installer
-         * timestamp jitter on a fresh install.
-         */
-        internal fun onboardingDismissedForUpgrade(
-            hasKey: Boolean,
-            firstInstallTime: Long,
-            lastUpdateTime: Long
-        ): Boolean? = when {
-            hasKey -> null
-            lastUpdateTime - firstInstallTime > 60_000L -> true
-            else -> null
-        }
     }
 }

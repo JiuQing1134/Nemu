@@ -86,7 +86,7 @@ class ResultReasonTest {
         )
 
         assertEquals(
-            "有失败，尝试 3，成功 1，失败 2；" +
+            "有失败：尝试 3 个，成功 1，失败 2；" +
                 "号码识别：操作前已被暂停，不接管；天气：无法确认隐藏状态",
             summary
         )

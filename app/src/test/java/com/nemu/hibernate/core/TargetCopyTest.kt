@@ -92,7 +92,7 @@ class TargetCopyTest {
         val hiview = TargetCatalog.byPackage("com.hihonor.hiview")
         assertNotNull(hiview)
         assertEquals(
-            "平台拒绝",
+            "系统不支持",
             TargetCopy.unavailableReason(hiview!!, StrategyPreset.PAUSE)
         )
 
@@ -149,14 +149,14 @@ class TargetCopyTest {
         val hiview = TargetCatalog.byPackage("com.hihonor.hiview")
         assertNotNull(hiview)
         assertEquals(
-            "平台拒绝",
+            "系统不支持",
             TargetCopy.unavailableReason(hiview!!, FreezeStrategy.SUSPEND)
         )
 
         val powergenie = TargetCatalog.byPackage("com.hihonor.powergenie")
         assertNotNull(powergenie)
         assertEquals(
-            "平台拒绝",
+            "系统不支持",
             TargetCopy.unavailableReason(
                 powergenie!!,
                 FreezeStrategy.COMPONENT
@@ -244,7 +244,7 @@ class TargetCopyTest {
         )
 
         assertEquals(
-            "未发现组件",
+            "没有可停用的组件",
             TargetCopy.unavailableReason(empty, FreezeStrategy.COMPONENT)
         )
     }

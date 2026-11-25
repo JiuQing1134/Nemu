@@ -54,6 +54,16 @@ class PackageSnapshotParserTest {
     }
 
     @Test
+    fun hiddenPackageWithInstalledFalseIsNotTreatedAsRemoved() {
+        val line = hiddenLine.replace("installed=true", "installed=false")
+        val snapshot = PackageSnapshotParser.parse(
+            "Packages:\n  Package [com.example] (abc):\n$line"
+        )
+
+        assertFalse(snapshot.isMissing())
+    }
+
+    @Test
     fun missingPackageIsReportedAsNotExisting() {
         val snapshot = PackageSnapshotParser.parse(
             "Unable to find package: com.example.missing"

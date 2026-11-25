@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,8 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -86,6 +89,11 @@ fun DetectionScreen(
     val category = DetectionCategory.entries
         .firstOrNull { it.name == selectedCategory }
         ?: DetectionCategory.FREEZE
+    var showMismatchGroup by rememberSaveable { mutableStateOf(true) }
+    var showEffectiveGroup by rememberSaveable { mutableStateOf(true) }
+    // The unfrozen rows are the long tail; collapse them by default.
+    var showInactiveGroup by rememberSaveable { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
     val listState = rememberLazyListState()
     // Re-entering the tab restores the saved list position; only an actual
     // category change should jump to the top.
@@ -121,68 +129,104 @@ fun DetectionScreen(
         } else {
             when (category) {
                 DetectionCategory.FREEZE -> {
-                    val groups = freezeGroups(snapshot.freezeStates)
-                    val total = groups.sumOf { it.rows.size }
-                    val frozenTotal = groups.sumOf { group ->
-                        group.rows.count { it.actuallyFrozen }
-                    }
-                    val mismatched = groups.sumOf { group ->
-                        group.rows.count { it.mismatch() }
-                    }
-                    if (groups.isEmpty()) {
-                        item { DetectionInfoCard("没有冻结目标数据。") }
-                    } else {
-                        item {
-                            SectionHeader(
-                                title = "目标状态",
-                                subtitle = "按来源分组 · 点卡片展开",
-                                subtitleMaxLines = 1,
-                                trailing = {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        DetectionStatusChip(
-                                            "已冻结 $frozenTotal / $total"
-                                        )
-                                        if (mismatched > 0) {
-                                            DetectionStatusChip(
-                                                "不一致 $mismatched",
-                                                warning = true
-                                            )
-                                        }
-                                    }
-                                }
+                    val rows = nonCloudFreezeRows(snapshot.freezeStates)
+                        .sortedWith(
+                            compareBy(
+                                { appNameSortKey(it.label) },
+                                { it.packageName }
                             )
-                        }
-                        groups.forEach { group ->
-                            item(key = "freeze-group:${group.source.name}") {
-                                SectionHeader(
-                                    title = group.title,
-                                    subtitleMaxLines = 1,
-                                    trailing = {
-                                        DetectionStatusChip(
-                                            "${group.rows.count { it.actuallyFrozen }}" +
-                                                " / ${group.rows.size}"
-                                        )
-                                    }
+                        )
+                    val mismatched = rows.filter { it.mismatch() }
+                    val effective = rows.filter {
+                        it.actuallyFrozen && !it.mismatch()
+                    }
+                    val inactive = rows.filter {
+                        !it.actuallyFrozen && !it.mismatch()
+                    }
+                    if (rows.isEmpty()) {
+                        item { DetectionInfoCard("没有应用冻结数据。") }
+                    } else {
+                        item { SectionHeader(title = "应用状态") }
+                        if (mismatched.isNotEmpty()) {
+                            item(key = "freeze-status:mismatch") {
+                                CollapsibleGroupHeader(
+                                    title = "不一致",
+                                    count = mismatched.size,
+                                    expanded = showMismatchGroup,
+                                    onToggle = {
+                                        showMismatchGroup = !showMismatchGroup
+                                    },
+                                    color = scheme.error
                                 )
                             }
-                            items(
-                                items = group.rows,
-                                key = { "${it.source}:${it.packageName}" }
-                            ) { freeze -> FreezeStateCard(freeze, onOpenTarget) }
+                            if (showMismatchGroup) {
+                                items(
+                                    items = mismatched,
+                                    key = { "mismatch:${it.source}:${it.packageName}" }
+                                ) { freeze ->
+                                    FreezeStateCard(freeze, onOpenTarget)
+                                }
+                            }
+                        }
+                        if (effective.isNotEmpty()) {
+                            item(key = "freeze-status:effective") {
+                                CollapsibleGroupHeader(
+                                    title = "已生效",
+                                    count = effective.size,
+                                    expanded = showEffectiveGroup,
+                                    onToggle = {
+                                        showEffectiveGroup = !showEffectiveGroup
+                                    },
+                                    color = scheme.primary
+                                )
+                            }
+                            if (showEffectiveGroup) {
+                                items(
+                                    items = effective,
+                                    key = { "effective:${it.source}:${it.packageName}" }
+                                ) { freeze ->
+                                    FreezeStateCard(freeze, onOpenTarget)
+                                }
+                            }
+                        }
+                        if (inactive.isNotEmpty()) {
+                            item(key = "freeze-status:inactive") {
+                                CollapsibleGroupHeader(
+                                    title = "未生效",
+                                    count = inactive.size,
+                                    expanded = showInactiveGroup,
+                                    onToggle = {
+                                        showInactiveGroup = !showInactiveGroup
+                                    },
+                                    color = scheme.primary
+                                )
+                            }
+                            if (showInactiveGroup) {
+                                items(
+                                    items = inactive,
+                                    key = { "inactive:${it.source}:${it.packageName}" }
+                                ) { freeze ->
+                                    FreezeStateCard(freeze, onOpenTarget)
+                                }
+                            }
                         }
                     }
                 }
                 DetectionCategory.TELEMETRY -> {
                     val cloudRows = cloudFreezeRows(snapshot.freezeStates)
+                        .sortedWith(
+                            compareBy(
+                                { appNameSortKey(it.label) },
+                                { it.packageName }
+                            )
+                        )
                     if (cloudRows.isEmpty()) {
-                        item { DetectionInfoCard("没有云控/遥测目标数据。") }
+                        item { DetectionInfoCard("没有云控遥测数据。") }
                     } else {
                         item {
                             SectionHeader(
                                 title = "云控 / 遥测",
-                                subtitle = "云控来源目标 · 只读",
+                                subtitle = "云控来源应用 · 只读",
                                 subtitleMaxLines = 1,
                                 trailing = {
                                     DetectionStatusChip(
@@ -218,7 +262,7 @@ fun DetectionScreen(
                     item {
                         SectionHeader(
                             title = "启动 / 关机安全",
-                            subtitle = "关机前解冻；异常开机由守卫清理"
+                            subtitle = "关机前自动解冻；上次未正常关机会跳过本次自动冻结"
                         )
                     }
                     item { BootSafetyCard(snapshot) }
@@ -270,51 +314,17 @@ internal data class DetectionOverview(
     val startup: DetectionSummary
 )
 
-internal data class DetectionFreezeGroup(
-    val source: FreezeSource,
-    val title: String,
-    val rows: List<FreezeState>
-)
-
-private val FREEZE_GROUP_ORDER = listOf(
-    FreezeSource.CORE,
-    FreezeSource.AI,
-    FreezeSource.CATALOG
-)
-
 internal fun nonCloudFreezeRows(states: List<FreezeState>): List<FreezeState> =
     states.filter { it.source != FreezeSource.CLOUD }
 
 internal fun cloudFreezeRows(states: List<FreezeState>): List<FreezeState> =
     states.filter { it.source == FreezeSource.CLOUD }
 
-/**
- * Freeze rows split by source for the 应用冻结 list. Cloud rows belong to the
- * telemetry category and are never shown here; empty groups are omitted.
- */
-internal fun freezeGroups(states: List<FreezeState>): List<DetectionFreezeGroup> {
-    val bySource = states
-        .filter { it.source != FreezeSource.CLOUD }
-        .groupBy { it.source }
-    return FREEZE_GROUP_ORDER.mapNotNull { source ->
-        val rows = bySource[source].orEmpty()
-        if (rows.isEmpty()) {
-            null
-        } else {
-            DetectionFreezeGroup(
-                source = source,
-                title = freezeSourceTitle(source),
-                rows = rows
-            )
-        }
-    }
-}
-
 internal fun freezeSourceTitle(source: FreezeSource): String = when (source) {
-    FreezeSource.CORE -> "核心目标"
-    FreezeSource.AI -> "AI 目标"
-    FreezeSource.CLOUD -> "云控目标"
-    FreezeSource.CATALOG -> "统一目录目标"
+    FreezeSource.CORE -> "核心应用"
+    FreezeSource.AI -> "AI 应用"
+    FreezeSource.CLOUD -> "云控应用"
+    FreezeSource.CATALOG -> "其他应用"
 }
 
 internal fun DetectionSnapshot.overviewSummary(): DetectionOverview {
@@ -344,11 +354,11 @@ internal fun systemSummary(
         cota.status == CotaReadStatus.OK
     return DetectionSummary(
         label = when {
-            failed -> "读取失败"
+            failed -> "失败"
             thermal.services.isNotEmpty() -> "${thermal.services.size} 项"
             cota.status == CotaReadStatus.OK -> "已读取"
-            cota.status == CotaReadStatus.NO_ROOT -> "无 root"
-            else -> "未读"
+            cota.status == CotaReadStatus.NO_ROOT -> "无 Root"
+            else -> "未读取"
         },
         tone = when {
             failed -> DetectionSummaryTone.ERROR
@@ -362,10 +372,10 @@ internal fun systemSummary(
 internal fun startupSummary(boot: BootSafetyState): DetectionSummary = when {
     // A snapshot exists but its boot-safety section failed to read. The
     // empty-state card is used before the first snapshot, so this is an
-    // error, not “not read yet”.
+    // error, not "not read yet".
     !boot.readOk -> DetectionSummary("读取失败", DetectionSummaryTone.ERROR)
     boot.startupAnomaly() -> DetectionSummary("异常", DetectionSummaryTone.ERROR)
-    else -> DetectionSummary("正常", DetectionSummaryTone.PRIMARY)
+    else -> DetectionSummary("未见异常", DetectionSummaryTone.PRIMARY)
 }
 
 /**
@@ -396,7 +406,7 @@ internal fun bootPlanLabel(boot: BootSafetyState): String =
 /** Compact guard state for the boot summary card. */
 internal fun bootGuardLabel(boot: BootSafetyState): String = when {
     !boot.readOk -> "读取失败"
-    else -> boot.guardNote() ?: if (boot.bootFreezeEnabled) "正常" else "未启用"
+    else -> boot.guardNote() ?: if (boot.bootFreezeEnabled) "未触发" else "未启用"
 }
 
 /** One compact line replacing three competing chips on the freeze cards. */
@@ -404,7 +414,7 @@ internal fun freezeSummaryLine(freeze: FreezeState): String {
     if (freeze.mode == FreezeMode.OBSERVE) return "仅观察"
     return buildString {
         append(
-            if (freeze.policyEnabled) "已加入计划" else "未加入计划"
+            if (freeze.policyEnabled) "已添加" else "未添加"
         )
         append(" · ")
         append(freeze.compactActual())
@@ -424,14 +434,17 @@ internal fun FreezeState.compactActual(): String = when {
     mode == FreezeMode.HIDE -> detailValue()
     mode == FreezeMode.RESTRICT && !actualKnown -> "读取失败"
     !actualKnown -> "未知"
-    mode == FreezeMode.SUSPEND ->
-        if (suspended) "已${suspendWord()}" else "未${suspendWord()}"
+    mode == FreezeMode.SUSPEND -> when {
+        suspended && !policyApplied -> "他人暂停"
+        suspended -> "已${suspendWord()}"
+        else -> "未${suspendWord()}"
+    }
     mode == FreezeMode.DISABLE -> if (!enabled) "已停用" else "仍启用"
     mode == FreezeMode.COMPONENT -> when {
-        componentPartial -> "部分停用"
-        componentDisabled == true -> "已停用"
-        componentDisabled == false -> "启用"
-        else -> "未知"
+        componentPartial -> "组件部分停用"
+        componentDisabled == true -> "组件已停用"
+        componentDisabled == false -> "组件启用"
+        else -> "组件状态未知"
     }
     mode == FreezeMode.RESTRICT ->
         if (restrictionActual ?: restrictionApplied) "已限制" else "未限制"
@@ -460,18 +473,25 @@ private fun DetectionHeader(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     Text(
                         "设备检测",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 20.sp
+                            fontSize = 17.sp
                         )
                     )
-                    Text(
-                        "只读快照 · 不执行系统操作",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    state.snapshot?.let { snapshot ->
+                        if (snapshot.generatedAtMillis > 0) {
+                            Text(
+                                "更新于 ${formatDetectionTimestamp(snapshot.generatedAtMillis)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 Text(
                     text = if (state.loading) "读取中…" else "刷新",
@@ -483,7 +503,13 @@ private fun DetectionHeader(
                     },
                     maxLines = 1,
                     modifier = Modifier
-                        .noRippleClickable(enabled = !state.loading) { onRefresh() }
+                        .nemuClickable(
+                            enabled = !state.loading,
+                            spec = NemuPressSpec.Chip,
+                            haptic = NemuHaptic.KeyboardTap,
+                            role = Role.Button,
+                            onClick = onRefresh
+                        )
                         // Invisible padding: 48dp-tall touch target while the
                         // label itself stays a bare text control.
                         .padding(horizontal = 10.dp, vertical = 16.dp)
@@ -510,13 +536,6 @@ private fun DetectionHeader(
             }
 
             state.snapshot?.let { snapshot ->
-                if (snapshot.generatedAtMillis > 0) {
-                    Text(
-                        "更新于 ${formatDetectionTimestamp(snapshot.generatedAtMillis)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 DetectionOverviewRow(
                     overview = snapshot.overviewSummary(),
                     category = category,
@@ -534,68 +553,50 @@ private fun DetectionOverviewRow(
     category: DetectionCategory,
     onCategoryChange: (DetectionCategory) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "总览",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "点按切换分类",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            DetectionOverviewBlock(
-                title = "冻结目标",
-                value = "${overview.freezeCount}/${overview.freezeTotal}",
-                tone = if (overview.freezeMismatchCount > 0) {
-                    DetectionSummaryTone.ERROR
-                } else {
-                    DetectionSummaryTone.PRIMARY
-                },
-                selected = category == DetectionCategory.FREEZE,
-                onClick = { onCategoryChange(DetectionCategory.FREEZE) },
-                modifier = Modifier.weight(1f)
-            )
-            DetectionOverviewBlock(
-                title = "云控目标",
-                value = "${overview.cloudCount}/${overview.cloudTotal}",
-                tone = if (overview.cloudMismatchCount > 0) {
-                    DetectionSummaryTone.ERROR
-                } else {
-                    DetectionSummaryTone.PRIMARY
-                },
-                selected = category == DetectionCategory.TELEMETRY,
-                onClick = { onCategoryChange(DetectionCategory.TELEMETRY) },
-                modifier = Modifier.weight(1f)
-            )
-            DetectionOverviewBlock(
-                title = "系统服务",
-                value = overview.system.label,
-                tone = overview.system.tone,
-                selected = category == DetectionCategory.SYSTEM,
-                onClick = { onCategoryChange(DetectionCategory.SYSTEM) },
-                modifier = Modifier.weight(1f)
-            )
-            DetectionOverviewBlock(
-                title = "启动安全",
-                value = overview.startup.label,
-                tone = overview.startup.tone,
-                selected = category == DetectionCategory.STARTUP,
-                onClick = { onCategoryChange(DetectionCategory.STARTUP) },
-                modifier = Modifier.weight(1f)
-            )
-        }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        DetectionOverviewBlock(
+            title = "应用冻结",
+            value = "${overview.freezeCount}/${overview.freezeTotal}",
+            tone = if (overview.freezeMismatchCount > 0) {
+                DetectionSummaryTone.ERROR
+            } else {
+                DetectionSummaryTone.PRIMARY
+            },
+            selected = category == DetectionCategory.FREEZE,
+            onClick = { onCategoryChange(DetectionCategory.FREEZE) },
+            modifier = Modifier.weight(1f)
+        )
+        DetectionOverviewBlock(
+            title = "云控遥测",
+            value = "${overview.cloudCount}/${overview.cloudTotal}",
+            tone = if (overview.cloudMismatchCount > 0) {
+                DetectionSummaryTone.ERROR
+            } else {
+                DetectionSummaryTone.PRIMARY
+            },
+            selected = category == DetectionCategory.TELEMETRY,
+            onClick = { onCategoryChange(DetectionCategory.TELEMETRY) },
+            modifier = Modifier.weight(1f)
+        )
+        DetectionOverviewBlock(
+            title = "系统服务",
+            value = overview.system.label,
+            tone = overview.system.tone,
+            selected = category == DetectionCategory.SYSTEM,
+            onClick = { onCategoryChange(DetectionCategory.SYSTEM) },
+            modifier = Modifier.weight(1f)
+        )
+        DetectionOverviewBlock(
+            title = "启动安全",
+            value = overview.startup.label,
+            tone = overview.startup.tone,
+            selected = category == DetectionCategory.STARTUP,
+            onClick = { onCategoryChange(DetectionCategory.STARTUP) },
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -625,7 +626,7 @@ private fun DetectionOverviewBlock(
             )
             .nemuPressFeedback(interaction, NemuPressSpec.Chip)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$title，$value，点按切换分类"
+                contentDescription = "$title，$value"
             },
         shape = RoundedCornerShape(12.dp),
         color = scheme.nemuInset(),
@@ -646,15 +647,15 @@ private fun DetectionOverviewBlock(
             )
             Text(
                 value,
-                style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp),
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 11.sp),
                 color = when {
                     tone == DetectionSummaryTone.ERROR -> scheme.error
                     selected -> scheme.primary
                     else -> scheme.onSurface
                 },
-                // “读取失败” and 3-digit counts must not become “读取…” on a
-                // 320dp screen or at a large font scale.
-                maxLines = 2,
+                // One line only: four equal blocks on a 360dp screen must not
+                // wrap "系统服务" values onto a second row.
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -763,11 +764,13 @@ private fun FreezeStateCard(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(freeze.label, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        freeze.packageName,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    if (shouldShowPackageName(freeze.label, freeze.packageName)) {
+                        Text(
+                            freeze.packageName,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -781,17 +784,39 @@ private fun FreezeStateCard(
                 }
             }
             // One compact line instead of three competing chips: policy,
-            // actual state and process presence. Mismatch stays red and a
-            // partial result keeps the theme's third colour.
+            // actual state and process presence. The plan prefix stays muted;
+            // only the actual state carries the theme colour.
+            val summary = freezeSummaryLine(freeze)
+            val summaryNormal = !freeze.mismatch() && !freeze.partiallyApplied()
+            val summaryColor = when {
+                freeze.mismatch() -> MaterialTheme.colorScheme.error
+                freeze.partiallyApplied() -> MaterialTheme.colorScheme.secondary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            val primary = MaterialTheme.colorScheme.primary
+            val summaryText = remember(summary, summaryNormal, primary) {
+                buildAnnotatedString {
+                    val separator = summary.indexOf(" · ")
+                    if (summaryNormal && separator >= 0) {
+                        append(summary.substring(0, separator + 3))
+                        withStyle(
+                            SpanStyle(
+                                color = primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        ) {
+                            append(summary.substring(separator + 3))
+                        }
+                    } else {
+                        append(summary)
+                    }
+                }
+            }
             Text(
-                freezeSummaryLine(freeze),
+                summaryText,
                 modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
-                color = when {
-                    freeze.mismatch() -> MaterialTheme.colorScheme.error
-                    freeze.partiallyApplied() -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                color = summaryColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -819,12 +844,12 @@ private fun FreezeStateCard(
                     "系统显示已${freeze.suspendWord()}，但进程列表仍有该应用进程。" +
                         "强制停止是一次性请求；系统绑定服务可能再次启动它。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
             if (expanded) {
                 TextButton(onClick = { onOpenTarget(freeze.packageName) }) {
-                    Text("在冻结/解冻页查看 ›")
+                    Text("在冻结管理页查看 ›")
                 }
             }
         }
@@ -846,8 +871,8 @@ private fun ThermalCard(snapshot: DetectionSnapshot) {
             Text("温控基础服务", style = MaterialTheme.typography.titleSmall)
             Text(
                 "PowerGenie 负责温控/充电；整包策略已开放但高风险，部分组件命令" +
-                    "被平台拒绝；iAware 建议只停用云配置组件；HnAps/MSDP 默认观察。" +
-                    "这里的数字表示包是否安装/启用，不是进程存活，也不是“已冻结”。",
+                    "系统不支持；iAware 建议只停用云配置组件；HnAps/MSDP 默认观察。" +
+                    "这里的数字表示包是否安装或启用，不代表进程是否存活。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -879,7 +904,11 @@ private fun ThermalServiceRow(service: ThermalServiceState) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(service.label, style = MaterialTheme.typography.bodyMedium)
         Text(
-            "${service.packageName}：${service.describe()}",
+            if (shouldShowPackageName(service.label, service.packageName)) {
+                "${service.packageName}：${service.describe()}"
+            } else {
+                service.describe()
+            },
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace
         )
@@ -984,49 +1013,190 @@ private fun CotaFileRow(file: CotaFile) {
     }
 }
 
+/** Semantic emphasis for one boot-safety value. */
+internal enum class BootLineTone { PRIMARY, NEUTRAL, WARNING, ERROR }
+
 /** One compact row in the merged boot-safety card. */
 internal data class BootStatusLine(
     val label: String,
     val value: String,
-    val danger: Boolean = false
+    val danger: Boolean = false,
+    /** Substring of [value] that carries the state; the rest stays neutral. */
+    val highlight: String? = null,
+    val tone: BootLineTone = if (danger) BootLineTone.ERROR else BootLineTone.NEUTRAL
 )
+
+/** First word of a result string, before a timestamp or explanation. */
+internal fun bootResultKeyword(result: String?): String? {
+    if (result.isNullOrBlank()) return null
+    return result
+        .substringBefore("：")
+        .substringBefore("（")
+        .substringBefore("(")
+        .trim()
+        .takeIf { it.isNotEmpty() }
+}
 
 /**
  * The four summary facts rendered once at the top of the boot-safety card:
  * boot plan, last shutdown, last boot and the bootloop guard. The plan row is
  * also the single place for the boot auto-freeze switch state and delay; the
  * guard row carries the guard note, so neither is repeated below the divider.
+ *
+ * Only the conclusion word gets the semantic colour; timestamps and the
+ * "延迟 120 秒" tail stay neutral.
  */
-internal fun bootSummaryLines(boot: BootSafetyState): List<BootStatusLine> = listOf(
-    BootStatusLine(
-        label = "开机计划",
-        value = if (boot.readOk) bootPlanLabel(boot) else "读取失败",
-        danger = !boot.readOk
-    ),
-    BootStatusLine(
-        label = "上次关机",
-        value = boot.describeLastShutdown(),
-        danger = boot.readOk && boot.shutdownAbnormal()
-    ),
-    BootStatusLine(
-        label = "上次开机",
-        value = boot.describeLastBoot(),
-        danger = boot.readOk && boot.lastBootResult?.contains("失败") == true
-    ),
-    BootStatusLine(
-        label = "守卫",
-        // A manual unfreeze skip is a user choice, not an anomaly. Only the
-        // bootloop guard is dangerous; red “未启用” was especially confusing.
-        value = bootGuardLabel(boot),
-        danger = boot.readOk && boot.bootloopGuardTripped()
+internal fun bootSummaryLines(boot: BootSafetyState): List<BootStatusLine> {
+    val readOk = boot.readOk
+    val shutdownAbnormal = readOk && boot.shutdownAbnormal()
+    val bootFailed = readOk && boot.lastBootResult?.contains("失败") == true
+    val bootSkipped = readOk && boot.lastBootResult?.contains("跳过") == true
+    val guardTripped = readOk && boot.bootloopGuardTripped()
+    val guardSkipped = readOk && boot.bootFreezeEnabled && boot.skippedThisBoot()
+    return listOf(
+        BootStatusLine(
+            label = "开机冻结",
+            value = if (readOk) bootPlanLabel(boot) else "读取失败",
+            danger = !readOk,
+            highlight = when {
+                !readOk -> "读取失败"
+                boot.bootFreezeEnabled -> "已开启"
+                else -> "已关闭"
+            },
+            tone = when {
+                !readOk -> BootLineTone.ERROR
+                boot.bootFreezeEnabled -> BootLineTone.PRIMARY
+                else -> BootLineTone.NEUTRAL
+            }
+        ),
+        BootStatusLine(
+            label = "上次关机",
+            value = boot.describeLastShutdown(),
+            danger = shutdownAbnormal,
+            highlight = bootResultKeyword(boot.lastShutdownResult),
+            tone = when {
+                shutdownAbnormal -> BootLineTone.ERROR
+                readOk && boot.lastShutdownClean() -> BootLineTone.PRIMARY
+                else -> BootLineTone.NEUTRAL
+            }
+        ),
+        BootStatusLine(
+            label = "上次开机",
+            value = boot.describeLastBoot(),
+            danger = bootFailed,
+            highlight = bootResultKeyword(boot.lastBootResult),
+            tone = when {
+                bootFailed -> BootLineTone.ERROR
+                bootSkipped -> BootLineTone.WARNING
+                readOk && boot.lastBootResult?.startsWith("成功") == true ->
+                    BootLineTone.PRIMARY
+                else -> BootLineTone.NEUTRAL
+            }
+        ),
+        BootStatusLine(
+            label = "守卫",
+            // A manual unfreeze skip is a user choice, not an anomaly. Only
+            // the bootloop guard is dangerous; red "未启用" was confusing.
+            value = bootGuardLabel(boot),
+            danger = guardTripped,
+            highlight = when {
+                !readOk -> "读取失败"
+                guardTripped -> "守卫触发"
+                guardSkipped -> "已跳过"
+                boot.bootFreezeEnabled && boot.guardNote() == null -> "未触发"
+                boot.guardNote() == null -> "未启用"
+                else -> null
+            },
+            tone = when {
+                !readOk || guardTripped -> BootLineTone.ERROR
+                guardSkipped -> BootLineTone.WARNING
+                // Only the plain "未触发" state is healthy; the note variants
+                // ("本次开机已有冻结结果"/"已尝试冻结") stay neutral.
+                boot.bootFreezeEnabled && boot.guardNote() == null ->
+                    BootLineTone.PRIMARY
+                else -> BootLineTone.NEUTRAL
+            }
+        )
     )
-)
+}
 
 /** One secondary detail line in the merged boot-safety card. */
 internal data class BootDetailLine(
     val text: String,
-    val danger: Boolean = false
+    val danger: Boolean = false,
+    /** True for one item of a semicolon-separated detail list. */
+    val bullet: Boolean = false,
+    /** Section caption such as "关机详情"; rendered as a coloured header. */
+    val header: Boolean = false,
+    val highlight: String? = null,
+    val tone: BootLineTone = if (danger) BootLineTone.ERROR else BootLineTone.NEUTRAL
 )
+
+/** Status word of one detail segment: the first segment is the result itself. */
+private fun detailSegmentStatus(segment: String, index: Int): String =
+    if (index == 0) {
+        segment
+    } else {
+        segment.substringAfter("：", segment).substringBefore("，")
+    }
+
+private fun detailSegmentTone(segment: String, index: Int): BootLineTone {
+    val status = detailSegmentStatus(segment, index)
+    return when {
+        status.contains("失败") -> BootLineTone.ERROR
+        status.contains("成功") -> BootLineTone.PRIMARY
+        else -> BootLineTone.NEUTRAL
+    }
+}
+
+private fun detailSegmentHighlight(segment: String, index: Int): String? {
+    val status = detailSegmentStatus(segment, index)
+    return when {
+        // The first segment is the overall result ("安全解冻成功"), so the
+        // whole phrase is highlighted, not just its last two characters.
+        index == 0 && (status.contains("失败") || status.contains("成功")) ->
+            segment
+        status.contains("失败") -> "失败"
+        status.contains("成功") -> "成功"
+        else -> null
+    }
+}
+
+/** Separate the run counts so "成功，尝试 0，成功 0" does not read as one blob. */
+private fun detailDisplayText(text: String): String = text
+    .replace("，尝试", " · 尝试")
+    .replace("，成功", " · 成功")
+    .replace("，失败", " · 失败")
+
+/**
+ * A detail string with semicolons becomes a header plus one bullet per
+ * segment. This keeps the shutdown result ("安全解冻成功；组件：…；隐藏：…")
+ * from turning into a dense paragraph.
+ */
+private fun addBootDetailLines(
+    out: MutableList<BootDetailLine>,
+    label: String,
+    detail: String
+) {
+    val clean = detail.trim()
+    if (clean.isEmpty()) return
+    val parts = clean.split("；", ";").map { it.trim() }.filter { it.isNotEmpty() }
+    if (parts.size <= 1) {
+        out.add(BootDetailLine("$label：${detailDisplayText(clean)}"))
+        return
+    }
+    out.add(BootDetailLine(label, header = true))
+    parts.forEachIndexed { index, part ->
+        out.add(
+            BootDetailLine(
+                text = detailDisplayText(part),
+                bullet = true,
+                highlight = detailSegmentHighlight(part, index),
+                tone = detailSegmentTone(part, index)
+            )
+        )
+    }
+}
 
 /**
  * Fields the four summary rows do not already carry: boot count, shutdown and
@@ -1035,9 +1205,9 @@ internal data class BootDetailLine(
  * the two sections never repeat each other.
  */
 internal fun bootDetailLines(boot: BootSafetyState): List<BootDetailLine> = buildList {
-    add(BootDetailLine("开机次数（Boot count）：${boot.bootCount}"))
+    add(BootDetailLine("开机次数：" + if (boot.bootCount >= 0) boot.bootCount.toString() else "未知"))
     boot.lastShutdownDetail?.takeIf { it.isNotBlank() }?.let { detail ->
-        add(BootDetailLine("关机详情：$detail"))
+        addBootDetailLines(this, "关机详情", detail)
     }
     boot.lastBootDetail?.takeIf { detail ->
         detail.isNotBlank() &&
@@ -1048,22 +1218,76 @@ internal fun bootDetailLines(boot: BootSafetyState): List<BootDetailLine> = buil
                     detail.contains("跳过")
                 )
     }?.let { detail ->
-        add(BootDetailLine("开机详情：$detail"))
+        addBootDetailLines(this, "开机详情", detail)
     }
     add(
         BootDetailLine(
-            "AI 目标：${if (boot.aiTargetsEnabledAny) "有启用项" else "无启用项"}"
+            text = "AI 应用：${if (boot.aiTargetsEnabledAny) "有启用项" else "无启用项"}",
+            highlight = if (boot.aiTargetsEnabledAny) "有启用项" else null,
+            tone = if (boot.aiTargetsEnabledAny) {
+                BootLineTone.WARNING
+            } else {
+                BootLineTone.NEUTRAL
+            }
         )
     )
     add(
         BootDetailLine(
-            text = "上次结果（自动/手动/解冻）：${boot.describeLastBootFreeze()}",
+            text = "上次开机冻结结果：${boot.describeLastBootFreeze()}",
             danger = boot.readOk &&
-                boot.lastBootFreezeResult?.contains("失败") == true
+                boot.lastBootFreezeResult?.contains("失败") == true,
+            highlight = bootResultKeyword(boot.lastBootFreezeResult),
+            tone = when {
+                boot.readOk && boot.lastBootFreezeResult?.contains("失败") == true ->
+                    BootLineTone.ERROR
+                boot.readOk &&
+                    boot.lastBootFreezeResult?.contains("成功") == true ->
+                    BootLineTone.PRIMARY
+                else -> BootLineTone.NEUTRAL
+            }
         )
     )
     boot.lastBootFreezeDetail?.takeIf { it.isNotBlank() }?.let { detail ->
-        add(BootDetailLine("冻结详情：$detail"))
+        addBootDetailLines(this, "冻结详情", detail)
+    }
+}
+
+/** Base text with only the conclusion word in its semantic colour. */
+@Composable
+private fun bootEmphasisText(
+    text: String,
+    highlight: String?,
+    tone: BootLineTone
+): androidx.compose.ui.text.AnnotatedString {
+    val scheme = MaterialTheme.colorScheme
+    // Text-only emphasis: no filled/highlight background. The status word
+    // itself uses the theme primary (readable on the card); errors stay red.
+    val emphasis = when (tone) {
+        BootLineTone.PRIMARY, BootLineTone.WARNING -> scheme.primary
+        BootLineTone.ERROR -> scheme.error
+        BootLineTone.NEUTRAL -> scheme.onSurfaceVariant
+    }
+    return remember(text, highlight, tone, emphasis) {
+        buildAnnotatedString {
+            append(text)
+            val mark = highlight
+            val start = mark?.let(text::indexOf) ?: -1
+            when {
+                start >= 0 && mark != null -> addStyle(
+                    SpanStyle(
+                        color = emphasis,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    start,
+                    start + mark.length
+                )
+                tone != BootLineTone.NEUTRAL -> addStyle(
+                    SpanStyle(color = emphasis),
+                    0,
+                    text.length
+                )
+            }
+        }
     }
 }
 
@@ -1071,36 +1295,78 @@ internal fun bootDetailLines(boot: BootSafetyState): List<BootDetailLine> = buil
 private fun BootSummaryRow(
     label: String,
     value: String,
-    danger: Boolean,
+    tone: BootLineTone,
+    highlight: String?,
     valueMaxLines: Int = 1
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        // Two-column table behaviour: the label and the first value line
+        // share the top edge; a wrapped value continues in its own column.
+        verticalAlignment = Alignment.Top
     ) {
         Text(
             label,
-            // A fixed 64dp clipped four-character labels at large font
-            // scales; let it grow instead of truncating the status name.
-            modifier = Modifier.widthIn(min = 64.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Flush-left row header; the fixed content gap follows it, so a
+            // shorter label (守卫) simply ends sooner instead of being
+            // indented to a common right edge.
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.Medium
+            ),
+            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            value,
+            text = bootEmphasisText(value, highlight, tone),
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 8.dp),
+                .padding(start = TableContentGap),
             style = MaterialTheme.typography.bodySmall,
-            color = if (danger) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = valueMaxLines,
             overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun BootDetailRow(line: BootDetailLine) {
+    val scheme = MaterialTheme.colorScheme
+    if (line.header) {
+        Text(
+            line.text,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.Medium
+            ),
+            color = scheme.primary
+        )
+        return
+    }
+    val text = bootEmphasisText(line.text, line.highlight, line.tone)
+    if (line.bullet) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                "·",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurface
+            )
+        }
+    } else {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurface
         )
     }
 }
@@ -1136,7 +1402,8 @@ private fun BootSafetyCard(snapshot: DetectionSnapshot) {
                     BootSummaryRow(
                         label = line.label,
                         value = line.value,
-                        danger = line.danger,
+                        tone = line.tone,
+                        highlight = line.highlight,
                         valueMaxLines = if (
                             line.label == "上次关机" ||
                             line.label == "上次开机"
@@ -1153,17 +1420,9 @@ private fun BootSafetyCard(snapshot: DetectionSnapshot) {
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
                 bootDetailLines(boot).forEach { line ->
-                    Text(
-                        line.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (line.danger) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                        // Shutdown/freeze details are the only place the full
-                        // reason lives; do not ellipsize them.
-                    )
+                    // Shutdown/freeze details are the only place the full
+                    // reason lives; do not ellipsize them.
+                    BootDetailRow(line)
                 }
             }
         }

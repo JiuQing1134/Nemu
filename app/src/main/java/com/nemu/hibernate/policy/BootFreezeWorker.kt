@@ -145,7 +145,7 @@ class BootFreezeWorker(
                 bootSettings = bootSettings,
                 bootCount = bootCount,
                 result = "已跳过：本次开机已有冻结/解冻操作",
-                detail = "不执行残留清理，避免撤销本 boot 的选择",
+                detail = "不执行残留清理，避免撤销本次开机的选择",
                 succeeded = false
             )
             ActionLog.info("开机冻结已跳过：本次开机已有操作")
@@ -205,11 +205,11 @@ class BootFreezeWorker(
                 recordResult(
                     bootSettings = bootSettings,
                     bootCount = bootCount,
-                    result = "已跳过：自动救砖模式",
+                    result = "已跳过：救援模式",
                     detail = "救援标记存在；已先完成残留恢复",
                     succeeded = false
                 )
-                ActionLog.warn("自动救砖已触发：跳过开机冻结")
+                ActionLog.warn("救援模式已触发：跳过开机冻结")
                 return Result.success()
             }
             rescue == false -> Unit
@@ -321,7 +321,7 @@ class BootFreezeWorker(
                 detail = "本次开机不自动冻结",
                 succeeded = false
             )
-            ActionLog.info("开机冻结已跳过：用户已在本 boot 手动解冻")
+            ActionLog.info("开机冻结已跳过：用户已在本次开机手动解冻")
             return Result.success()
         }
         val ok = run.ok

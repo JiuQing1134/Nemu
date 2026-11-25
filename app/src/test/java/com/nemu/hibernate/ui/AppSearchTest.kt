@@ -192,4 +192,25 @@ class AppSearchTest {
         assertTrue(matchesAppQuery("系统更新", "com.example.app", "系统", failing))
         assertEquals(1, calls)
     }
+
+    @Test
+    fun packageLineIsHiddenWhenItRepeatsTheLabel() {
+        assertFalse(shouldShowPackageName("com.example.app", "com.example.app"))
+        assertFalse(shouldShowPackageName("COM.EXAMPLE.APP", "com.example.app"))
+        assertTrue(shouldShowPackageName("相机", "com.example.app"))
+        assertTrue(shouldShowPackageName("", "com.example.app"))
+    }
+
+    @Test
+    fun appTitleDoesNotRepeatThePackageName() {
+        assertEquals(
+            "com.example.app",
+            appTitle("com.example.app", "com.example.app")
+        )
+        assertEquals("com.example.app", appTitle("", "com.example.app"))
+        assertEquals(
+            "相机 · com.example.app",
+            appTitle("相机", "com.example.app")
+        )
+    }
 }

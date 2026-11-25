@@ -17,7 +17,7 @@ import org.junit.Test
  */
 class CopyContractTest {
     private val presetPrefix =
-        "^(观察|暂停|冻结|组件|停用|隐藏|限制后台|限制待机)："
+        "^(观察|暂停|冻结|停用组件|停用|隐藏|限制后台|限制待机)："
 
     @Test
     fun t01_functionLinesCoverAllTargetsAndCustomFallback() {
@@ -138,7 +138,7 @@ class CopyContractTest {
             "他人暂停", "运行中", "未冻结",
             // FreezeState.statusLabel()
             "仅观察", "已限制", "未限制", "未安装", "读取失败",
-            "组件状态未知", "组件部分停用", "不一致", "仍启用",
+            "组件状态未知", "组件部分停用", "已加入 · 未生效", "与计划不符", "仍启用",
             "已暂停 · 存活", "已暂停 · 未知", "未暂停", "已冻结",
             "已冻结 · 存活", "已冻结 · 未知", "未冻结"
         )

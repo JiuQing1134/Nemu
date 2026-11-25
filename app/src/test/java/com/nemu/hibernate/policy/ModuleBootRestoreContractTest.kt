@@ -25,6 +25,9 @@ class ModuleBootRestoreContractTest {
     private fun shutdownDaemon(): String =
         TestSources.read("tools/nemu-boot-autostart/shutdown_daemon.sh")
 
+    private fun deepRestore(): String =
+        TestSources.read("tools/nemu-boot-autostart/deep_restore.sh")
+
     @Test
     fun normalBootRestoresEveryOwnedFreezeState() {
         val script = guard()
@@ -204,10 +207,90 @@ class ModuleBootRestoreContractTest {
     fun moduleDescriptionMatchesTheRestoredStateSet() {
         val prop = TestSources.read("tools/nemu-boot-autostart/module.prop")
 
-        assertTrue("模块版本必须递增到 1.18", prop.contains("version=1.18"))
+        assertTrue(
+            "模块版本必须递增到 1.20 或更新",
+            Regex("version=1\\.2[0-9]").containsMatchIn(prop)
+        )
         assertTrue(
             "模块描述必须说明开机恢复 disable-user 等全部状态",
             prop.contains("disable-user")
+        )
+        assertTrue(
+            "模块描述必须说明深度卸载开机恢复",
+            prop.contains("deep-uninstall boot bridge") &&
+                prop.contains("manifest.tsv")
+        )
+    }
+
+    @Test
+    fun serviceStartsDeepRestoreAndPublishesCapability() {
+        val body = service()
+
+        assertTrue(
+            "service.sh 必须启动 deep_restore.sh",
+            body.contains("deep_restore.sh")
+        )
+        assertTrue(
+            "service.sh 必须写 auto_restore_ready，供 App 判断模块能力",
+            body.contains("auto_restore_ready")
+        )
+        assertTrue(
+            "能力文件必须带 1.20 或更新版本",
+            Regex("1\\.2[0-9]").containsMatchIn(body)
+        )
+    }
+
+    @Test
+    fun deepRestoreRestoresThenReuninstallsOnlyThisBoot() {
+        val body = deepRestore()
+
+        assertTrue(
+            "必须读取深度卸载清单",
+            body.contains("manifest.tsv") || body.contains("deep_manifest_rows")
+        )
+        assertTrue(
+            "必须优先用 install-existing 恢复",
+            body.contains("pm install-existing")
+        )
+        assertTrue(
+            "备份安装必须走本机支持的 pm install（MagicOS 没有 install-multiple）",
+            body.contains("pm install -r -d --user 0")
+        )
+        assertFalse(
+            "不能再用本机不存在的 install-multiple",
+            body.contains("pm install-multiple")
+        )
+        assertTrue(
+            "APK 必须先暂存到 /data/local/tmp（system_server 读不了 adb_data_file）",
+            body.contains("/data/local/tmp")
+        )
+        assertTrue(
+            "pm 调用的 stdin 必须重定向 /dev/null（清单在 adb_data_file 上会让 binder 传递 FD 失败）",
+            body.contains("< /dev/null")
+        )
+        assertTrue(
+            "备份文件以 .bak 存储，安装前必须去掉 .bak 后缀",
+            body.contains("%.bak")
+        )
+        assertTrue(
+            "必须等 sys.boot_completed 后才重新卸载",
+            body.contains("sys.boot_completed")
+        )
+        assertTrue(
+            "稳定后必须重新卸载并保留用户数据",
+            body.contains("pm uninstall -k --user 0")
+        )
+        assertTrue(
+            "恢复后必须 pm enable，避免恢复一个仍被禁用的包",
+            body.contains("pm enable --user 0")
+        )
+        assertTrue(
+            "必须记录本 boot 的恢复集，避免卸载用户手动恢复的应用",
+            body.contains("restored_this_boot")
+        )
+        assertTrue(
+            "稳定延迟必须可配置",
+            body.contains("delay_seconds")
         )
     }
 }

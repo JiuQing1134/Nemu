@@ -66,7 +66,7 @@ object CotaTimestamps {
         zone: ZoneId = ZoneId.systemDefault()
     ): String {
         val formatted = formatModified(epochSeconds, zone)
-        return formatted ?: "时间未知"
+        return formatted ?: "未知"
     }
 }
 

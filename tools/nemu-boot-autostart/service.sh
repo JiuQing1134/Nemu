@@ -59,11 +59,31 @@ if [ -f "$MODDIR/boot_unfreeze.sh" ]; then
     fi
 fi
 
+# Deep-uninstall boot bridge: restore removed packages as soon as
+# PackageManager answers, then re-uninstall only those restored this boot
+# after boot_completed + the stabilisation delay. The marker is what the app
+# reads to show that auto restore is available.
+if [ -f "$MODDIR/deep_restore.sh" ]; then
+    mkdir -p /data/adb/nemu/deep_uninstall 2>/dev/null
+    chmod 700 /data/adb/nemu/deep_uninstall 2>/dev/null
+    printf '1.20\n' > /data/adb/nemu/deep_uninstall/auto_restore_ready 2>/dev/null
+    chmod 644 /data/adb/nemu/deep_uninstall/auto_restore_ready 2>/dev/null
+    chmod 755 "$MODDIR/deep_restore.sh" 2>/dev/null
+    if command -v nohup >/dev/null 2>&1; then
+        nohup /system/bin/sh "$MODDIR/deep_restore.sh" >/dev/null 2>&1 &
+    else
+        /system/bin/sh "$MODDIR/deep_restore.sh" >/dev/null 2>&1 &
+    fi
+fi
+
 # HONOR does not deliver BOOT_COMPLETED to Nemu, and LOCKED_BOOT_COMPLETED can
 # be missed if the app process dies before unlock. Ping the app once the
 # system is actually up so its BootReceiver can run the safety pass. The
 # receiver is protected by android.permission.DUMP (root/shell only).
 trigger_nemu_after_boot() {
+    # This function runs in a background subshell; GUARD_DIR is assigned
+    # later in the parent script, so resolve the log directory locally.
+    log_dir=${NEMU_GUARD_DIR:-/data/adb/nemu/boot_guard}
     i=0
     while [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ] &&
         [ "$i" -lt 90 ]; do
@@ -77,10 +97,24 @@ trigger_nemu_after_boot() {
     if [ -f "$MODDIR/boot_unfreeze.sh" ]; then
         /system/bin/sh "$MODDIR/boot_unfreeze.sh" || true
     fi
-    am broadcast --user 0 \
-        -a com.nemu.dream.action.BOOT_TRIGGER \
-        -n com.nemu.dream/com.nemu.hibernate.policy.BootTriggerReceiver \
-        >/dev/null 2>&1 || true
+    # The app may be in the stopped state after a force-stop or an OEM
+    # background cleanup; without this flag the explicit broadcast is dropped
+    # and the whole boot-freeze plan never gets scheduled. Send it three times
+    # because WorkManager/package readiness can still race the first one.
+    attempt=0
+    while [ "$attempt" -lt 3 ]; do
+        attempt=$((attempt + 1))
+        am broadcast --user 0 --include-stopped-packages \
+            -a com.nemu.dream.action.BOOT_TRIGGER \
+            -n com.nemu.dream/com.nemu.hibernate.policy.BootTriggerReceiver \
+            >/dev/null 2>&1 || true
+        mkdir -p "$log_dir" 2>/dev/null
+        printf '%s boot trigger attempt %s/3\n' \
+            "$(date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)" "$attempt" \
+            >> "$log_dir/guard.log" 2>/dev/null
+        chmod 600 "$log_dir/guard.log" 2>/dev/null
+        [ "$attempt" -lt 3 ] && sleep 8
+    done
 }
 
 trigger_nemu_after_boot &

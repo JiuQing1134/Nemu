@@ -30,13 +30,13 @@ object BootStatusCopy {
             text.startsWith("部分成功") ->
                 BootStatusView("部分成功", text)
             text.startsWith("开机冻结成功") ->
-                BootStatusView("成功 · 开机冻结")
+                BootStatusView("开机冻结成功")
             text.startsWith("手动冻结成功") ->
-                BootStatusView("成功 · 手动冻结")
+                BootStatusView("手动冻结成功")
             text.startsWith("策略切换成功") ->
-                BootStatusView("成功 · 策略切换")
-            text.contains("失败") -> BootStatusView("失败 · 冻结", text)
-            text.contains("成功") -> BootStatusView("成功 · 冻结", text)
+                BootStatusView("策略切换成功")
+            text.contains("失败") -> BootStatusView("失败", text)
+            text.contains("成功") -> BootStatusView("成功", text)
             else -> BootStatusView("已记录", text)
         }
     }
@@ -54,7 +54,7 @@ object BootStatusCopy {
             reason.contains("手动") -> "手动解冻"
             reason.contains("全部解冻") -> "全部解冻"
             reason.contains("干净关机") || reason.contains("守卫") -> "守卫触发"
-            reason.contains("窗口") || reason.contains("超时") -> "窗口已过"
+            reason.contains("窗口") || reason.contains("超时") -> "错过时机"
             reason.contains("无法确认") || reason.contains("未知") -> "状态未知"
             reason.contains("救援") || reason.contains("救砖") -> "救援模式"
             reason.contains("未开启") -> "未开启"

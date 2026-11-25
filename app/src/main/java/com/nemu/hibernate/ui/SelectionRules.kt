@@ -30,7 +30,7 @@ object SelectionRules {
     fun isSelectable(
         target: CatalogTargetUiState,
         rootAvailable: Boolean
-    ): Boolean = target.active &&
+    ): Boolean = target.isInstalled && target.active &&
         TargetCopy.unavailableReason(
             target.target,
             target.preset,
@@ -44,7 +44,7 @@ object SelectionRules {
      * and component-empty strategies remain excluded.
      */
     fun isSelectableForPlan(target: CatalogTargetUiState): Boolean =
-        target.active &&
+        target.isInstalled && target.active &&
             TargetCopy.unavailableReason(
                 target.target,
                 target.preset,
@@ -73,7 +73,9 @@ object SelectionRules {
 
     fun planTargets(
         catalog: List<CatalogTargetUiState>
-    ): List<CatalogTargetUiState> = catalog.filter { it.enabled && it.active }
+    ): List<CatalogTargetUiState> = catalog.filter {
+        it.isInstalled && it.enabled && it.active
+    }
 
     fun planCount(catalog: List<CatalogTargetUiState>): Int =
         planTargets(catalog).size

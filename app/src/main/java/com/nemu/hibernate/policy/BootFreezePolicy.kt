@@ -74,13 +74,13 @@ object BootFreezePolicy {
         // identity. Fail open rather than treating every boot as the same one.
         if (input.bootCount >= 0) {
             if (input.bootCount == input.lastFreezeBootCount) {
-                return BootFreezeDecision(false, "本 boot 已处理过开机冻结")
+                return BootFreezeDecision(false, "本次开机已处理过开机冻结")
             }
             if (input.bootCount == input.lastSkippedBootCount) {
-                return BootFreezeDecision(false, "用户已跳过本 boot 的开机自动冻结")
+                return BootFreezeDecision(false, "用户已跳过本次开机的自动冻结")
             }
             if (input.bootCount == input.lastAttemptBootCount) {
-                return BootFreezeDecision(false, "本 boot 已尝试过开机冻结")
+                return BootFreezeDecision(false, "本次开机已尝试过开机冻结")
             }
         }
 

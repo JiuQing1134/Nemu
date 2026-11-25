@@ -387,6 +387,38 @@ class TargetPolicy(context: Context) {
     }
 
     /**
+     * Forgets every Nemu-owned baseline for a package. Deep uninstall removes
+     * the package for user 0, so a surviving applied/appops/standby/component
+     * marker would otherwise make the freeze and unfreeze pages claim a state
+     * that no longer exists — and would do so again after a later restore.
+     * The plan switch is cleared too: freezing a missing package is a no-op.
+     */
+    fun clearOwnership(target: Target): Boolean {
+        val packageName = target.packageName
+        var ok = true
+        fun step(result: Boolean) {
+            ok = ok && result
+        }
+        setEnabled(target, false)
+        step(setApplied(target, false))
+        step(settings.setOriginalAppOps(packageName, null))
+        step(settings.setAppOpsOwned(packageName, false))
+        step(settings.setOriginalStandby(packageName, null))
+        step(settings.setStandbyOwned(packageName, false))
+        step(settings.setOriginalHidden(packageName, null))
+        step(settings.setHiddenOwned(packageName, false))
+        step(setOriginalEnabled(target, null))
+        if (target.category == TargetCategory.CLOUD) {
+            step(cloudSettings.setApplied(packageName, false))
+        }
+        settings.ownedComponents(packageName).forEach { className ->
+            step(settings.setComponentOwned(packageName, className, false))
+            step(settings.setComponentOriginalState(packageName, className, null))
+        }
+        return ok
+    }
+
+    /**
      * Launch-time option materialization. A stored COMPONENT strategy without
      * options (written by an older build) gets the currently registered
      * components once, so apply and restore agree on the same set.

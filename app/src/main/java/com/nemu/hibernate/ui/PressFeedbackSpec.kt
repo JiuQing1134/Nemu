@@ -38,8 +38,10 @@ internal object NemuPressSpec {
 
     /** Filled / tonal / outlined buttons. */
     val Button = PressFeedbackSpec(
-        pressedAlpha = 0.95f,
-        pressedScale = 0.97f
+        pressedAlpha = 0.82f,
+        pressedScale = 0.95f,
+        pressMillis = 80,
+        releaseMillis = 140
     )
 
     /** Whole tappable cards; very subtle so large text does not wobble. */

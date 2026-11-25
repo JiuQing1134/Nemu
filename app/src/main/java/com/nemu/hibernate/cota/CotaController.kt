@@ -21,7 +21,7 @@ class CotaController(
         val listing = b.exec(CotaCommandBuilder.listFiles())
         if (!listing.ok) {
             return CotaResult.Error(
-                "读取目录失败（${listing.exitCode}）：${listing.output.take(300)}"
+                "读取目录失败。请确认已授权 Root，然后点“刷新列表”重试。"
             )
         }
         if (CotaParsers.isDirMissing(listing.output)) {
@@ -111,7 +111,7 @@ class CotaController(
         val copy = b.exec(CotaCommandBuilder.backup(backupRoot, backupId, selected))
         if (!copy.ok) {
             return CotaResult.Error(
-                "备份复制失败（${copy.exitCode}）：${copy.output.take(300)}"
+                "备份失败。请重试；若仍失败，请检查 Root 授权和存储空间。"
             )
         }
 
@@ -131,7 +131,7 @@ class CotaController(
             val copied = copiedHashes[name]
                 ?: return CotaResult.Error("备份缺少文件：$name")
             if (copied != source.sha256) {
-                return CotaResult.Error("备份校验失败：$name")
+                return CotaResult.Error("文件校验失败：$name，请重试。")
             }
             CotaBackupFile(
                 name = name,
@@ -149,7 +149,7 @@ class CotaController(
         val wrote = b.exec(CotaCommandBuilder.writeManifest(dir, encoded))
         if (!wrote.ok) {
             return CotaResult.Error(
-                "写入备份清单失败（${wrote.exitCode}）：${wrote.output.take(300)}"
+                "备份信息写入失败，请重试；若仍失败，请检查存储空间。"
             )
         }
         val readBack = when (val result = readManifestChecked(b, dir)) {
@@ -160,7 +160,7 @@ class CotaController(
         val parsed = CotaParsers.parseManifest(readBack)
             ?: return CotaResult.Error("备份清单格式无效")
         if (parsed.sortedBy { it.name } != manifestFiles.sortedBy { it.name }) {
-            return CotaResult.Error("备份清单校验失败")
+            return CotaResult.Error("备份信息校验失败，请重新备份。")
         }
 
         ActionLog.info("COTA 备份完成：$dir（${manifestFiles.size} 个文件）")
@@ -172,7 +172,7 @@ class CotaController(
         val result = b.exec(CotaCommandBuilder.listBackups(backupRoot))
         if (!result.ok) {
             return CotaResult.Error(
-                "读取备份目录失败（${result.exitCode}）：${result.output.take(300)}"
+                "读取备份列表失败，请刷新重试。"
             )
         }
         val ids = result.output.lineSequence()
@@ -221,7 +221,7 @@ class CotaController(
         val result = b.exec(CotaCommandBuilder.deleteBackup(backupRoot, backupId))
         if (!result.ok) {
             return CotaResult.Error(
-                "删除备份失败（${result.exitCode}）：${result.output.take(300)}"
+                "删除备份失败，请刷新列表后重试。"
             )
         }
         val check = b.exec(CotaCommandBuilder.dirExists(summary.dir))
@@ -324,7 +324,7 @@ class CotaController(
         val result = b.exec(command)
         if (!result.ok) {
             return CotaResult.Error(
-                "删除失败（${result.exitCode}）：${result.output.take(300)}"
+                "删除失败，请刷新列表确认当前状态后重试。"
             )
         }
         ActionLog.warn("COTA 已删除：${names.sorted().joinToString()}（备份 $backupId）")
@@ -332,7 +332,7 @@ class CotaController(
         val remaining = when (val after = listFiles()) {
             is CotaResult.Ok -> after.value.map { it.name }.toSet()
             is CotaResult.Error ->
-                return CotaResult.Error("删除命令已执行，但校验失败：${after.message}")
+                return CotaResult.Error("删除已执行，但状态校验失败。请刷新列表确认。")
             CotaResult.Disabled -> return CotaResult.Disabled
         }
         val stillThere = names.filter { it in remaining }
@@ -409,7 +409,7 @@ class CotaController(
         val result = b.exec(CotaCommandBuilder.restore(backup.dir, files))
         if (!result.ok) {
             return CotaResult.Error(
-                "恢复失败（${result.exitCode}）：${result.output.take(300)}"
+                "恢复失败，请刷新列表确认当前状态后重试。"
             )
         }
 
@@ -427,7 +427,7 @@ class CotaController(
             val actual = hashes[file.name]
                 ?: return CotaResult.Error("恢复后缺少文件：${file.name}")
             if (actual != file.sha256) {
-                return CotaResult.Error("恢复校验失败：${file.name}")
+                return CotaResult.Error("恢复已执行，但状态校验失败。请刷新列表确认。")
             }
         }
 
@@ -445,7 +445,7 @@ class CotaController(
             val result = backend.exec(CotaCommandBuilder.stat(chunk))
             if (!result.ok) {
                 return CotaResult.Error(
-                    "读取文件属性失败（${result.exitCode}）：${result.output.take(300)}"
+                    "读取文件信息失败，请刷新重试。"
                 )
             }
             CotaParsers.parseStat(result.output).forEach { stats[it.name] = it }
@@ -464,7 +464,7 @@ class CotaController(
             val result = backend.exec(CotaCommandBuilder.sha256(chunk))
             if (!result.ok) {
                 return CotaResult.Error(
-                    "SHA-256 失败（${result.exitCode}）：${result.output.take(300)}"
+                    "文件校验失败，请刷新列表重试。"
                 )
             }
             hashes.putAll(CotaParsers.parseSha256(result.output, prefix))
@@ -479,7 +479,7 @@ class CotaController(
         val sizeResult = backend.exec(CotaCommandBuilder.manifestSize(backupDir))
         if (!sizeResult.ok) {
             return CotaResult.Error(
-                "读取备份清单大小失败（${sizeResult.exitCode}）"
+                "读取备份信息失败，请刷新重试。"
             )
         }
         val size = sizeResult.output.trim().toLongOrNull()
@@ -491,7 +491,7 @@ class CotaController(
         }
         val read = backend.exec(CotaCommandBuilder.readManifest(backupDir))
         if (!read.ok) {
-            return CotaResult.Error("读取备份清单失败（${read.exitCode}）")
+            return CotaResult.Error("读取备份信息失败，请刷新重试。")
         }
         return CotaResult.Ok(read.output)
     }

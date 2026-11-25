@@ -58,8 +58,14 @@ data class CatalogTargetUiState(
     val risk: RiskLevel get() = target.risk
     val category: TargetCategory get() = target.category
 
+    /**
+     * The package still exists for this user. Unknown counts as installed so
+     * a partial refresh never hides a row that may still be frozen.
+     */
+    val isInstalled: Boolean get() = actual.present != false
+
     val hasFrozenState: Boolean
-        get() = applied ||
+        get() = isInstalled && (applied ||
             actual.suspended == true ||
             (actual.hidden == true && ownedHidden) ||
             (strategy == FreezeStrategy.COMPONENT &&
@@ -72,7 +78,7 @@ data class CatalogTargetUiState(
             (actual.packageEnabled == false && (applied || ownedDisable)) ||
             appOpsOwned ||
             standbyOwned ||
-            ownershipPending
+            ownershipPending)
 
     /**
      * True when Nemu holds evidence that it owns some frozen state here.
@@ -80,15 +86,16 @@ data class CatalogTargetUiState(
      * would either fail or silently take over someone else's suspension.
      */
     val ownsAnyState: Boolean
-        get() = applied || ownedDisable || ownedHidden ||
+        get() = isInstalled && (applied || ownedDisable || ownedHidden ||
             ownedComponents.isNotEmpty() || appOpsOwned || standbyOwned ||
-            ownershipPending
+            ownershipPending)
 
     /** User-facing SUSPEND word; follows the selected preset. */
     fun suspendWord(): String =
         if (preset == StrategyPreset.PAUSE) "暂停" else "冻结"
 
     fun actualText(): String = when {
+        !isInstalled -> "未安装"
         ownershipPending -> "状态待确认"
         actual.hidden == true && ownedHidden -> "已隐藏"
         actual.hidden == true -> "他人隐藏"

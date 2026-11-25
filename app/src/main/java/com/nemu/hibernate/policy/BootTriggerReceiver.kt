@@ -16,7 +16,12 @@ import android.content.Intent
 class BootTriggerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_BOOT_TRIGGER) return
-        BootReceiver.onBootTrigger(context)
+        // A boot broadcast must never take the process down; the module
+        // retries, and a later app launch resumes from the pending flag.
+        runCatching {
+            com.nemu.hibernate.data.ActionLog.info("收到模块开机触发")
+            BootReceiver.onBootTrigger(context)
+        }
     }
 
     companion object {

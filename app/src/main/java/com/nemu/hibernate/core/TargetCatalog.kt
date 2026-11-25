@@ -84,7 +84,7 @@ object TargetCatalog {
             component("com.hihonor.assistant", "com.hihonor.assistant.receiver.OceanUpdateReceiver", "OceanUpdateReceiver", "YOYO 资源/配置更新广播")
         ),
         "com.hihonor.magicvoice" to listOf(
-            component("com.hihonor.magicvoice", "com.hihonor.magicvoice.voiceui.service.MagicVoiceInteractionService", "MagicVoiceInteractionService", "系统语音交互主服务（实测组件停用可阻断 system bind）"),
+            component("com.hihonor.magicvoice", "com.hihonor.magicvoice.voiceui.service.MagicVoiceInteractionService", "MagicVoiceInteractionService", "系统语音交互主服务；停用后系统无法绑定语音交互"),
             component("com.hihonor.magicvoice", "com.hihonor.wakeup.service.WakeupService", "WakeupService", "语音唤醒服务"),
             component("com.hihonor.magicvoice", "com.hihonor.magicvoice.voiceui.service.HonorPushMsgService", "HonorPushMsgService", "语音助手推送服务")
         ),
@@ -159,7 +159,7 @@ object TargetCatalog {
         ),
         Target(
             packageName = "com.hihonor.magictranslate",
-            label = "智慧翻译（候选）",
+            label = "智慧翻译",
             risk = RiskLevel.GREEN,
             category = TargetCategory.AI,
             defaultStrategy = FreezeStrategy.SUSPEND,
@@ -239,7 +239,7 @@ object TargetCatalog {
         ),
         Target(
             packageName = "com.hihonor.hiboard",
-            label = "负一屏 / HiBoard（候选）",
+            label = "负一屏（HiBoard）",
             risk = RiskLevel.YELLOW,
             category = TargetCategory.AI,
             defaultStrategy = FreezeStrategy.OBSERVE,
@@ -292,7 +292,7 @@ object TargetCatalog {
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
             defaultStrategy = FreezeStrategy.DISABLE_USER,
-            description = "CMCC DM：自注册、心跳、FOTA、应用清单上报；disable-user 可逆。",
+            description = "运营商设备管理（中国移动）：负责自注册、心跳、运营商固件更新与应用清单上报；停用后可随时恢复。",
             consequences = mapOf(
                 FreezeStrategy.DISABLE_USER to
                     "运营商设备管理被停用：可能影响运营商 FOTA、自注册短信/VoLTE 配置下发；" +
@@ -308,7 +308,7 @@ object TargetCatalog {
             risk = RiskLevel.YELLOW,
             category = TargetCategory.CLOUD,
             defaultStrategy = FreezeStrategy.DISABLE_USER,
-            description = "电信 UE 信息检查/上报；disable-user 可逆。",
+            description = "电信 UE 信息检查与上报；停用后可随时恢复。",
             consequences = mapOf(
                 FreezeStrategy.DISABLE_USER to
                     "电信 UE 信息上报停止：可能影响运营商侧的网络配置/统计；可恢复。",
@@ -345,7 +345,7 @@ object TargetCatalog {
                     "com.hihonor.hiview",
                     "com.hihonor.ncdft.NcDftService",
                     "NcDftService",
-                    "诊断服务；停用组件不等于 persistent 进程退出"
+                    "诊断服务；停用组件后相关进程可能仍在运行"
                 ),
                 component(
                     "com.hihonor.hiview",

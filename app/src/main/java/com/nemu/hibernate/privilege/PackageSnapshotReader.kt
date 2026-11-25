@@ -20,7 +20,8 @@ data class PackageSnapshot(
 )
 
 /** A per-user uninstall keeps the package section but sets installed=false. */
-fun PackageSnapshot.isMissing(): Boolean = !exists || installed == false
+fun PackageSnapshot.isMissing(): Boolean =
+    !exists || (installed == false && hidden != true)
 
 object PackageSnapshotParser {
     fun parse(output: String, userId: Int = 0): PackageSnapshot {

@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.nemu.hibernate.core.BootStatusCopy
+import com.nemu.hibernate.core.DeepUninstallUiState
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.ResultNote
 import com.nemu.hibernate.core.ResultReason
@@ -44,6 +45,7 @@ import com.nemu.hibernate.detection.DetectionSnapshot
 import com.nemu.hibernate.detection.PackageProcessListReader
 import com.nemu.hibernate.logging.PersistentLogger
 import com.nemu.hibernate.policy.BootCount
+import com.nemu.hibernate.policy.DeepUninstallService
 import com.nemu.hibernate.policy.BootFreezeScheduler
 import com.nemu.hibernate.policy.BootGuard
 import com.nemu.hibernate.policy.BootReceiver
@@ -66,6 +68,9 @@ import com.nemu.hibernate.privilege.PrivilegeOverviewReader
 import com.nemu.hibernate.ui.BatchFeedbackTone
 import com.nemu.hibernate.ui.BatchFeedbackUi
 import com.nemu.hibernate.ui.BootFreezeUiState
+import com.nemu.hibernate.ui.AllAppEntry
+import com.nemu.hibernate.ui.AllAppsCache
+import com.nemu.hibernate.ui.AppKind
 import com.nemu.hibernate.ui.CatalogTargetUiState
 import com.nemu.hibernate.ui.CotaCallbacks
 import com.nemu.hibernate.ui.CotaUiState
@@ -224,9 +229,6 @@ class MainActivity : ComponentActivity() {
                 var privilegeOverview by remember {
                     mutableStateOf<PrivilegeOverview?>(null)
                 }
-                var onboardingDismissed by remember {
-                    mutableStateOf(settings.onboardingDismissed)
-                }
                 var busy by remember { mutableStateOf(false) }
                 // Freezing/restoring can take several seconds. Do not let an
                 // accidental Back destroy the activity and cancel the work.
@@ -338,6 +340,16 @@ class MainActivity : ComponentActivity() {
                 var planUndo by remember {
                     mutableStateOf<PlanUndoState?>(null)
                 }
+                var lastAppliedFreezeSelection by remember {
+                    mutableStateOf(settings.lastAppliedFreezeSelection())
+                }
+                var deepUninstallUi by remember {
+                    mutableStateOf(DeepUninstallUiState())
+                }
+                // Bumped after a deep uninstall/restore. The actual refresh
+                // function is declared later in this composition, so the
+                // deep-uninstall callbacks cannot call it directly.
+                var catalogRefreshTick by remember { mutableStateOf(0) }
                 var catalogRefreshing by remember { mutableStateOf(false) }
                 var focusPackage by remember {
                     mutableStateOf<String?>(null)
@@ -411,6 +423,165 @@ class MainActivity : ComponentActivity() {
                                 this@MainActivity
                             )
                         }
+                    }
+                }
+
+                fun refreshDeepUninstall(force: Boolean = false) {
+                    scope.launch {
+                        deepUninstallUi = deepUninstallUi.copy(
+                            loading = true,
+                            error = null
+                        )
+                        val root = manager.getRoot()
+                        if (root == null) {
+                            deepUninstallUi = deepUninstallUi.copy(
+                                loading = false,
+                                busy = false,
+                                error = "深度卸载需要 Root 权限"
+                            )
+                            return@launch
+                        }
+                        val apps = runCatching {
+                            AllAppsCache.load(this@MainActivity, force)
+                        }.getOrNull() ?: AllAppsCache.cached().orEmpty()
+                        val service = DeepUninstallService(
+                            root,
+                            this@MainActivity
+                        )
+                        val loaded = service.loadItems(apps)
+                        deepUninstallUi = loaded.copy(
+                            loading = false,
+                            busy = false,
+                            message = deepUninstallUi.message,
+                            bootRestoreReady = service.bootRestoreReady()
+                        )
+                    }
+                }
+
+                fun deepUninstallBackupAndUninstall(packages: Set<String>) {
+                    if (packages.isEmpty()) return
+                    scope.launch {
+                        deepUninstallUi = deepUninstallUi.copy(
+                            busy = true,
+                            message = null,
+                            error = null
+                        )
+                        val root = manager.getRoot()
+                        if (root == null) {
+                            deepUninstallUi = deepUninstallUi.copy(
+                                busy = false,
+                                error = "深度卸载需要 Root 权限"
+                            )
+                            return@launch
+                        }
+                        val apps = AllAppsCache.cached().orEmpty()
+                            .associateBy { it.packageName }
+                        val service = DeepUninstallService(
+                            root,
+                            this@MainActivity
+                        )
+                        var done = 0
+                        val failures = mutableListOf<String>()
+                        packages.forEach { packageName ->
+                            val app = apps[packageName]
+                            val info = runCatching {
+                                packageManager.getPackageInfo(packageName, 0)
+                            }.getOrNull()
+                            val result = service.backupAndUninstall(
+                                packageName = packageName,
+                                label = app?.label ?: packageName,
+                                versionCode = info?.longVersionCode ?: 0L,
+                                versionName = info?.versionName,
+                                systemApp = app?.kind != AppKind.USER
+                            )
+                            if (result.ok) done++ else failures += result.message
+                        }
+                        val text = buildString {
+                            append("已备份并卸载 $done 个")
+                            if (failures.isNotEmpty()) {
+                                append("；失败 ${failures.size} 个：")
+                                append(failures.take(3).joinToString("、"))
+                                if (failures.size > 3) append("…")
+                            }
+                        }
+                        deepUninstallUi = deepUninstallUi.copy(
+                            busy = false,
+                            message = text,
+                            error = if (done == 0 && failures.isNotEmpty()) {
+                                "卸载没有成功，请查看结果"
+                            } else {
+                                null
+                            }
+                        )
+                        refreshDeepUninstall(force = true)
+                        // The catalog drives the freeze/unfreeze counts and
+                        // rows; an uninstalled package must disappear there
+                        // immediately, not after the next manual refresh.
+                        catalogRefreshTick += 1
+                    }
+                }
+
+                fun deepUninstallRestore(packages: Set<String>) {
+                    if (packages.isEmpty()) return
+                    scope.launch {
+                        deepUninstallUi = deepUninstallUi.copy(
+                            busy = true,
+                            message = null,
+                            error = null
+                        )
+                        val root = manager.getRoot()
+                        if (root == null) {
+                            deepUninstallUi = deepUninstallUi.copy(
+                                busy = false,
+                                error = "深度卸载需要 Root 权限"
+                            )
+                            return@launch
+                        }
+                        val service = DeepUninstallService(
+                            root,
+                            this@MainActivity
+                        )
+                        var done = 0
+                        val failures = mutableListOf<String>()
+                        val notes = mutableListOf<String>()
+                        packages.forEach { packageName ->
+                            val result = service.restore(packageName)
+                            if (result.ok) {
+                                done++
+                                // Delapp preloads only come back after a
+                                // reboot; surface that instead of a silent
+                                // "已恢复" count.
+                                if (!result.message.startsWith("已恢复")) {
+                                    notes += result.message
+                                }
+                            } else {
+                                failures += result.message
+                            }
+                        }
+                        val text = buildString {
+                            append("已恢复 $done 个")
+                            if (notes.isNotEmpty()) {
+                                append("；")
+                                append(notes.take(3).joinToString("、"))
+                                if (notes.size > 3) append("…")
+                            }
+                            if (failures.isNotEmpty()) {
+                                append("；失败 ${failures.size} 个：")
+                                append(failures.take(3).joinToString("、"))
+                                if (failures.size > 3) append("…")
+                            }
+                        }
+                        deepUninstallUi = deepUninstallUi.copy(
+                            busy = false,
+                            message = text,
+                            error = if (done == 0 && failures.isNotEmpty()) {
+                                "恢复没有成功，请查看结果"
+                            } else {
+                                null
+                            }
+                        )
+                        refreshDeepUninstall(force = true)
+                        catalogRefreshTick += 1
                     }
                 }
 
@@ -514,6 +685,12 @@ class MainActivity : ComponentActivity() {
                             catalogRefreshing = false
                             refreshQueue.job = null
                         }
+                    }
+                }
+
+                LaunchedEffect(catalogRefreshTick) {
+                    if (catalogRefreshTick > 0) {
+                        refreshTargetActual(force = true)
                     }
                 }
 
@@ -719,6 +896,10 @@ class MainActivity : ComponentActivity() {
                     refreshLogUi()
                     refreshDetection()
                     refreshBootGuardState()
+                    // The feature hub shows the deep-uninstall readiness /
+                    // backup count; load it once at startup instead of
+                    // showing a stale "需手动恢复" until the page is opened.
+                    refreshDeepUninstall()
                 }
 
                 /**
@@ -832,7 +1013,7 @@ class MainActivity : ComponentActivity() {
                             plannedCount = catalog.count {
                                 // Match BootFreezeScheduler/Worker: AppOps or
                                 // standby-only targets are active plans too.
-                                it.enabled && it.active
+                                it.isInstalled && it.enabled && it.active
                             },
                             windowMissed = bootFreezeWindowMissed
                         ),
@@ -856,12 +1037,14 @@ class MainActivity : ComponentActivity() {
                         catalogRefreshing = catalogRefreshing,
                         rootAvailable = cotaRootAvailable,
                         privilege = privilegeOverview,
-                        onboardingDismissed = onboardingDismissed,
                         themeStyle = themeStyle,
                         themePalette = themePalette,
                         themeMode = themeMode,
                         lastFreezeSelection = settings.lastSelection(false),
                         lastUnfreezeSelection = settings.lastSelection(true),
+                        lastAppliedFreezeSelection =
+                            lastAppliedFreezeSelection,
+                        deepUninstall = deepUninstallUi,
                         batchFeedback = batchFeedback
                     ),
                     callbacks = DashboardCallbacks(
@@ -949,15 +1132,9 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onRefreshPrivilege = { refreshPrivilege(notify = true) },
-                        onDismissOnboarding = {
-                            settings.onboardingDismissed = true
-                            onboardingDismissed = true
-                        },
-                        onShowOnboarding = {
-                            settings.onboardingDismissed = false
-                            onboardingDismissed = false
-                        },
+                        // Page-entry refresh is silent; a toast on every
+                        // settings visit would be noise.
+                        onRefreshPrivilege = { refreshPrivilege() },
                         onThemeStyleChange = { style ->
                             themeStyle = style
                             settings.themeStyle = style.name
@@ -969,6 +1146,21 @@ class MainActivity : ComponentActivity() {
                         onThemeModeChange = { mode ->
                             themeMode = mode
                             settings.themeMode = mode.name
+                        },
+                        onDeepUninstallRefresh = {
+                            refreshDeepUninstall(force = true)
+                        },
+                        onDeepUninstallBackupAndUninstall = { packages ->
+                            deepUninstallBackupAndUninstall(packages)
+                        },
+                        onDeepUninstallRestore = { packages ->
+                            deepUninstallRestore(packages)
+                        },
+                        onDeepUninstallMessageDismiss = {
+                            deepUninstallUi = deepUninstallUi.copy(
+                                message = null,
+                                error = null
+                            )
                         },
                         onOpenStartupSettings = {
                             val honorIntent = Intent(
@@ -1262,11 +1454,11 @@ class MainActivity : ComponentActivity() {
                             if (target == null) {
                                 ActionLog.warn("未知目标：$packageName")
                             } else if (rescueMode) {
-                                ActionLog.warn("自动救砖模式：先清除救援模式再改计划")
+                                ActionLog.warn("救援模式：先退出救援模式再改计划")
                             } else if (value &&
                                 !TargetPolicy(this@MainActivity).isActive(target)
                             ) {
-                                ActionLog.warn("${target.label} 当前为观察，不能加入开机计划")
+                                ActionLog.warn("${target.label} 当前为观察，不能加入开机冻结")
                             } else {
                                 val policy = TargetPolicy(this@MainActivity)
                                 val reason = if (value) {
@@ -1284,7 +1476,7 @@ class MainActivity : ComponentActivity() {
                                 if (value && reason != null) {
                                     ActionLog.warn(
                                         "${target.label} 当前策略不可用（$reason），" +
-                                            "不能加入开机计划"
+                                            "不能加入开机冻结"
                                     )
                                 } else {
                                     policy.setEnabled(target, value)
@@ -1373,7 +1565,7 @@ class MainActivity : ComponentActivity() {
                             }
                             val action = if (value) "加入" else "移出"
                             val title = if (changed.isNotEmpty()) {
-                                "已${action}开机计划 ${changed.size} 个"
+                                "已${action}开机冻结 ${changed.size} 个"
                             } else {
                                 "没有变更"
                             }
@@ -1383,9 +1575,9 @@ class MainActivity : ComponentActivity() {
                                     if (unchanged > 0) {
                                         append(
                                             if (value) {
-                                                "$unchanged 个已在开机计划中"
+                                                "$unchanged 个已在开机冻结中"
                                             } else {
-                                                "$unchanged 个不在开机计划中"
+                                                "$unchanged 个不在开机冻结中"
                                             }
                                         )
                                     }
@@ -1619,7 +1811,7 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                 ).line()
                                             ActionLog.warn(
-                                                "自动救砖模式/状态未知：" +
+                                                "救援模式或状态未知：" +
                                                     "请先清除救援标记再切换策略"
                                             )
                                             return@launchBusy
@@ -1758,7 +1950,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onCatalogApply = { selected ->
+                        onCatalogApply = { selected, rememberForRepeat ->
+                            if (rememberForRepeat && selected.isNotEmpty()) {
+                                lastAppliedFreezeSelection = selected
+                                settings.setLastAppliedFreezeSelection(selected)
+                            }
                             launchBusy {
                                 val backend = manager.get()
                                 val policy = TargetPolicy(this@MainActivity)
@@ -1822,11 +2018,11 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             ).line()
                                         ActionLog.warn(
-                                            "自动救砖模式/状态未知：请先清除救援标记再冻结"
+                                            "救援模式或状态未知：请先退出救援模式再执行"
                                         )
                                         publishBatchFeedback(
                                             BatchFeedbackUi(
-                                                title = "冻结被拒绝：自动救砖模式",
+                                                title = "执行被拒绝：救援模式",
                                                 detail = if (rescue == true) {
                                                     null
                                                 } else {
@@ -2046,7 +2242,7 @@ class MainActivity : ComponentActivity() {
                                             append(result.summary())
                                             append("；组件：${components.summary()}")
                                             if (keepPlan) {
-                                                append("；开机计划保留")
+                                                append("；开机冻结保留")
                                             }
                                             if (foreignCount > 0) {
                                                 append("；跳过 $foreignCount 项他人暂停")
@@ -2228,7 +2424,7 @@ class MainActivity : ComponentActivity() {
                             refreshTargetActual()
                             refreshDetection()
                         },
-                        onCustomTargetAdd = { packageName, label, risk ->
+                        onCustomTargetAdd = { packageName, label, risk, preset, plan ->
                             if (com.nemu.hibernate.core.CustomTargetGuard.isSelf(packageName)) {
                                 ActionLog.warn("不能添加 Nemu 自身：$packageName")
                             } else if (TargetCatalog.byPackage(packageName) != null) {
@@ -2247,9 +2443,16 @@ class MainActivity : ComponentActivity() {
                                 TargetCatalog.byPackage(packageName)?.let { target ->
                                     // Adding a target must never enroll it in the
                                     // boot plan implicitly; the user enables the
-                                    // plan explicitly on the card.
-                                    TargetPolicy(this@MainActivity)
-                                        .setEnabled(target, false)
+                                    // plan explicitly on the card. The preset
+                                    // chosen in 全部应用 is persisted in the same
+                                    // step so the freeze page can execute
+                                    // directly.
+                                    val policy = TargetPolicy(this@MainActivity)
+                                    policy.setPreset(target, preset)
+                                    policy.setEnabled(
+                                        target,
+                                        plan && preset != StrategyPreset.OBSERVE
+                                    )
                                     // Only the new package needs an actual-state
                                     // read; a full-catalog refresh plus a
                                     // detection probe here would be needless.
@@ -2487,8 +2690,8 @@ class MainActivity : ComponentActivity() {
         targets.mapNotNull { target ->
             val hidden = target.packageName in hiddenPackages
             val status = statusReader.read(target.packageName)
-            val stopped = runCatching {
-                val info = if (Build.VERSION.SDK_INT >= 33) {
+            val info = runCatching {
+                if (Build.VERSION.SDK_INT >= 33) {
                     packageManager.getApplicationInfo(
                         target.packageName,
                         PackageManager.ApplicationInfoFlags.of(0L)
@@ -2497,17 +2700,26 @@ class MainActivity : ComponentActivity() {
                     @Suppress("DEPRECATION")
                     packageManager.getApplicationInfo(target.packageName, 0)
                 }
-                (info.flags and ApplicationInfo.FLAG_STOPPED) != 0
-            }.getOrDefault(false)
-            if (status == null && !hidden) {
-                null
+            }.getOrNull()
+            val stopped = info?.let {
+                (it.flags and ApplicationInfo.FLAG_STOPPED) != 0
+            } ?: false
+            // A hidden package is absent from normal PackageManager lookups
+            // but still exists. Anything else PackageManager cannot resolve
+            // after a deep uninstall is not installed for this user.
+            val present = info != null || hidden
+            if (status == null && !hidden && !present) {
+                target.packageName to TargetActualUiState(
+                    present = false
+                )
             } else {
                 target.packageName to TargetActualUiState(
                     suspended = status?.suspended,
                     packageEnabled = status?.enabled,
                     stopped = stopped,
                     processRunning = processSnapshot?.isRunning(target.packageName),
-                    hidden = hidden
+                    hidden = hidden,
+                    present = present
                 )
             }
         }.toMap()

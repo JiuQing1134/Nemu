@@ -32,7 +32,7 @@ class BootStatusCopyTest {
         val cases = mapOf(
             "已跳过：用户已在本 boot 手动解冻" to "手动解冻",
             "已跳过：上次未检测到干净关机" to "守卫触发",
-            "已跳过：超过开机冻结窗口" to "窗口已过",
+            "已跳过：超过开机冻结窗口" to "错过时机",
             "已跳过：自动救砖模式" to "救援模式",
             "已跳过：无法确认救援状态" to "状态未知",
             "已跳过：已有冻结/解冻操作" to "已操作",
@@ -48,10 +48,10 @@ class BootStatusCopyTest {
 
     @Test
     fun successFailurePreviewAndNoPlanAreShort() {
-        assertEquals("成功 · 开机冻结", BootStatusCopy.of("开机冻结成功").chip)
-        assertEquals("成功 · 手动冻结", BootStatusCopy.of("手动冻结成功").chip)
-        assertEquals("成功 · 策略切换", BootStatusCopy.of("策略切换成功").chip)
-        assertEquals("失败 · 冻结", BootStatusCopy.of("开机冻结有失败").chip)
+        assertEquals("开机冻结成功", BootStatusCopy.of("开机冻结成功").chip)
+        assertEquals("手动冻结成功", BootStatusCopy.of("手动冻结成功").chip)
+        assertEquals("策略切换成功", BootStatusCopy.of("策略切换成功").chip)
+        assertEquals("失败", BootStatusCopy.of("开机冻结有失败").chip)
         assertEquals("预览 · 未改动", BootStatusCopy.of("预览：计划完成").chip)
         assertEquals("无计划", BootStatusCopy.of("没有启用任何目标").chip)
         assertEquals("部分成功", BootStatusCopy.of("部分成功").chip)

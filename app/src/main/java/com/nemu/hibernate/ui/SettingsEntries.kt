@@ -31,9 +31,9 @@ data class SettingsEntry(
 fun settingsEntries(state: DashboardState): List<SettingsEntry> = listOf(
     SettingsEntry(
         id = SettingsEntryId.EXECUTION,
-        title = "执行与权限",
+        title = "执行与授权",
         summary = if (state.dryRun) {
-            "预览 · 手动不改；安全清理仍执行"
+            "预览 · 手动不改手机；安全解冻仍执行"
         } else {
             "实际执行 · 会修改手机"
         }
@@ -61,17 +61,20 @@ fun settingsEntries(state: DashboardState): List<SettingsEntry> = listOf(
 )
 
 internal fun bootEntrySummary(boot: BootFreezeUiState): String = when {
-    !boot.enabled -> "开机自动冻结已关闭"
-    boot.plannedCount <= 0 -> "无计划目标"
-    boot.lastResult == null -> "计划 ${boot.plannedCount} 个 · 尚未执行"
-    else -> "计划 ${boot.plannedCount} 个 · " +
-        BootStatusCopy.of(boot.lastResult).chip
+    !boot.enabled -> "开机冻结总开关已关闭"
+    boot.plannedCount <= 0 -> "无开机冻结目标"
+    boot.lastResult == null -> "开机冻结 ${boot.plannedCount} 个 · 尚未执行"
+    else -> {
+        val chip = BootStatusCopy.of(boot.lastResult).chip
+        val short = if (chip.startsWith("已跳过")) "已跳过" else chip
+        "开机冻结 ${boot.plannedCount} 个 · $short"
+    }
 }
 
 /** 二级页标题下的一行说明；只描述本页范围，不重复控件文案。 */
 fun settingsPageSubtitle(id: SettingsEntryId): String = when (id) {
     SettingsEntryId.EXECUTION -> "实际执行与授权状态。"
-    SettingsEntryId.BOOT -> "开机计划与上次安全解冻。"
+    SettingsEntryId.BOOT -> "开机冻结与上次安全解冻。"
     SettingsEntryId.APPEARANCE -> "风格、配色与明暗。"
     SettingsEntryId.LOGS -> "操作记录与启动日志。"
     SettingsEntryId.ADVANCED -> "COTA 云控参数；保护规则不可关闭。"

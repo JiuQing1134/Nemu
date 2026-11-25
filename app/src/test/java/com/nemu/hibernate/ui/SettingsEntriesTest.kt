@@ -34,8 +34,8 @@ class SettingsEntriesTest {
         val execution = settingsEntries(state(dryRun = true))
             .first { it.id == SettingsEntryId.EXECUTION }
 
-        assertEquals("执行与权限", execution.title)
-        assertEquals("预览 · 手动不改；安全清理仍执行", execution.summary)
+        assertEquals("执行与授权", execution.title)
+        assertEquals("预览 · 手动不改手机；安全解冻仍执行", execution.summary)
     }
 
     @Test
@@ -53,7 +53,7 @@ class SettingsEntriesTest {
         ).first { it.id == SettingsEntryId.BOOT }
 
         assertEquals("开机与安全", boot.title)
-        assertEquals("无计划目标", boot.summary)
+        assertEquals("无开机冻结目标", boot.summary)
     }
 
     @Test
@@ -69,7 +69,7 @@ class SettingsEntriesTest {
             )
         ).first { it.id == SettingsEntryId.BOOT }
 
-        assertEquals("计划 3 个 · 成功", boot.summary)
+        assertEquals("开机冻结 3 个 · 成功", boot.summary)
     }
 
     @Test
@@ -84,7 +84,7 @@ class SettingsEntriesTest {
             )
         ).first { it.id == SettingsEntryId.BOOT }
 
-        assertEquals("计划 2 个 · 尚未执行", boot.summary)
+        assertEquals("开机冻结 2 个 · 尚未执行", boot.summary)
     }
 
     @Test
@@ -161,6 +161,7 @@ class SettingsEntriesTest {
         )
 
         val boot = entries.first { it.id == SettingsEntryId.BOOT }
-        assertTrue(boot.summary.contains("已跳过 · 手动解冻"))
+        assertTrue(boot.summary.contains("已跳过"))
+        assertTrue(!boot.summary.contains("手动选择性解冻"))
     }
 }

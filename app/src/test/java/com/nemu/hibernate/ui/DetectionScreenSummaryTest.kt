@@ -72,36 +72,6 @@ class DetectionScreenSummaryTest {
     }
 
     @Test
-    fun freezeGroupsKeepSourceOrderSkipCloudAndEmptyGroups() {
-        val groups = freezeGroups(
-            listOf(
-                freeze("core.one", FreezeSource.CORE),
-                freeze("cloud.one", FreezeSource.CLOUD),
-                freeze("ai.one", FreezeSource.AI),
-                freeze("core.two", FreezeSource.CORE),
-                freeze("catalog.one", FreezeSource.CATALOG)
-            )
-        )
-
-        assertEquals(
-            listOf("核心目标", "AI 目标", "统一目录目标"),
-            groups.map { it.title }
-        )
-        assertEquals(listOf(2, 1, 1), groups.map { it.rows.size })
-        assertEquals(
-            listOf("core.one", "core.two"),
-            groups.first().rows.map { it.packageName }
-        )
-        assertTrue(groups.none { it.source == FreezeSource.CLOUD })
-        assertTrue(
-            freezeGroups(
-                listOf(freeze("cloud.only", FreezeSource.CLOUD))
-            ).isEmpty()
-        )
-        assertTrue(freezeGroups(emptyList()).isEmpty())
-    }
-
-    @Test
     fun overviewCountsUseSnapshotAndExcludeCloudFromFreezeCount() {
         val snapshot = DetectionSnapshot(
             freezeStates = listOf(
@@ -129,7 +99,7 @@ class DetectionScreenSummaryTest {
         assertEquals(1, overview.cloudMismatchCount)
         assertEquals("1 项", overview.system.label)
         assertEquals(DetectionSummaryTone.PRIMARY, overview.system.tone)
-        assertEquals("正常", overview.startup.label)
+        assertEquals("未见异常", overview.startup.label)
         assertEquals(DetectionSummaryTone.PRIMARY, overview.startup.tone)
     }
 
@@ -143,7 +113,7 @@ class DetectionScreenSummaryTest {
         assertEquals(0, overview.cloudCount)
         assertEquals(0, overview.cloudTotal)
         assertEquals(0, overview.cloudMismatchCount)
-        assertEquals("未读", overview.system.label)
+        assertEquals("未读取", overview.system.label)
         assertEquals(DetectionSummaryTone.NEUTRAL, overview.system.tone)
         assertEquals("读取失败", overview.startup.label)
         assertEquals(DetectionSummaryTone.ERROR, overview.startup.tone)
@@ -162,28 +132,28 @@ class DetectionScreenSummaryTest {
             ThermalState(services = listOf(service(known = false))),
             CotaState(CotaReadStatus.OK)
         )
-        assertEquals("读取失败", thermalServiceFailed.label)
+        assertEquals("失败", thermalServiceFailed.label)
         assertEquals(DetectionSummaryTone.ERROR, thermalServiceFailed.tone)
 
         val thermalSectionFailed = systemSummary(
             ThermalState(message = "读取失败"),
             CotaState(CotaReadStatus.UNKNOWN)
         )
-        assertEquals("读取失败", thermalSectionFailed.label)
+        assertEquals("失败", thermalSectionFailed.label)
         assertEquals(DetectionSummaryTone.ERROR, thermalSectionFailed.tone)
 
         val cotaFailed = systemSummary(
             ThermalState(services = listOf(service(known = true))),
             CotaState(CotaReadStatus.ERROR)
         )
-        assertEquals("读取失败", cotaFailed.label)
+        assertEquals("失败", cotaFailed.label)
         assertEquals(DetectionSummaryTone.ERROR, cotaFailed.tone)
 
         val noRoot = systemSummary(
             ThermalState(),
             CotaState(CotaReadStatus.NO_ROOT)
         )
-        assertEquals("无 root", noRoot.label)
+        assertEquals("无 Root", noRoot.label)
         assertEquals(DetectionSummaryTone.NEUTRAL, noRoot.tone)
 
         val cotaOnly = systemSummary(
@@ -214,7 +184,7 @@ class DetectionScreenSummaryTest {
             lastShutdownResult = "成功",
             lastBootResult = "安全解冻成功"
         )
-        assertEquals("正常", startupSummary(ok).label)
+        assertEquals("未见异常", startupSummary(ok).label)
         assertEquals(DetectionSummaryTone.PRIMARY, startupSummary(ok).tone)
         assertFalse(ok.shutdownAbnormal())
         // A never-run shutdown is not a failure.
@@ -254,7 +224,7 @@ class DetectionScreenSummaryTest {
         )
         val skippedLine = bootSummaryLines(skipped)
             .first { it.label == "守卫" }
-        assertEquals("手动解冻，已跳过", skippedLine.value)
+        assertEquals("本次开机已手动解冻，自动冻结已跳过", skippedLine.value)
         assertFalse(skippedLine.danger)
 
         val disabledSkip = skipped.copy(bootFreezeEnabled = false)
@@ -322,7 +292,7 @@ class DetectionScreenSummaryTest {
             bootFreezeDelaySeconds = 120,
             bootCount = 1
         )
-        assertEquals("正常", bootGuardLabel(enabled))
+        assertEquals("未触发", bootGuardLabel(enabled))
 
         assertEquals(
             "未启用",
@@ -336,16 +306,16 @@ class DetectionScreenSummaryTest {
             lastBootFreezeAttemptBootCount = 1,
             lastBootFreezeAttemptTime = 1_000L
         )
-        assertEquals("守卫触发 · 上次未净关机", bootGuardLabel(tripped))
+        assertEquals("守卫触发 · 上次未正常关机", bootGuardLabel(tripped))
 
         val skipped = enabled.copy(bootCount = 2, skippedBootCount = 2)
-        assertEquals("手动解冻，已跳过", bootGuardLabel(skipped))
+        assertEquals("本次开机已手动解冻，自动冻结已跳过", bootGuardLabel(skipped))
     }
 
     @Test
     fun freezeSummaryLineIsOneCompactLine() {
         assertEquals(
-            "已加入计划 · 已冻结",
+            "已添加 · 已冻结",
             freezeSummaryLine(
                 freeze(
                     "com.example.frozen",
@@ -356,7 +326,7 @@ class DetectionScreenSummaryTest {
             )
         )
         assertEquals(
-            "已加入计划 · 未冻结",
+            "已添加 · 未冻结",
             freezeSummaryLine(
                 freeze(
                     "com.example.pending",
@@ -366,7 +336,7 @@ class DetectionScreenSummaryTest {
             )
         )
         assertEquals(
-            "已加入计划 · 已停用",
+            "已添加 · 已停用",
             freezeSummaryLine(
                 freeze(
                     "com.example.disabled",
@@ -377,7 +347,7 @@ class DetectionScreenSummaryTest {
             )
         )
         assertEquals(
-            "已加入计划 · 已生效",
+            "已添加 · 已隐藏",
             freezeSummaryLine(
                 freeze(
                     "com.example.hidden",
@@ -398,7 +368,7 @@ class DetectionScreenSummaryTest {
             )
         )
         assertEquals(
-            "已加入计划 · 已冻结 · 仍有进程",
+            "已添加 · 已冻结 · 仍有进程",
             freezeSummaryLine(
                 freeze(
                     "com.example.running",
@@ -424,7 +394,7 @@ class DetectionScreenSummaryTest {
         val lines = bootSummaryLines(boot)
 
         assertEquals(
-            listOf("开机计划", "上次关机", "上次开机", "守卫"),
+            listOf("开机冻结", "上次关机", "上次开机", "守卫"),
             lines.map { it.label }
         )
         assertEquals(
@@ -432,7 +402,7 @@ class DetectionScreenSummaryTest {
                 "已开启 · 延迟 120 秒",
                 boot.describeLastShutdown(),
                 boot.describeLastBoot(),
-                "正常"
+                "未触发"
             ),
             lines.map { it.value }
         )
@@ -442,8 +412,8 @@ class DetectionScreenSummaryTest {
     @Test
     fun bootSummaryLinesFlagReadFailureAndAbnormalStates() {
         val unread = bootSummaryLines(BootSafetyState())
-        assertEquals("读取失败", unread.first { it.label == "开机计划" }.value)
-        assertTrue(unread.first { it.label == "开机计划" }.danger)
+        assertEquals("读取失败", unread.first { it.label == "开机冻结" }.value)
+        assertTrue(unread.first { it.label == "开机冻结" }.danger)
 
         val abnormal = bootSummaryLines(
             BootSafetyState(
@@ -465,7 +435,7 @@ class DetectionScreenSummaryTest {
                 lastBootFreezeAttemptTime = 1_000L
             )
         ).first { it.label == "守卫" }
-        assertEquals("守卫触发 · 上次未净关机", tripped.value)
+        assertEquals("守卫触发 · 上次未正常关机", tripped.value)
         assertTrue(tripped.danger)
 
         val disabled = bootSummaryLines(BootSafetyState(readOk = true))
@@ -495,11 +465,11 @@ class DetectionScreenSummaryTest {
 
         assertEquals(
             listOf(
-                "开机次数（Boot count）：7",
+                "开机次数：7",
                 "关机详情：关机前解冻了 3 项",
                 "开机详情：开机后解冻了 2 项",
-                "AI 目标：有启用项",
-                "上次结果（自动/手动/解冻）：上次冻结成功",
+                "AI 应用：有启用项",
+                "上次开机冻结结果：上次冻结成功",
                 "冻结详情：已完成 2 项"
             ),
             texts
@@ -524,7 +494,7 @@ class DetectionScreenSummaryTest {
             lastBootFreezeAttemptTime = 1_000L
         )
         val guard = bootSummaryLines(tripped).first { it.label == "守卫" }
-        assertEquals("守卫触发 · 上次未净关机", guard.value)
+        assertEquals("守卫触发 · 上次未正常关机", guard.value)
         assertTrue(bootDetailLines(tripped).none { it.text.contains(guard.value) })
     }
 
@@ -533,9 +503,9 @@ class DetectionScreenSummaryTest {
         val bare = bootDetailLines(BootSafetyState())
         assertEquals(
             listOf(
-                "开机次数（Boot count）：-1",
-                "AI 目标：无启用项",
-                "上次结果（自动/手动/解冻）：尚未执行"
+                "开机次数：未知",
+                "AI 应用：无启用项",
+                "上次开机冻结结果：尚未执行"
             ),
             bare.map { it.text }
         )
@@ -558,14 +528,119 @@ class DetectionScreenSummaryTest {
             lastBootFreezeResult = "安全解冻失败：无可用权限"
         )
         val failedLine = bootDetailLines(failed).first {
-            it.text.startsWith("上次结果")
+            it.text.startsWith("上次开机冻结结果")
         }
         assertTrue(failedLine.danger)
 
         // A stale snapshot is already covered by the read-failure warning.
         val stale = bootDetailLines(failed.copy(readOk = false)).first {
-            it.text.startsWith("上次结果")
+            it.text.startsWith("上次开机冻结结果")
         }
         assertFalse(stale.danger)
+    }
+
+    @Test
+    fun bootSummaryLinesCarrySemanticToneAndHighlight() {
+        val boot = BootSafetyState(
+            readOk = true,
+            bootCount = 82,
+            lastShutdownResult = "成功",
+            lastShutdownTime = 1_000L,
+            lastBootResult = "已跳过：本次开机已有冻结/解冻操作",
+            lastBootTime = 2_000L,
+            bootFreezeEnabled = true,
+            bootFreezeDelaySeconds = 120,
+            lastBootFreezeBootCount = 82
+        )
+
+        val lines = bootSummaryLines(boot).associateBy { it.label }
+
+        assertEquals(BootLineTone.PRIMARY, lines.getValue("开机冻结").tone)
+        assertEquals("已开启", lines.getValue("开机冻结").highlight)
+        assertEquals(BootLineTone.PRIMARY, lines.getValue("上次关机").tone)
+        assertEquals("成功", lines.getValue("上次关机").highlight)
+        assertEquals(BootLineTone.WARNING, lines.getValue("上次开机").tone)
+        assertEquals("已跳过", lines.getValue("上次开机").highlight)
+        // "本次开机已有冻结结果" is a normal note, not a success/failure.
+        assertEquals(BootLineTone.NEUTRAL, lines.getValue("守卫").tone)
+    }
+
+    @Test
+    fun trippedGuardUsesErrorToneAndHighlight() {
+        val tripped = BootSafetyState(
+            readOk = true,
+            bootCount = 2,
+            bootFreezeEnabled = true,
+            lastBootFreezeAttemptBootCount = 1,
+            lastBootFreezeAttemptTime = 1_000L
+        )
+
+        val guard = bootSummaryLines(tripped).first { it.label == "守卫" }
+
+        assertEquals(BootLineTone.ERROR, guard.tone)
+        assertEquals("守卫触发", guard.highlight)
+    }
+
+    @Test
+    fun shutdownDetailWithSemicolonsBecomesAList() {
+        val boot = BootSafetyState(
+            readOk = true,
+            lastShutdownDetail = "安全解冻成功；组件：成功，尝试 0，成功 0，失败 0；" +
+                "隐藏：成功，尝试 0，成功 0，失败 0；" +
+                "限制：成功，尝试 0，成功 0，失败 0"
+        )
+
+        val details = bootDetailLines(boot)
+        val header = details.first { it.text == "关机详情" }
+        assertEquals("关机详情", header.text)
+        assertTrue(header.header)
+
+        val bullets = details.filter { it.bullet }
+        assertEquals(
+            listOf(
+                "安全解冻成功",
+                "组件：成功 · 尝试 0 · 成功 0 · 失败 0",
+                "隐藏：成功 · 尝试 0 · 成功 0 · 失败 0",
+                "限制：成功 · 尝试 0 · 成功 0 · 失败 0"
+            ),
+            bullets.map { it.text }
+        )
+        assertTrue(bullets.all { it.tone == BootLineTone.PRIMARY })
+        assertEquals("安全解冻成功", bullets[0].highlight)
+        assertEquals("成功", bullets[1].highlight)
+    }
+
+    @Test
+    fun failedShutdownDetailColorsOnlyTheSegmentResult() {
+        val boot = BootSafetyState(
+            readOk = true,
+            lastShutdownDetail = "安全解冻有失败；组件：失败，尝试 1，成功 0，失败 1；" +
+                "隐藏：成功，尝试 0，成功 0，失败 0"
+        )
+
+        val bullets = bootDetailLines(boot).filter { it.bullet }
+
+        assertEquals(BootLineTone.ERROR, bullets[0].tone)
+        assertEquals("安全解冻有失败", bullets[0].highlight)
+        assertEquals(BootLineTone.ERROR, bullets[1].tone)
+        assertEquals("失败", bullets[1].highlight)
+        // The later "失败 0" is a count, not the segment result.
+        assertEquals(BootLineTone.PRIMARY, bullets[2].tone)
+        assertEquals("成功", bullets[2].highlight)
+    }
+
+    @Test
+    fun manualBootFreezeSuccessUsesPrimaryTone() {
+        val boot = BootSafetyState(
+            readOk = true,
+            lastBootFreezeResult = "手动冻结成功（2026-11-25 20:52:03）"
+        )
+
+        val line = bootDetailLines(boot).first {
+            it.text.startsWith("上次开机冻结结果")
+        }
+
+        assertEquals(BootLineTone.PRIMARY, line.tone)
+        assertEquals("手动冻结成功", line.highlight)
     }
 }

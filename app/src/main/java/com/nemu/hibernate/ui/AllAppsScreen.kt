@@ -6,19 +6,25 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +35,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -50,15 +58,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nemu.hibernate.ui.theme.nemuCard
 import com.nemu.hibernate.ui.theme.nemuInset
 import com.nemu.hibernate.core.CriticalRoleResolver
 import com.nemu.hibernate.core.CustomTargetGuard
 import com.nemu.hibernate.core.RiskLevel
+import com.nemu.hibernate.core.StrategyPreset
+import com.nemu.hibernate.core.Target
+import com.nemu.hibernate.core.TargetCatalog
+import com.nemu.hibernate.core.TargetCopy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -296,6 +312,18 @@ private enum class AllAppsFilter(val label: String) {
     ADDED("已添加")
 }
 
+/** The risk a target would get when added from this screen. */
+private fun allAppRisk(app: AllAppEntry): RiskLevel =
+    if (app.kind != AppKind.USER || app.criticalReason != null) {
+        RiskLevel.RED
+    } else {
+        RiskLevel.YELLOW
+    }
+
+/** A throw-away target used only to render strategy labels/availability. */
+private fun allAppTarget(app: AllAppEntry): Target =
+    TargetCatalog.customTarget(app.packageName, app.label, allAppRisk(app))
+
 internal enum class AppSortField(val label: String) {
     NAME("按名称排序"),
     INSTALL("按安装时间排序")
@@ -491,13 +519,13 @@ internal fun AppSortButton(
             modifier = Modifier
                 // No 30dp circle / ripple: the hit area hugs the glyph; a
                 // press dims the bars instead of flashing a grey circle.
-                .size(36.dp)
+                .size(30.dp)
                 .noRippleClickable { expanded = true }
                 .semantics { contentDescription = "排序" },
             contentAlignment = Alignment.Center
         ) {
             Canvas(
-                Modifier.size(width = 12.dp, height = 16.dp)
+                Modifier.size(width = 11.dp, height = 14.dp)
             ) {
                 val stroke = 2.8.dp.toPx()
                 // Material's standard "sort" glyph proportions:
@@ -562,7 +590,7 @@ fun AllAppsScreen(
     state: DashboardState,
     callbacks: DashboardCallbacks,
     modifier: Modifier,
-    onOpenApplications: () -> Unit
+    onOpenApplications: (Set<String>) -> Unit
 ) {
     val context = LocalContext.current
     var apps by remember { mutableStateOf(AllAppsCache.cached()) }
@@ -577,15 +605,40 @@ fun AllAppsScreen(
     var pendingCritical by remember { mutableStateOf<List<AllAppEntry>>(emptyList()) }
     var riskAcknowledged by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var lastAddedPackages by remember { mutableStateOf(emptySet<String>()) }
+    // Per-app strategy chosen before the target is added. Batch add uses
+    // this map, so adding and strategy selection are one step.
+    var presetByPackage by remember {
+        mutableStateOf<Map<String, StrategyPreset>>(emptyMap())
+    }
+    // Boot-freeze selection made before the target exists. For an added
+    // target the switch writes through immediately via onCatalogToggle.
+    var planByPackage by remember {
+        mutableStateOf<Map<String, Boolean>>(emptyMap())
+    }
+    var expandedPackages by remember {
+        mutableStateOf(emptySet<String>())
+    }
+    var showAddedGroup by rememberSaveable { mutableStateOf(true) }
+    var showOtherGroup by rememberSaveable { mutableStateOf(true) }
 
     // Back unwinds the current picker step instead of leaving the app:
-    // search → category → selection → (then normal back).
+    // keyboard → search → category → selection → (then normal back). Hiding
+    // the IME first keeps the current results visible while the user picks.
+    val backFocusManager = LocalFocusManager.current
+    val backKeyboard = LocalSoftwareKeyboardController.current
+    val backImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     BackHandler(
-        enabled = query.isNotBlank() ||
+        enabled = backImeVisible ||
+            query.isNotBlank() ||
             filterIndex != 0 ||
             selected.isNotEmpty()
     ) {
         when {
+            backImeVisible -> {
+                backKeyboard?.hide()
+                backFocusManager.clearFocus()
+            }
             query.isNotBlank() -> query = ""
             filterIndex != 0 -> filterIndex = 0
             else -> selected = emptySet()
@@ -625,6 +678,9 @@ fun AllAppsScreen(
     val addedPackages = remember(state.catalog) {
         state.catalog.map { it.packageName }.toSet()
     }
+    val catalogByPackage = remember(state.catalog) {
+        state.catalog.associateBy { it.packageName }
+    }
     val all = apps.orEmpty()
     val sortField = AppSortField.entries.getOrElse(sortFieldIndex) {
         AppSortField.NAME
@@ -659,12 +715,19 @@ fun AllAppsScreen(
                 matchesAppQuery(it.label, it.packageName, query)
             }
         }
-        sortApps(
+        val sorted = sortApps(
             searched,
             field = sortField,
             nameAscending = nameAscending,
             timeAscending = timeAscending
         )
+        // Targets already added to Nemu are the ones users come back to
+        // manage; keep them pinned above the rest of the installed list while
+        // preserving the selected name/time order inside each group.
+        val (addedRows, otherRows) = sorted.partition {
+            it.packageName in addedPackages
+        }
+        addedRows + otherRows
     }
     val selectable = filtered.filter {
         !it.isSelf && it.packageName !in addedPackages
@@ -677,6 +740,8 @@ fun AllAppsScreen(
             !it.isSelf &&
             it.packageName !in addedPackages
     }
+    val addedVisible = filtered.filter { it.packageName in addedPackages }
+    val otherVisible = filtered.filter { it.packageName !in addedPackages }
     LaunchedEffect(apps) {
         selected = SelectionRules.prune(
             selected,
@@ -689,24 +754,85 @@ fun AllAppsScreen(
             callbacks.onCustomTargetAdd(
                 app.packageName,
                 app.label,
-                if (app.kind != AppKind.USER ||
-                    app.criticalReason != null
-                ) {
-                    RiskLevel.RED
-                } else {
-                    RiskLevel.YELLOW
-                }
+                allAppRisk(app),
+                presetByPackage[app.packageName] ?: StrategyPreset.PAUSE,
+                planByPackage[app.packageName] == true
             )
         }
-        message = "已添加 ${entries.size} 个；到“冻结/解冻”页选择策略并应用。"
+        lastAddedPackages = entries.mapTo(mutableSetOf()) { it.packageName }
+        message = "已添加 ${entries.size} 个。"
         // The inline message is at the top of the list and can be off-screen
         // after adding from deep in the list; make the next step visible.
         Toast.makeText(
             context,
-            "已添加 ${entries.size} 个；到“冻结/解冻”页选择策略并应用",
+            "已添加 ${entries.size} 个",
             Toast.LENGTH_LONG
         ).show()
         selected = emptySet()
+    }
+
+    val renderAppRow: @Composable (AllAppEntry) -> Unit = { app ->
+        val catalogRow = catalogByPackage[app.packageName]
+        val target = remember(app.packageName) {
+            allAppTarget(app)
+        }
+        val preset = catalogRow?.preset
+            ?: presetByPackage[app.packageName]
+            ?: StrategyPreset.PAUSE
+        val plan = catalogRow?.enabled
+            ?: (planByPackage[app.packageName] == true)
+        val planEnabled = if (catalogRow != null) {
+            catalogRow.active && !state.busy && !state.rescueMode
+        } else {
+            preset != StrategyPreset.OBSERVE && !state.busy
+        }
+        AllAppRow(
+            app = app,
+            added = catalogRow != null,
+            addedPreset = catalogRow?.preset,
+            selected = app.packageName in selected,
+            preset = preset,
+            plan = plan,
+            planEnabled = planEnabled,
+            target = target,
+            rootAvailable = state.rootAvailable,
+            expanded = app.packageName in expandedPackages,
+            onToggleExpanded = {
+                if (app.packageName in expandedPackages) {
+                    expandedPackages =
+                        expandedPackages - app.packageName
+                } else {
+                    expandedPackages =
+                        expandedPackages + app.packageName
+                }
+            },
+            onPresetChange = { next ->
+                presetByPackage =
+                    presetByPackage + (app.packageName to next)
+                if (next == StrategyPreset.OBSERVE) {
+                    planByPackage =
+                        planByPackage + (app.packageName to false)
+                }
+            },
+            onPlanChange = { next ->
+                if (catalogRow != null) {
+                    callbacks.onCatalogToggle(
+                        app.packageName,
+                        next
+                    )
+                } else {
+                    planByPackage =
+                        planByPackage + (app.packageName to next)
+                }
+            },
+            onToggle = {
+                selected = if (app.packageName in selected) {
+                    selected - app.packageName
+                } else {
+                    selected + app.packageName
+                }
+            }
+        )
     }
 
     val listState = rememberLazyListState()
@@ -752,7 +878,7 @@ fun AllAppsScreen(
                 modifier = Modifier
                     .weight(1f)
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(FilterChipGap)
             ) {
                 AllAppsFilter.entries.forEachIndexed { index, option ->
                     NemuFilterChip(
@@ -760,8 +886,13 @@ fun AllAppsScreen(
                         onClick = { filterIndex = index },
                         label = {
                             Text(
-                                option.label,
-                                style = MaterialTheme.typography.labelMedium
+                                if (option == AllAppsFilter.ALL) {
+                                    "全部 ${all.size}"
+                                } else {
+                                    option.label
+                                },
+                                style = MaterialTheme.typography.labelSmall
+                                    .copy(fontSize = 11.sp)
                             )
                         }
                     )
@@ -795,31 +926,25 @@ fun AllAppsScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item {
-                // Same plain, single-row category bar as the Applications
-                // page; the old explanatory paragraph and card wrapper made
-                // the two screens look unrelated.
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // The ALL filter chip already shows the total; repeating it here
+            // as "共 N 个" was redundant. Only the post-add message remains.
+            message?.let { text ->
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        StatusChip(
-                            text = "共 ${filtered.size} 个",
-                            tone = StatusChipTone.INFO
-                        )
-                    }
-                    message?.let { text ->
                         Text(
                             text = text,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        TextButton(onClick = onOpenApplications) {
-                            Text("去冻结/解冻页设置策略 ›")
+                        TextButton(
+                            onClick = {
+                                onOpenApplications(lastAddedPackages)
+                            }
+                        ) {
+                            Text("去设置策略")
                         }
                     }
                 }
@@ -870,19 +995,35 @@ fun AllAppsScreen(
                     }
                 }
             } else {
-                items(filtered, key = { it.packageName }) { app ->
-                    AllAppRow(
-                        app = app,
-                        added = app.packageName in addedPackages,
-                        selected = app.packageName in selected,
-                        onToggle = {
-                            selected = if (app.packageName in selected) {
-                                selected - app.packageName
-                            } else {
-                                selected + app.packageName
-                            }
+                if (otherVisible.isNotEmpty()) {
+                    item(key = "other-header") {
+                        CollapsibleGroupHeader(
+                            title = "未添加",
+                            count = otherVisible.size,
+                            expanded = showOtherGroup,
+                            onToggle = { showOtherGroup = !showOtherGroup }
+                        )
+                    }
+                    if (showOtherGroup) {
+                        items(otherVisible, key = { it.packageName }) { app ->
+                            renderAppRow(app)
                         }
-                    )
+                    }
+                }
+                if (addedVisible.isNotEmpty()) {
+                    item(key = "added-header") {
+                        CollapsibleGroupHeader(
+                            title = "已添加",
+                            count = addedVisible.size,
+                            expanded = showAddedGroup,
+                            onToggle = { showAddedGroup = !showAddedGroup }
+                        )
+                    }
+                    if (showAddedGroup) {
+                        items(addedVisible, key = { it.packageName }) { app ->
+                            renderAppRow(app)
+                        }
+                    }
                 }
             }
             item { Spacer(Modifier.size(4.dp)) }
@@ -950,14 +1091,14 @@ fun AllAppsScreen(
                 ) {
                     if (systemTools.isNotEmpty()) {
                         Text(
-                            "以下系统/关键应用被停用或隐藏后，可能导致无法开机、没有桌面、没有输入法，或无法恢复：",
+                            "以下系统或关键应用若被冻结、停用或隐藏，可能导致无法开机、没有桌面、没有输入法，或无法恢复：",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
                     }
                     if (toolEntries.isNotEmpty()) {
                         Text(
-                            "以下 Root 管理器 / Shizuku / LSPosed / LSP 插件不是系统应用，但冻结后可能丢失 Root、模块、插件或授权，导致无法恢复：",
+                            "以下 Root 管理器、Shizuku、LSPosed、LSP 插件不是系统应用，但被冻结、停用或隐藏后可能丢失 Root、模块、插件或授权，导致无法恢复：",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -968,27 +1109,26 @@ fun AllAppsScreen(
                     val normalEntries = pendingCritical - keyEntries.toSet()
                     keyEntries.forEach { app ->
                         Text(
-                            "${app.label} · ${app.packageName} · " +
+                            "${appTitle(app.label, app.packageName)} · " +
                                 (app.criticalReason ?: app.kind.label),
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                     if (normalEntries.isNotEmpty()) {
                         Text(
-                            "同时添加（用户应用）：",
+                            "其他应用：",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         normalEntries.forEach { app ->
                             Text(
-                                "${app.label} · ${app.packageName}",
+                                appTitle(app.label, app.packageName),
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
                     Text(
-                        "添加只登记为 Nemu 目标，不会暂停、停用或隐藏任何应用；" +
-                            "真正执行时在“冻结/解冻”页还会再次确认。",
+                        "只登记目标，不改变应用状态。",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Row(
@@ -1033,81 +1173,171 @@ fun AllAppsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AllAppRow(
     app: AllAppEntry,
     added: Boolean,
+    addedPreset: StrategyPreset?,
     selected: Boolean,
+    preset: StrategyPreset,
+    plan: Boolean,
+    planEnabled: Boolean,
+    target: Target,
+    rootAvailable: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onPresetChange: (StrategyPreset) -> Unit,
+    onPlanChange: (Boolean) -> Unit,
     onToggle: () -> Unit
 ) {
     val canSelect = !app.isSelf && !added
-    Row(
+    val cardPress = remember { MutableInteractionSource() }
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .nemuClickable(
-                enabled = canSelect,
-                spec = NemuPressSpec.Row,
-                onClick = onToggle
-            )
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+            .nemuPressFeedback(cardPress, NemuPressSpec.Card),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.nemuCard()
+        ),
+        shape = MaterialTheme.shapes.small,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        NemuSmallCheckbox(
-            checked = selected,
-            enabled = canSelect,
-            onCheckedChange = { onToggle() },
-            contentDescription = "选择 ${app.label}",
-            touchSize = 32.dp,
-            modifier = Modifier.align(Alignment.CenterVertically)
-        )
-        AppIcon(packageName = app.packageName, size = 40.dp)
         Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = cardPress,
+                    indication = null,
+                    onClick = onToggleExpanded
+                )
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Text(
-                app.label,
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 13.sp
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                app.packageName,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
             Row(
-                modifier = Modifier.padding(top = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Every row gets exactly one blue role chip, including 用户;
-                // "已在 Nemu" follows it as a state chip. 11sp keeps the chip
-                // subordinate to the app name/package above it.
-                if (app.isSelf) {
-                    StatusChip(
-                        "Nemu 自身",
-                        tone = StatusChipTone.INFO,
-                        fontSize = 11.sp
+                NemuSmallCheckbox(
+                    checked = selected,
+                    enabled = canSelect,
+                    onCheckedChange = { onToggle() },
+                    contentDescription = "选择 ${app.label}",
+                    touchSize = 32.dp,
+                    // Flush with the icon's top edge (32dp box, 14dp glyph).
+                    modifier = Modifier.offset(y = (-9).dp)
+                )
+                AppIcon(packageName = app.packageName, size = 34.dp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        app.label,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontSize = 12.sp
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                } else {
-                    StatusChip(
-                        app.kind.label,
-                        tone = StatusChipTone.INFO,
-                        fontSize = 11.sp
-                    )
+                    if (shouldShowPackageName(app.label, app.packageName)) {
+                        Text(
+                            app.packageName,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(StatusChipGap),
+                        verticalArrangement = Arrangement.spacedBy(StatusChipGap)
+                    ) {
+                        StatusChip(
+                            if (app.isSelf) "Nemu 自身" else app.kind.label,
+                            // System categories are red; user/Root/Shizuku/
+                            // LSPosed categories are the blue capsule. The
+                            // deep-uninstall list uses the same mapping.
+                            tone = if (app.kind == AppKind.SYSTEM) {
+                                StatusChipTone.ERROR
+                            } else {
+                                StatusChipTone.CATEGORY
+                            }
+                        )
+                        // The group header already says 已添加; the per-card
+                        // "已添加" tag is redundant. Only the active strategy
+                        // stays on an added card. Unadded cards show the
+                        // category only; expanding the card reveals the
+                        // strategy chooser and the boot plan.
+                        if (added) {
+                            addedPreset?.let {
+                                StatusChip(
+                                    TargetCopy.label(it),
+                                    tone = StatusChipTone.THEME
+                                )
+                            }
+                        }
+                    }
                 }
-                if (added) {
-                    StatusChip(
-                        "已在 Nemu",
-                        tone = StatusChipTone.INFO,
-                        fontSize = 11.sp
+                Text(
+                    text = if (expanded) "⌃" else "›",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 15.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            if (expanded) {
+                if (!added) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(FilterChipGap),
+                        verticalArrangement = Arrangement.spacedBy(FilterChipGap)
+                    ) {
+                        TargetCopy.presetsFor(target).forEach { option ->
+                            NemuFilterChip(
+                                selected = option == preset,
+                                onClick = { onPresetChange(option) },
+                                enabled = TargetCopy.unavailableReason(
+                                    target,
+                                    option,
+                                    rootAvailable
+                                ) == null,
+                                label = {
+                                    Text(
+                                        TargetCopy.label(option),
+                                        style = MaterialTheme.typography
+                                            .labelSmall.copy(fontSize = 11.sp)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+                // The plan switch is revealed by tapping the card, exactly
+                // like the observation/freeze strategy chips above.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        text = "开机冻结",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    NemuMiniSwitch(
+                        checked = plan,
+                        onCheckedChange = onPlanChange,
+                        enabled = planEnabled,
+                        modifier = Modifier.semantics {
+                            contentDescription = "开机冻结：${app.label}"
+                        }
                     )
                 }
             }

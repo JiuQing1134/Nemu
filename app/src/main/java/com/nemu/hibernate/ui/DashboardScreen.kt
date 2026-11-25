@@ -57,6 +57,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -76,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.core.BootStatusCopy
+import com.nemu.hibernate.core.DeepUninstallUiState
 import com.nemu.hibernate.core.FreezeStrategy
 import com.nemu.hibernate.core.RiskLevel
 import com.nemu.hibernate.core.StrategyPreset
@@ -96,13 +98,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * 底部导航的 5 个目的地。原“应用”页同时管理冻结与解冻，因此改名为
- * “冻结/解冻”；原“全部应用”选择器就是应用列表，简称为“应用”。
+ * 底部导航的 5 个目的地。APPLICATIONS 是功能入口（冻结管理、解冻恢复、
+ * 开机冻结、深度卸载）；ALL_APPS 是完整的已安装应用列表。
  */
 enum class DashboardTab(val label: String) {
     OVERVIEW("概览"),
-    APPLICATIONS("冻结/解冻"),
-    ALL_APPS("应用"),
+    APPLICATIONS("功能"),
+    ALL_APPS("全部应用"),
     DETECTION("检测"),
     SETTINGS("设置")
 }
@@ -114,7 +116,12 @@ data class TargetActualUiState(
     val stopped: Boolean? = null,
     val processRunning: Boolean? = null,
     /** Hidden through `pm hide`; PackageManager may not list it at all. */
-    val hidden: Boolean? = null
+    val hidden: Boolean? = null,
+    /**
+     * PackageManager can still resolve the package. False after a deep
+     * uninstall (`pm uninstall --user 0`); null when the state was not read.
+     */
+    val present: Boolean? = null
 )
 
 /** 开机自动冻结的只读展示状态（设置键由 BootFreezeSettings 持有）。 */
@@ -149,7 +156,7 @@ enum class BatchFeedbackTone { SUCCESS, WARNING, ERROR, NEUTRAL }
 
 /**
  * 一次批量操作的常驻结果。比 Toast 更容易回看，也承载“撤销上次计划变更”
- * 与完整跳过清单；[undoAvailable] 只在开机计划批量操作后为 true。
+ * 与完整跳过清单；[undoAvailable] 只在开机冻结批量操作后为 true。
  */
 data class BatchFeedbackUi(
     val title: String,
@@ -182,16 +189,18 @@ data class DashboardState(
     val rootAvailable: Boolean = false,
     /** Plain-language authorization snapshot; null while the first read runs. */
     val privilege: PrivilegeOverview? = null,
-    /** The overview “开始使用” card was dismissed; Settings can re-enable it. */
-    val onboardingDismissed: Boolean = false,
     val themeStyle: ThemeStyle = ThemeStyle.VIVID,
     val themePalette: ThemePalette = ThemePalette.BLUE,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** Last non-empty batch selection, for the “上次选择” restore chip. */
     val lastFreezeSelection: Set<String> = emptySet(),
     val lastUnfreezeSelection: Set<String> = emptySet(),
+    /** Last batch actually confirmed for freezing, for “再次冻结”. */
+    val lastAppliedFreezeSelection: Set<String> = emptySet(),
     /** Persistent result of the last batch operation on the Applications tab. */
-    val batchFeedback: BatchFeedbackUi? = null
+    val batchFeedback: BatchFeedbackUi? = null,
+    /** 深度卸载分段：应用清单、备份状态与一次性操作反馈。 */
+    val deepUninstall: DeepUninstallUiState = DeepUninstallUiState()
 )
 
 /**
@@ -217,30 +226,36 @@ data class DashboardCallbacks(
     val onUndoPlanBatch: () -> Unit = {},
     val onCatalogPresetChange: (String, StrategyPreset) -> Unit = { _, _ -> },
     val onCatalogComponentsChange: (String, Set<String>) -> Unit = { _, _ -> },
-    val onCatalogApply: (Set<String>) -> Unit = {},
+    /** second arg = remember this batch as “再次冻结上次选择”. */
+    val onCatalogApply: (Set<String>, Boolean) -> Unit = { _, _ -> },
     /** second arg = keep the boot plan after a temporary unfreeze. */
     val onCatalogRestore: (Set<String>, Boolean) -> Unit = { _, _ -> },
     val onCatalogRestoreAll: () -> Unit = {},
     val onCatalogSelectionRemember: (Boolean, Set<String>) -> Unit =
         { _, _ -> },
     val onCatalogRefresh: () -> Unit = {},
-    val onCustomTargetAdd: (String, String, RiskLevel) -> Unit =
-        { _, _, _ -> },
+    val onCustomTargetAdd:
+        (String, String, RiskLevel, StrategyPreset, Boolean) -> Unit =
+        { _, _, _, _, _ -> },
     val onCustomTargetRemove: (String) -> Unit = {},
     val onAuthorizeRoot: () -> Unit = {},
     val onAuthorizeShizuku: () -> Unit = {},
     val onRefreshPrivilege: () -> Unit = {},
-    /** Hide the overview onboarding card and persist the choice. */
-    val onDismissOnboarding: () -> Unit = {},
-    /** Bring the card back from the settings root. */
-    val onShowOnboarding: () -> Unit = {},
     val onThemeStyleChange: (ThemeStyle) -> Unit = {},
     val onThemePaletteChange: (ThemePalette) -> Unit = {},
-    val onThemeModeChange: (ThemeMode) -> Unit = {}
+    val onThemeModeChange: (ThemeMode) -> Unit = {},
+    /** 深度卸载分段：重新读取已安装应用与 APK 备份。 */
+    val onDeepUninstallRefresh: () -> Unit = {},
+    /** 先备份 APK，再为用户卸载所选应用。 */
+    val onDeepUninstallBackupAndUninstall: (Set<String>) -> Unit = { _ -> },
+    /** 从 APK 备份重新安装所选应用。 */
+    val onDeepUninstallRestore: (Set<String>) -> Unit = { _ -> },
+    /** 关闭深度卸载页的提示条。 */
+    val onDeepUninstallMessageDismiss: () -> Unit = {}
 )
 
 /**
- * Nemu 布局：Scaffold + TopAppBar + 4 项底部导航。
+ * Nemu 布局：Scaffold + TopAppBar + 5 项底部导航。
  *
  * 页面内容全部来自 [DashboardState]，操作只通过 [DashboardCallbacks] 触发。
  * 检测页可注入完整内容；其余页面使用内置 section。
@@ -267,7 +282,19 @@ fun DashboardScreen(
     }
     // Hoisted: a deep link (detection, add-custom-target) must land on the
     // manage page even if the user last left Applications in restore mode.
-    var applicationsMode by rememberSaveable { mutableIntStateOf(0) }
+    var applicationsMode by rememberSaveable {
+        mutableIntStateOf(APP_PAGE_HUB)
+    }
+    // Incremented when the overview plan chip asks the freeze page to show
+    // the “开机冻结” filter. A counter (not a boolean) lets repeated taps
+    // re-apply the filter after the user has changed it.
+    var planFilterRequest by rememberSaveable { mutableIntStateOf(0) }
+    // “Go configure the apps I just added”: carry the package set into the
+    // freeze page and preselect it there.
+    var selectionRequest by remember { mutableIntStateOf(0) }
+    var selectionRequestPackages by remember {
+        mutableStateOf(emptySet<String>())
+    }
     // Hoisted so a deep link out of a Settings sub-page can return to that
     // exact sub-page instead of the root list.
     var settingsPage by rememberSaveable { mutableIntStateOf(SETTINGS_ROOT) }
@@ -277,7 +304,7 @@ fun DashboardScreen(
             tabNavigation = tabNavigation.openProgrammatic(
                 DashboardTab.APPLICATIONS.ordinal
             )
-            applicationsMode = 0
+            applicationsMode = APP_PAGE_FREEZE
         }
     }
     BackHandler(enabled = tabNavigation.backStack.isNotEmpty()) {
@@ -296,8 +323,17 @@ fun DashboardScreen(
                 state = state,
                 tab = selectedTab,
                 applicationsMode = applicationsMode,
-                onApplicationsModeChange = { applicationsMode = it },
-                onRefreshApplications = { callbacks.onCatalogRefresh() }
+                onBackToHub = {
+                    applicationsMode = APP_PAGE_HUB
+                    onClearFocus()
+                },
+                onRefreshApplications = {
+                    if (applicationsMode == APP_PAGE_DEEP_UNINSTALL) {
+                        callbacks.onDeepUninstallRefresh()
+                    } else {
+                        callbacks.onCatalogRefresh()
+                    }
+                }
             )
         },
         bottomBar = {
@@ -307,9 +343,9 @@ fun DashboardScreen(
                     // without discarding a deep-link return path.
                     when (tab) {
                         DashboardTab.APPLICATIONS -> {
-                            applicationsMode = 0
-                            // Re-tapping Applications leaves the one-app
-                            // deep-link view, but keeps the back path.
+                            applicationsMode = APP_PAGE_HUB
+                            // Re-tapping Applications returns to the hub and
+                            // leaves the one-app deep-link view.
                             onClearFocus()
                         }
                         DashboardTab.SETTINGS -> settingsPage = SETTINGS_ROOT
@@ -320,7 +356,7 @@ fun DashboardScreen(
                     when (tab) {
                         // Bottom navigation is top-level: both sub-pages
                         // start at their root when entered from another tab.
-                        DashboardTab.APPLICATIONS -> applicationsMode = 0
+                        DashboardTab.APPLICATIONS -> applicationsMode = APP_PAGE_HUB
                         DashboardTab.SETTINGS -> settingsPage = SETTINGS_ROOT
                         else -> Unit
                     }
@@ -338,7 +374,19 @@ fun DashboardScreen(
             .imePadding()
         tabStateHolder.SaveableStateProvider(selectedTab.name) {
         when (selectedTab) {
-            DashboardTab.OVERVIEW -> OverviewPage(state, callbacks, pageModifier)
+            DashboardTab.OVERVIEW -> OverviewPage(
+                state = state,
+                callbacks = callbacks,
+                modifier = pageModifier,
+                onOpenPlan = {
+                    tabNavigation = tabNavigation.openProgrammatic(
+                        DashboardTab.APPLICATIONS.ordinal
+                    )
+                    applicationsMode = APP_PAGE_FREEZE
+                    planFilterRequest += 1
+                    callbacks.onTabSelected(DashboardTab.APPLICATIONS)
+                }
+            )
             DashboardTab.APPLICATIONS -> Column(modifier = pageModifier) {
                 // Persistent batch result above the app list. weight(1f)
                 // gives the list every remaining dp; the bar itself is
@@ -356,19 +404,30 @@ fun DashboardScreen(
                     modifier = Modifier.weight(1f),
                     mode = applicationsMode,
                     onModeChange = { applicationsMode = it },
+                    onOpenPlan = {
+                        planFilterRequest += 1
+                        applicationsMode = APP_PAGE_FREEZE
+                    },
                     focusPackage = focusPackage,
-                    onClearFocus = onClearFocus
+                    onClearFocus = onClearFocus,
+                    planFilterRequest = planFilterRequest,
+                    selectionRequest = selectionRequest,
+                    selectionRequestPackages = selectionRequestPackages
                 )
             }
             DashboardTab.ALL_APPS -> AllAppsScreen(
                 state = state,
                 callbacks = callbacks,
                 modifier = pageModifier,
-                onOpenApplications = {
+                onOpenApplications = { packages ->
+                    selectionRequestPackages = packages
+                    selectionRequest += 1
                     tabNavigation = tabNavigation.openProgrammatic(
                         DashboardTab.APPLICATIONS.ordinal
                     )
-                    applicationsMode = 0
+                    applicationsMode = APP_PAGE_FREEZE
+                    onClearFocus()
+                    callbacks.onTabSelected(DashboardTab.APPLICATIONS)
                 }
             )
             DashboardTab.DETECTION -> DetectionPage(
@@ -396,39 +455,45 @@ fun DashboardScreen(
 internal fun topBarBackendModeLabel(backendStatus: String): String {
     val text = backendStatus.trim()
     return when {
-        text.startsWith("Root", ignoreCase = true) -> "模式：Root"
+        text.startsWith("Root", ignoreCase = true) -> "授权：Root"
         text.contains("Shizuku", ignoreCase = true) &&
-            !text.contains("未授权") -> "模式：Shizuku"
-        text.contains("检测中") -> "模式：检测中"
-        else -> "模式：未授权"
+            !text.contains("未授权") -> "授权：Shizuku"
+        text.contains("检测中") -> "授权：检测中"
+        else -> "授权：未授权"
     }
 }
 
 @Composable
-private fun TopBarModePill(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
+private fun TopBarBackButton(onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(
-            percent = 50
-        ),
-        color = if (selected) scheme.primary else scheme.nemuInset(),
-        contentColor = if (selected) scheme.onPrimary else scheme.onSurfaceVariant,
-        modifier = Modifier.nemuClickable(
-            spec = NemuPressSpec.Chip,
-            haptic = NemuHaptic.SegmentTick,
-            onClick = onClick
-        )
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .nemuClickable(
+                spec = NemuPressSpec.Chip,
+                haptic = NemuHaptic.SegmentTick,
+                role = Role.Button,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
-        )
+        Canvas(Modifier.size(20.dp)) {
+            val stroke = size.minDimension * 0.1f
+            drawLine(
+                color = scheme.onSurface,
+                start = Offset(size.width * 0.66f, size.height * 0.18f),
+                end = Offset(size.width * 0.32f, size.height * 0.5f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = scheme.onSurface,
+                start = Offset(size.width * 0.32f, size.height * 0.5f),
+                end = Offset(size.width * 0.66f, size.height * 0.82f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+        }
     }
 }
 
@@ -438,53 +503,35 @@ private fun DashboardTopBar(
     state: DashboardState,
     tab: DashboardTab,
     applicationsMode: Int,
-    onApplicationsModeChange: (Int) -> Unit,
+    onBackToHub: () -> Unit,
     onRefreshApplications: () -> Unit
 ) {
     val backendMode = topBarBackendModeLabel(state.backendStatus)
+    val applicationsTitle = when (applicationsMode) {
+        APP_PAGE_FREEZE -> "冻结管理"
+        APP_PAGE_UNFREEZE -> "解冻恢复"
+        APP_PAGE_DEEP_UNINSTALL -> "深度卸载"
+        else -> "功能"
+    }
     TopAppBar(
-        title = {
-            if (tab == DashboardTab.APPLICATIONS) {
-                // The freeze/unfreeze switch replaces the oversized title and
-                // the separate mode row: one 30dp control instead of a 28sp
-                // heading plus a 40dp chip row, leaving more room for apps.
-                // Match the unfreeze page's “可解冻 M”: owned AND actually
-                // in a frozen state. A stale ownership marker whose package
-                // was re-enabled externally is not restorable.
-                val restoreCount = state.catalog.count {
-                    it.ownsAnyState && it.hasFrozenState
-                }
-                val planCount = state.catalog.count {
-                    it.enabled && it.active
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    TopBarModePill(
-                        text = "冻结",
-                        selected = applicationsMode == 0,
-                        onClick = { onApplicationsModeChange(0) }
-                    )
-                    TopBarModePill(
-                        text = if (restoreCount == 0 && planCount > 0) {
-                            if (state.bootFreeze.enabled) {
-                                "计划 $planCount"
-                            } else {
-                                "计划 $planCount·未启用"
-                            }
-                        } else {
-                            "可解冻 $restoreCount"
-                        },
-                        selected = applicationsMode == 1,
-                        onClick = { onApplicationsModeChange(1) }
-                    )
-                }
-            } else {
-                Text(
-                    text = tab.label,
-                    style = MaterialTheme.typography.headlineLarge
-                )
+        navigationIcon = {
+            if (tab == DashboardTab.APPLICATIONS &&
+                applicationsMode != APP_PAGE_HUB
+            ) {
+                TopBarBackButton(onBackToHub)
             }
+        },
+        title = {
+            Text(
+                text = if (tab == DashboardTab.APPLICATIONS) {
+                    applicationsTitle
+                } else {
+                    tab.label
+                },
+                style = MaterialTheme.typography.headlineLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         },
         actions = {
             if (tab == DashboardTab.APPLICATIONS) {
@@ -492,7 +539,7 @@ private fun DashboardTopBar(
                 Text(
                     text = if (state.catalogRefreshing) "刷新中" else "刷新",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 12.sp
+                        fontSize = 11.sp
                     ),
                     color = if (canRefresh) {
                         MaterialTheme.colorScheme.primary
@@ -501,13 +548,16 @@ private fun DashboardTopBar(
                     },
                     maxLines = 1,
                     modifier = Modifier
-                        .noRippleClickable(
+                        .nemuClickable(
                             enabled = canRefresh,
+                            spec = NemuPressSpec.Chip,
+                            haptic = NemuHaptic.KeyboardTap,
+                            role = Role.Button,
                             onClick = onRefreshApplications
                         )
                         // Invisible padding so the bare label still has a
                         // 48dp-tall touch target inside the top bar.
-                        .padding(horizontal = 10.dp, vertical = 16.dp)
+                        .padding(horizontal = 8.dp, vertical = 16.dp)
                 )
             }
             if (state.busy) {
@@ -523,10 +573,13 @@ private fun DashboardTopBar(
                 text = backendMode,
                 modifier = Modifier
                     .padding(end = 12.dp)
-                    .widthIn(max = 220.dp),
+                    .widthIn(max = 150.dp),
+                fontSize = 11.sp,
                 tone = when (backendMode) {
-                    "模式：Root", "模式：Shizuku" -> StatusChipTone.PRIMARY
-                    "模式：检测中" -> StatusChipTone.NEUTRAL
+                    // User preference: keep the original solid blue capsule
+                    // with white text for an authorized backend.
+                    "授权：Root", "授权：Shizuku" -> StatusChipTone.PRIMARY
+                    "授权：检测中" -> StatusChipTone.NEUTRAL
                     else -> StatusChipTone.ERROR
                 }
             )
@@ -560,7 +613,7 @@ private fun DashboardNavigationBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp)
+                    .height(54.dp)
                     .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -596,7 +649,7 @@ private fun DashboardNavigationBar(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(width = 38.dp, height = 28.dp)
+                                    .size(width = 36.dp, height = 26.dp)
                                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
                                     .background(
                                         if (isSelected) {
@@ -629,7 +682,16 @@ private fun DashboardNavigationBar(
     }
 }
 
-private enum class NemuGlyph { HOME, SNOWFLAKE, APPS, SEARCH, SETTINGS }
+internal enum class NemuGlyph {
+    HOME,
+    SNOWFLAKE,
+    APPS,
+    SEARCH,
+    SETTINGS,
+    RESTORE,
+    UNINSTALL,
+    PLAN
+}
 
 @Composable
 private fun DashboardNavIcon(tab: DashboardTab) {
@@ -648,7 +710,7 @@ private fun DashboardNavIcon(tab: DashboardTab) {
     }
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
     glyph: NemuGlyph,
     color: androidx.compose.ui.graphics.Color
 ) {
@@ -782,6 +844,59 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
             )
             drawCircle(color = color, radius = stroke * 0.8f, center = Offset(cx, cy))
         }
+        NemuGlyph.RESTORE -> {
+            val inset = size.minDimension * 0.22f
+            val diameter = size.minDimension - inset * 2
+            drawArc(
+                color = color,
+                startAngle = 35f,
+                sweepAngle = 285f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = Size(diameter, diameter),
+                style = Stroke(width = stroke, cap = StrokeCap.Round)
+            )
+            // Arrowhead at the open top-right end of the arc.
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val radius = diameter / 2f
+            val angle = Math.toRadians(320.0)
+            val ex = cx + cos(angle).toFloat() * radius
+            val ey = cy + sin(angle).toFloat() * radius
+            line(
+                ex / size.width,
+                ey / size.height,
+                (ex - size.minDimension * 0.16f) / size.width,
+                (ey - size.minDimension * 0.02f) / size.height
+            )
+            line(
+                ex / size.width,
+                ey / size.height,
+                (ex - size.minDimension * 0.02f) / size.width,
+                (ey + size.minDimension * 0.16f) / size.height
+            )
+        }
+        NemuGlyph.UNINSTALL -> {
+            line(0.24f, 0.26f, 0.76f, 0.26f)
+            line(0.42f, 0.18f, 0.58f, 0.18f)
+            line(0.42f, 0.18f, 0.42f, 0.26f)
+            line(0.58f, 0.18f, 0.58f, 0.26f)
+            line(0.30f, 0.30f, 0.35f, 0.84f)
+            line(0.70f, 0.30f, 0.65f, 0.84f)
+            line(0.35f, 0.84f, 0.65f, 0.84f)
+            line(0.44f, 0.38f, 0.46f, 0.76f, stroke * 0.8f)
+            line(0.56f, 0.38f, 0.54f, 0.76f, stroke * 0.8f)
+        }
+        NemuGlyph.PLAN -> {
+            drawCircle(
+                color = color,
+                radius = size.minDimension * 0.32f,
+                center = Offset(size.width / 2f, size.height / 2f),
+                style = Stroke(width = stroke)
+            )
+            line(0.50f, 0.50f, 0.50f, 0.30f)
+            line(0.50f, 0.50f, 0.66f, 0.58f)
+        }
     }
 }
 
@@ -789,76 +904,25 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNemuGlyph(
 private fun OverviewPage(
     state: DashboardState,
     callbacks: DashboardCallbacks,
-    modifier: Modifier
+    modifier: Modifier,
+    onOpenPlan: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = 4.dp,
+            end = 16.dp,
+            bottom = 16.dp
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             OverviewHeroCard(state = state, callbacks = callbacks)
         }
-        if (!state.onboardingDismissed) {
-            item {
-                OnboardingCard(
-                    privilege = state.privilege,
-                    onDismiss = callbacks.onDismissOnboarding,
-                    modifier = Modifier.animateItem()
-                )
-            }
-        }
         item { PrivilegeCard(state, callbacks) }
         if (state.rescueMode) item { RescueModeCard(callbacks) }
-        item { BootFreezeCard(state) }
-    }
-}
-
-/**
- * What the current authorization can do. Pure so the four states are
- * unit-testable without Compose; null means the first privilege read is
- * still running.
- */
-internal fun onboardingMessage(privilege: PrivilegeOverview?): String = when {
-    privilege == null -> "正在检查权限…"
-    privilege.rootAvailable ->
-        "已就绪：可冻结应用、停用组件、伪装卸载，并启用开机自动恢复。"
-    privilege.shizukuGranted ->
-        "可用：冻结和解冻。开机自动恢复、隐藏和停用组件需要 Root。"
-    else ->
-        "可先浏览目标并加入开机计划；执行冻结前需要授权 Root 或 Shizuku。"
-}
-
-/**
- * Non-blocking first-run guide above the privilege card. The buttons live in
- * the privilege card immediately below; duplicating them here gave a Root
- * user an irrelevant “授权 Shizuku” action and four authorization buttons on
- * the first screen. “知道了” hides the card until Settings re-enables it.
- */
-@Composable
-private fun OnboardingCard(
-    privilege: PrivilegeOverview?,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    SectionCard(
-        modifier = modifier,
-        title = "开始使用",
-        subtitle = "按当前授权说明可用能力；可随时关闭，并在设置中重新打开。"
-    ) {
-        Text(
-            text = onboardingMessage(privilege),
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = "具体授权按钮在下方“授权”卡中；这里不会自动请求权限。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        NemuFilledButton(
-            onClick = onDismiss,
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("知道了") }
+        item { BootFreezeCard(state, onOpenPlan) }
     }
 }
 
@@ -868,10 +932,7 @@ private fun PrivilegeCard(
     callbacks: DashboardCallbacks
 ) {
     val privilege = state.privilege
-    SectionCard(
-        title = "授权",
-        subtitle = "Root / Shizuku 执行；未授权时点“授权”。"
-    ) {
+    SectionCard(title = "授权") {
         if (privilege == null) {
             Text("正在检查权限…", style = MaterialTheme.typography.bodySmall)
             NemuOutlinedButton(
@@ -914,13 +975,6 @@ private fun PrivilegeCard(
             actionLabel = if (privilege.shizukuGranted) "检查" else "授权",
             onAction = callbacks.onAuthorizeShizuku
         )
-        NemuOutlinedButton(
-            onClick = callbacks.onRefreshPrivilege,
-            enabled = !state.busy,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("刷新授权状态")
-        }
     }
 }
 
@@ -951,16 +1005,20 @@ private fun PrivilegeRow(
             tone = tone
         )
         if (actionLabel != null && onAction != null) {
-            // Bare text action: no capsule/rectangular ripple ghost.
-            Text(
-                text = actionLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .noRippleClickable { onAction() }
-                    .semantics { role = Role.Button }
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-            )
+            // A real compact pill, not bare text: 授权 and 检查 use the same
+            // size and both get the shared press feedback.
+            NemuOutlinedButton(
+                onClick = onAction,
+                modifier = Modifier.widthIn(min = 56.dp)
+            ) {
+                Text(
+                    actionLabel,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 13.sp
+                    ),
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -970,7 +1028,9 @@ private fun OverviewHeroCard(
     state: DashboardState,
     callbacks: DashboardCallbacks
 ) {
-    val activeStates = state.catalog.filter { it.hasFrozenState || it.applied }
+    val activeStates = state.catalog.filter {
+        it.isInstalled && (it.hasFrozenState || it.applied)
+    }
     // Follow each target's selected preset instead of calling every
     // suspension "已冻结": PAUSE targets must read "已暂停".
     val paused = activeStates.count { it.preset == StrategyPreset.PAUSE }
@@ -980,7 +1040,9 @@ private fun OverviewHeroCard(
         if (paused > 0) add("$paused 个已暂停")
     }.joinToString("、")
     // A plan is not "planned" for boot while the master switch is off.
-    val planned = state.catalog.count { it.enabled && it.active }
+    val planned = state.catalog.count {
+        it.isInstalled && it.enabled && it.active
+    }
     val scheme = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1014,7 +1076,7 @@ private fun OverviewHeroCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
@@ -1027,7 +1089,7 @@ private fun OverviewHeroCard(
                 ) {
                     Text(
                     "系统状态",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp)
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp)
                 )
                     Text(
                         text = if (activeStates.isEmpty()) {
@@ -1066,12 +1128,12 @@ private fun OverviewHeroCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp, horizontal = 10.dp),
+                        .padding(vertical = 8.dp, horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     InlineStat(
-                        value = "${activeStates.size}",
+                        value = "${activeStates.size} 个",
                         label = "已生效"
                     )
                     Box(
@@ -1081,18 +1143,18 @@ private fun OverviewHeroCard(
                             .background(scheme.outlineVariant.copy(alpha = 0.55f))
                     )
                     InlineStat(
-                        value = "$planned",
+                        value = "$planned 个",
                         label = if (state.bootFreeze.enabled) {
-                            "计划中"
+                            "开机冻结中"
                         } else {
-                            "计划·未启用"
+                            "开机冻结未启用"
                         }
                     )
                 }
             }
             if (state.dryRun) {
                 Text(
-                    text = "预览模式：手动冻结/解冻只记录命令；开机/关机安全解冻仍会执行。",
+                    text = "预览模式：手动操作只记录，不改变手机；开机、关机时的安全解冻仍会执行。",
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant
                 )
@@ -1108,14 +1170,16 @@ private fun InlineStat(value: String, label: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        val statStyle = MaterialTheme.typography.labelMedium
         Text(
             text = value,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold
+            style = statStyle,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            style = statStyle,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -1125,8 +1189,8 @@ private fun InlineStat(value: String, label: String) {
 private fun RescueModeCard(callbacks: DashboardCallbacks) {
     var showConfirm by remember { mutableStateOf(false) }
     SectionCard(
-        title = "自动救砖已触发",
-        subtitle = "3 次启动未确认；模块已禁用并尝试恢复。"
+        title = "救援模式已触发",
+        subtitle = "连续 3 次开机都未能确认系统正常；冻结功能已暂停，正在尝试恢复。"
     ) {
         Text(
             "确认桌面、设置正常后再清除；清除不会立即重新应用。",
@@ -1137,12 +1201,12 @@ private fun RescueModeCard(callbacks: DashboardCallbacks) {
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.error
             )
-        ) { Text("清除救援模式并重新启用模块") }
+        ) { Text("解除救援模式") }
     }
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("确认清除救援模式") },
+            title = { Text("解除救援模式？") },
             text = {
                 Text(
                     "先检查并恢复 Nemu 拥有的状态；任一步失败都会保留救援模式。" +
@@ -1165,20 +1229,23 @@ private fun RescueModeCard(callbacks: DashboardCallbacks) {
 }
 
 @Composable
-private fun BootFreezeCard(state: DashboardState) {
+private fun BootFreezeCard(
+    state: DashboardState,
+    onOpenPlan: () -> Unit = {}
+) {
     val boot = state.bootFreeze
     SectionCard(
         title = "开机与安全",
         subtitle = when {
-            !boot.enabled -> "开机冻结已关闭"
+            !boot.enabled -> "开机自动冻结已关闭"
             state.dryRun ->
-                "开机 ${boot.delaySeconds}s 后执行；预览不修改手机"
-            else -> "开机 ${boot.delaySeconds}s 后应用计划"
+                "开机 ${boot.delaySeconds} 秒后执行；预览不修改手机"
+            else -> "开机 ${boot.delaySeconds} 秒后执行开机冻结"
         }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(StatusChipGap)
         ) {
             StatusChip(
                 text = if (boot.enabled) "已开启" else "已关闭",
@@ -1190,9 +1257,12 @@ private fun BootFreezeCard(state: DashboardState) {
             )
             StatusChip(
                 text = when {
-                    boot.plannedCount == 0 -> "无计划"
-                    else -> "计划 ${boot.plannedCount}"
+                    boot.plannedCount == 0 -> "去添加开机冻结 ›"
+                    else -> "开机冻结 ${boot.plannedCount} ›"
                 },
+                modifier = Modifier
+                    .noRippleClickable(onClick = onOpenPlan)
+                    .semantics { contentDescription = "查看开机冻结" },
                 tone = if (boot.plannedCount == 0 || !boot.enabled) {
                     StatusChipTone.NEUTRAL
                 } else {
@@ -1200,31 +1270,19 @@ private fun BootFreezeCard(state: DashboardState) {
                 }
             )
         }
-        Text(
-            text = when {
-                !boot.enabled -> "未启用 · 总开关关闭"
-                boot.windowMissed -> "本次开机窗口已过，下次重试"
-                boot.plannedCount == 0 -> "无计划"
-                else -> "已启用 · ${boot.delaySeconds}s 后执行"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (boot.windowMissed) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        if (boot.windowMissed) {
             Text(
-                text = "上次结果",
+                "本次执行时机已错过，下次开机会重试",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.error
             )
-            StatusChip(
-                text = BootStatusCopy.of(boot.lastResult).chip,
+        }
+        if (boot.lastResult != null) {
+            // Same fixed label column + 8dp gap as SafetyRows, so the chip
+            // starts at the same x as 关机前/开机后.
+            ResultRow(
+                label = "上次结果",
+                value = BootStatusCopy.of(boot.lastResult).chip,
                 tone = bootResultTone(boot)
             )
         }
@@ -1235,7 +1293,7 @@ private fun BootFreezeCard(state: DashboardState) {
                 shape = MaterialTheme.shapes.medium
             ) {
                 Text(
-                    text = "本次开机不自动冻结",
+                    text = "本次开机未自动冻结：${boot.lastSkippedReason}",
                     modifier = Modifier.padding(
                         horizontal = 12.dp,
                         vertical = 8.dp
@@ -1252,19 +1310,17 @@ private fun BootFreezeCard(state: DashboardState) {
 /** 关机/开机安全解冻结果；概览与设置的开机页共用。 */
 @Composable
 private fun SafetyRows(state: DashboardState) {
-    Text("上次安全解冻", style = MaterialTheme.typography.titleSmall)
     val shutdown = prettyResultText(state.lastShutdownResult)
     val boot = prettyResultText(state.lastBootResult)
+    if (shutdown == "尚未执行" && boot == "尚未执行") return
+    Text("上次安全解冻", style = MaterialTheme.typography.titleSmall)
     ResultRow("关机前", shutdown, safetyTone(shutdown))
     ResultRow("开机后", boot, safetyTone(boot))
-    Text(
-        "adb reboot 不通知 Nemu；Root 模块会尝试解冻，" +
-            "但“上次安全解冻”不会更新。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
 }
 
+// One table rule for 总开关 / 开机冻结 / 执行状态 / 上次结果 / 关机前 / 开机后:
+// labels are flush-left and every label is followed by the same content gap.
+// A shorter label simply ends sooner; its value follows at the same gap.
 @Composable
 private fun ResultRow(
     label: String,
@@ -1274,11 +1330,10 @@ private fun ResultRow(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(TableContentGap)
     ) {
         Text(
             text = label,
-            modifier = Modifier.width(56.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1392,17 +1447,6 @@ private fun SettingsPage(
                                     onPageChange(item.id.ordinal)
                                 }
                             }
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            )
-                            SettingsActionRow(
-                                title = "重新显示使用引导",
-                                summary = "回到概览页显示“开始使用”卡片。",
-                                onClick = {
-                                    callbacks.onShowOnboarding()
-                                    onOpenOverview()
-                                }
-                            )
                         }
                     }
                 }
@@ -1479,44 +1523,6 @@ private fun SettingsEntryRow(
     }
 }
 
-/** Settings-root row that runs a callback instead of opening a sub-page. */
-@Composable
-private fun SettingsActionRow(
-    title: String,
-    summary: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .nemuClickable(
-                spec = NemuPressSpec.Row,
-                haptic = NemuHaptic.KeyboardTap,
-                onClick = onClick
-            )
-            .padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(
-                text = summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Text(
-            text = "显示",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
 /**
  * 开机页只读展示：总开关留在概览，避免两个开关同时改同一设置。
  */
@@ -1526,15 +1532,7 @@ private fun BootStatusContent(
     callbacks: DashboardCallbacks
 ) {
     val boot = state.bootFreeze
-    SectionCard(
-        title = "开机自动冻结",
-        subtitle = when {
-            !boot.enabled -> "开机自动冻结已关闭；总开关在概览页。"
-            state.dryRun ->
-                "开机 ${boot.delaySeconds} 秒后执行；预览只记录，不修改手机。"
-            else -> "开机 ${boot.delaySeconds} 秒后执行；总开关在概览页。"
-        }
-    ) {
+    SectionCard(title = "开机自动冻结") {
         ResultRow(
             label = "总开关",
             value = if (boot.enabled) "已开启" else "已关闭",
@@ -1545,7 +1543,7 @@ private fun BootStatusContent(
             }
         )
         ResultRow(
-            label = "计划",
+            label = "开机冻结",
             value = when {
                 boot.plannedCount == 0 -> "无"
                 !boot.enabled -> "${boot.plannedCount} 个 · 未启用"
@@ -1561,9 +1559,9 @@ private fun BootStatusContent(
             label = "执行状态",
             value = when {
                 !boot.enabled -> "总开关关闭"
-                boot.windowMissed -> "本次开机已过"
-                boot.plannedCount == 0 -> "无计划"
-                else -> "已启用 · ${boot.delaySeconds}s"
+                boot.windowMissed -> "本次开机的执行时机已错过，下次开机会自动重试"
+                boot.plannedCount == 0 -> "无开机冻结目标"
+                else -> "已启用 · ${boot.delaySeconds} 秒后执行"
             },
             tone = when {
                 !boot.enabled || boot.plannedCount == 0 ->
@@ -1572,20 +1570,11 @@ private fun BootStatusContent(
                 else -> StatusChipTone.SUCCESS
             }
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "上次结果",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            StatusChip(
-                text = BootStatusCopy.of(boot.lastResult).chip,
-                tone = bootResultTone(boot)
-            )
-        }
+        ResultRow(
+            label = "上次结果",
+            value = BootStatusCopy.of(boot.lastResult).chip,
+            tone = bootResultTone(boot)
+        )
         if (boot.lastSkippedReason != null) {
             Surface(
                 color = MaterialTheme.colorScheme.nemuInset(),
@@ -1593,7 +1582,7 @@ private fun BootStatusContent(
                 shape = MaterialTheme.shapes.medium
             ) {
                 Text(
-                    text = "本次开机不自动冻结",
+                    text = "本次开机未自动冻结：${boot.lastSkippedReason}",
                     modifier = Modifier.padding(
                         horizontal = 12.dp,
                         vertical = 8.dp
@@ -1638,7 +1627,7 @@ private fun BootStatusContent(
     }
 }
 
-/** 固定的安全边界说明；具体不可用原因仍由应用页按目标给出。 */
+/** 固定的安全边界说明；具体不可用原因仍由功能页按目标给出。 */
 @Composable
 private fun ProtectionRulesCard() {
     SectionCard(
@@ -1656,6 +1645,76 @@ private fun ProtectionRulesCard() {
     }
 }
 
+/**
+ * Separate, low-emphasis note panel. It is deliberately a sibling card rather
+ * than a paragraph inside the form: a long ①②③ list shares the form's column
+ * today and reads as if it were another setting.
+ */
+@Composable
+private fun ExecutionNotePanel() {
+    // No card/background: the note sits on the page below the form card.
+    // Each paragraph starts with two ideographic spaces, so its first line is
+    // indented while wrapped lines stay flush left.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            text = "注：",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        // Keep wrapped lines aligned with the text after the number:
+        // 注：
+        // 　① text…
+        // 　　 continuation…
+        ExecutionNoteItem(
+            number = "①",
+            text = "冻结、停用、隐藏只改变应用状态，" +
+                "不会卸载应用或删除数据；可在「功能 › 解冻恢复」撤销。"
+        )
+        ExecutionNoteItem(
+            number = "②",
+            text = "只有「深度卸载」会卸载应用，系统应用也可以卸载；" +
+                "它会先备份 APK 并保留应用数据，模块 v1.20 会在开机时自动恢复；" +
+                "未安装模块时需手动恢复。"
+        )
+        ExecutionNoteItem(
+            number = "③",
+            text = "强制停止是临时的，重新打开应用即恢复运行。"
+        )
+    }
+}
+
+@Composable
+private fun ExecutionNoteItem(number: String, text: String) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // One-character indent after 注：; this is indentation, not a
+            // blank line between the heading and the numbered items.
+            .padding(start = 10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = number,
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = text,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant
+        )
+    }
+}
+
 @Composable
 private fun ExecutionSettingsContent(
     state: DashboardState,
@@ -1663,7 +1722,11 @@ private fun ExecutionSettingsContent(
     onOpenOverview: () -> Unit
 ) {
     var showActualConfirm by remember { mutableStateOf(false) }
-    SectionCard(title = "冻结与权限") {
+    // Entering this page re-reads the backend so a Root/Shizuku grant made
+    // elsewhere is reflected without leaving the settings screen.
+    LaunchedEffect(Unit) { callbacks.onRefreshPrivilege() }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    SectionCard(title = "执行与授权") {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1676,7 +1739,7 @@ private fun ExecutionSettingsContent(
                 Text("实际执行", style = MaterialTheme.typography.titleSmall)
                 Text(
                     text = if (state.dryRun) {
-                        "关闭：手动操作只预览；开机/关机安全清理仍执行"
+                        "关闭：手动操作只预览；开机、关机时的安全解冻仍执行"
                     } else {
                         "开启：点击后会修改手机"
                     },
@@ -1709,8 +1772,9 @@ private fun ExecutionSettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("授权状态", style = MaterialTheme.typography.titleSmall)
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(StatusChipGap)
             ) {
                 val privilege = state.privilege
                 if (privilege == null) {
@@ -1724,41 +1788,32 @@ private fun ExecutionSettingsContent(
                             StatusChipTone.NEUTRAL
                         }
                     )
-                    StatusChip(
-                        text = if (privilege.canFreeze) "可执行" else "需授权",
-                        tone = if (privilege.canFreeze) {
-                            StatusChipTone.SUCCESS
-                        } else {
+                    if (privilege.canFreeze) {
+                        // Status only: an authorized backend has nothing to
+                        // navigate to, so this must not look like a button.
+                        StatusChip(
+                            text = "已授权",
+                            tone = StatusChipTone.SUCCESS
+                        )
+                    } else {
+                        StatusChip(
+                            text = "需授权",
                             // Without a backend nothing can run: important.
-                            StatusChipTone.ERROR
+                            tone = StatusChipTone.ERROR
+                        )
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = onOpenOverview) {
+                            Text(
+                                "去授权",
+                                style = MaterialTheme.typography.labelMedium
+                            )
                         }
-                    )
+                    }
                 }
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "授权在概览页的“授权”卡中管理。",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            TextButton(onClick = onOpenOverview) {
-                Text(
-                    "去授权",
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-        }
-        Text(
-            text = "注：不卸载系统应用；手动冻结/解冻可在“解冻”页撤销，强停的应用首次打开后恢复后台。",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    }
+    ExecutionNotePanel()
     }
 
     if (showActualConfirm) {
@@ -2068,7 +2123,7 @@ private fun DefaultLogsContent(
             enabled = !state.logSettings.busy,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("抓取系统 logcat（最近 3000 行）")
+            Text("抓取系统日志（最近 3000 行）")
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         when {
@@ -2142,7 +2197,7 @@ private fun DefaultLogsContent(
     if (showCaptureConfirm) {
         AlertDialog(
             onDismissRequest = { showCaptureConfirm = false },
-            title = { Text("抓取原始启动日志？") },
+            title = { Text("抓取系统日志？") },
             text = {
                 Text(
                     "将保存最近的系统 logcat，内容未脱敏，可能包含通知、账号标识和应用运行信息。" +
@@ -2177,7 +2232,7 @@ private fun LogLine(
         fontFamily = FontFamily.Monospace,
         color = when (entry.level) {
             "ERROR" -> MaterialTheme.colorScheme.error
-            "WARN" -> MaterialTheme.colorScheme.tertiary
+            "WARN" -> MaterialTheme.colorScheme.secondary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
         maxLines = 6,

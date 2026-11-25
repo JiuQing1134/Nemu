@@ -1,5 +1,7 @@
 package com.nemu.hibernate.ui
 
+import android.content.ClipData
+import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -11,9 +13,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -29,14 +33,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CheckboxColors
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +51,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
@@ -61,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nemu.hibernate.ui.theme.nemuCard
 import com.nemu.hibernate.ui.theme.nemuInset
+import kotlinx.coroutines.launch
 
 /**
  * Nemu switch: a 52 x 32 pill with a solid 24 dp thumb, no Material
@@ -108,7 +120,7 @@ fun NemuSwitch(
     )
     Box(
         modifier = modifier
-            .size(width = 60.dp, height = 40.dp)
+            .size(width = 52.dp, height = 34.dp)
             .toggleable(
                 value = checked,
                 enabled = active,
@@ -124,7 +136,7 @@ fun NemuSwitch(
     ) {
         Box(
             modifier = Modifier
-                .size(width = 52.dp, height = 32.dp)
+                .size(width = 44.dp, height = 28.dp)
                 .nemuPressFeedback(interaction, NemuPressSpec.Switch, active)
                 .clip(CircleShape)
                 .background(track)
@@ -133,11 +145,11 @@ fun NemuSwitch(
                 modifier = Modifier
                     .offset {
                         IntOffset(
-                            x = (4.dp + 20.dp * progress).roundToPx(),
+                            x = (3.dp + 18.dp * progress).roundToPx(),
                             y = 0
                         )
                     }
-                    .size(24.dp)
+                    .size(20.dp)
                     .align(Alignment.CenterStart)
                     .clip(CircleShape)
                     .background(thumb)
@@ -189,7 +201,7 @@ fun NemuMiniSwitch(
     )
     Box(
         modifier = modifier
-            .size(width = 44.dp, height = 28.dp)
+            .size(width = 40.dp, height = 26.dp)
             .toggleable(
                 value = checked,
                 enabled = active,
@@ -205,7 +217,7 @@ fun NemuMiniSwitch(
     ) {
         Box(
             modifier = Modifier
-                .size(width = 34.dp, height = 18.dp)
+                .size(width = 30.dp, height = 16.dp)
                 .nemuPressFeedback(interaction, NemuPressSpec.Switch, active)
                 .clip(CircleShape)
                 .background(track)
@@ -214,15 +226,39 @@ fun NemuMiniSwitch(
                 modifier = Modifier
                     .offset {
                         IntOffset(
-                            x = (2.dp + 16.dp * progress).roundToPx(),
+                            x = (2.dp + 14.dp * progress).roundToPx(),
                             y = 0
                         )
                     }
-                    .size(14.dp)
+                    .size(12.dp)
                     .align(Alignment.CenterStart)
                     .clip(CircleShape)
                     .background(thumb)
             )
+        }
+    }
+}
+
+/** Long-press copy for package names; one shared toast and clipboard path. */
+@Composable
+internal fun rememberPackageNameCopy(): (String) -> Unit {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    return remember(clipboard, scope, context) {
+        { packageName ->
+            scope.launch {
+                clipboard.setClipEntry(
+                    ClipEntry(
+                        ClipData.newPlainText("应用包名", packageName)
+                    )
+                )
+            }
+            Toast.makeText(
+                context,
+                "已复制包名",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 }
@@ -385,18 +421,26 @@ fun NemuOutlinedButton(
         },
         modifier = modifier
             .nemuPressFeedback(interaction, NemuPressSpec.Button, enabled)
-            .heightIn(min = 44.dp),
+            .height(30.dp),
         enabled = enabled,
         interactionSource = interaction,
         shape = CircleShape,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
             containerColor = scheme.nemuInset(),
             contentColor = contentColor,
             disabledContainerColor = scheme.nemuInset().copy(alpha = 0.5f),
             disabledContentColor = scheme.onSurfaceVariant.copy(alpha = 0.38f)
-        ),
-        content = content
-    )
+        )
+    ) {
+        CompositionLocalProvider(
+            LocalTextStyle provides MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp
+            )
+        ) {
+            content()
+        }
+    }
 }
 
 /** Primary filled button with the shared press/haptic treatment. */
@@ -416,16 +460,86 @@ fun NemuFilledButton(
             haptics.perform(NemuHaptic.KeyboardTap)
             onClick()
         },
-        modifier = modifier.nemuPressFeedback(
-            interaction,
-            NemuPressSpec.Button,
-            enabled
-        ),
+        modifier = modifier
+            .nemuPressFeedback(
+                interaction,
+                NemuPressSpec.Button,
+                enabled
+            )
+            .height(30.dp),
         enabled = enabled,
         interactionSource = interaction,
-        colors = colors,
-        content = content
-    )
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        colors = colors
+    ) {
+        CompositionLocalProvider(
+            LocalTextStyle provides MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp
+            )
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * Shared collapsible group heading used by 全部应用 and 检测. It is a plain
+ * tappable row, not a card: the count and chevron carry the state, and the
+ * title follows the screen's semantic colour (primary / error / neutral).
+ */
+@Composable
+internal fun CollapsibleGroupHeader(
+    title: String,
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    color: Color = MaterialTheme.colorScheme.primary
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .nemuClickable(
+                spec = NemuPressSpec.Row,
+                haptic = NemuHaptic.KeyboardTap,
+                role = Role.Button,
+                onClickLabel = if (expanded) "收起$title" else "展开$title",
+                onClick = onToggle
+            )
+            .padding(horizontal = 2.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "$title $count",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+            color = color,
+            maxLines = 1
+        )
+        // A drawn chevron instead of the narrow "⌃/⌄" glyph: wider span and
+        // a 2.6dp round stroke stay legible at a glance.
+        Canvas(Modifier.size(18.dp)) {
+            val stroke = 2.6.dp.toPx()
+            val yOuter = if (expanded) size.height * 0.62f else size.height * 0.38f
+            val yMid = if (expanded) size.height * 0.35f else size.height * 0.65f
+            val left = size.width * 0.20f
+            val right = size.width * 0.80f
+            val mid = size.width * 0.50f
+            drawLine(
+                color = color,
+                start = Offset(left, yOuter),
+                end = Offset(mid, yMid),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = color,
+                start = Offset(mid, yMid),
+                end = Offset(right, yOuter),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+        }
+    }
 }
 
 /**
@@ -462,32 +576,32 @@ internal fun SelectedCountPill(
         contentColor = scheme.onPrimary
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "已选",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 ),
                 maxLines = 1
             )
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(3.dp))
             Text(
                 text = count.toString(),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 ),
                 maxLines = 1
             )
             if (onClick != null) {
                 // A visible × makes the pill's clear action discoverable
                 // instead of looking like a read-only status chip.
-                Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = "×",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 13.sp
+                        fontSize = 12.sp
                     ),
                     maxLines = 1
                 )
@@ -530,9 +644,9 @@ internal fun PillAction(
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
         )
     }
 }
@@ -562,7 +676,7 @@ internal fun SelectionActionBar(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.nemuCard(),
             tonalElevation = 0.dp,
             shadowElevation = 2.dp
@@ -570,7 +684,7 @@ internal fun SelectionActionBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -633,7 +747,7 @@ internal fun BatchFeedbackBar(
     }
     val container = when (feedback.tone) {
         BatchFeedbackTone.SUCCESS -> scheme.primary.copy(alpha = 0.12f)
-        BatchFeedbackTone.WARNING -> scheme.tertiary.copy(alpha = 0.14f)
+        BatchFeedbackTone.WARNING -> scheme.secondary.copy(alpha = 0.14f)
         BatchFeedbackTone.ERROR -> scheme.error.copy(alpha = 0.12f)
         BatchFeedbackTone.NEUTRAL -> scheme.surfaceVariant
     }

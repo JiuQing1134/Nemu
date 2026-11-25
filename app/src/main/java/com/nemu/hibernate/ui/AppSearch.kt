@@ -89,6 +89,16 @@ fun matchesAppQuery(label: String, packageName: String, query: String): Boolean 
     matchesAppQuery(label, packageName, query, productionLatinOf)
 
 /**
+ * Stable sort key for “按名字首字母” lists. ICU transliteration gives Han
+ * labels a Latin key ("wei xin"); on a JVM without ICU it falls back to the
+ * lowercased label so sorting still works deterministically.
+ */
+fun appNameSortKey(label: String): String {
+    val latin = runCatching { productionLatinOf(label) }.getOrDefault("")
+    return if (latin.isBlank()) label.lowercase() else latin
+}
+
+/**
  * Testable matching core. [latinOf] may throw or return an empty string; in
  * that case only the label / package name substring checks apply.
  */
@@ -253,4 +263,24 @@ private fun foldAsciiAlphanumeric(ch: Char): Char? = when (ch) {
     in 'a'..'z', in '0'..'9' -> ch
     in 'A'..'Z' -> ch.lowercaseChar()
     else -> null
+}
+
+/**
+ * True when the package-name line adds information. Some apps use their
+ * package name as the display label; showing both is visual noise. A blank
+ * label still shows the package name because it is the only name available.
+ */
+fun shouldShowPackageName(label: String, packageName: String): Boolean {
+    val trimmed = label.trim()
+    return trimmed.isEmpty() || !trimmed.equals(packageName, ignoreCase = true)
+}
+
+/** "Label · package", or a single value when they are the same/one is blank. */
+fun appTitle(label: String, packageName: String): String {
+    val trimmed = label.trim()
+    return when {
+        trimmed.isEmpty() -> packageName
+        trimmed.equals(packageName, ignoreCase = true) -> label
+        else -> "$label · $packageName"
+    }
 }

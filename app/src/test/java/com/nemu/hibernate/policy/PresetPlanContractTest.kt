@@ -14,7 +14,7 @@ class PresetPlanContractTest {
             .substringBefore("StrategyPreset.PAUSE ->")
 
         assertTrue(
-            "纯观察不执行任何命令，必须同时关闭开机计划，避免开关显示开启却无计划",
+            "纯观察不执行任何命令，必须同时关闭开机冻结，避免开关显示开启却无计划",
             observeBranch.contains("setEnabled(target, false)")
         )
     }

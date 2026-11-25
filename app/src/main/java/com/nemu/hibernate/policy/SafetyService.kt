@@ -9,9 +9,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.nemu.hibernate.core.TargetCatalog
+import com.nemu.hibernate.data.ActionLog
 
 /**
  * Safety service. It exists only while at least one target is actually
@@ -35,19 +38,51 @@ class SafetyService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
-
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SHUTDOWN)
-            addAction(Intent.ACTION_REBOOT)
+        // The service is started with startService(), never
+        // startForegroundService(): a background start is rejected at the
+        // call site, so Android cannot kill the UI process later with
+        // ForegroundServiceDidNotStartInTimeException when the main thread
+        // was busy composing the catalog. Foreground promotion is still
+        // best-effort and a failure only stops this service.
+        val foregroundReady = runCatching {
+            createChannel()
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(),
+                if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                }
+            )
+            true
+        }.getOrElse { error ->
+            ActionLog.warn(
+                "安全解冻服务无法进入前台：${error.message ?: error.javaClass.simpleName}"
+            )
+            false
         }
-        ContextCompat.registerReceiver(
-            this,
-            shutdownReceiver,
-            filter,
-            ContextCompat.RECEIVER_EXPORTED
-        )
+        if (!foregroundReady) {
+            runCatching { stopSelf() }
+            return
+        }
+        runCatching {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SHUTDOWN)
+                addAction(Intent.ACTION_REBOOT)
+            }
+            ContextCompat.registerReceiver(
+                this,
+                shutdownReceiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
+        }.onFailure {
+            ActionLog.warn(
+                "安全解冻广播注册失败：${it.message ?: it.javaClass.simpleName}"
+            )
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -106,9 +141,13 @@ class SafetyService : Service() {
         private const val NOTIFICATION_ID = 1001
 
         fun start(context: Context) {
+            // Deliberately a plain service start. From the foreground this is
+            // allowed and the service promotes itself; from a boot receiver /
+            // worker Android rejects it immediately and the boot guard remains
+            // the shutdown fallback. A rejected start can never turn into an
+            // FGS timeout after 5 seconds.
             runCatching {
-                ContextCompat.startForegroundService(
-                    context,
+                context.startService(
                     Intent(context, SafetyService::class.java)
                 )
             }

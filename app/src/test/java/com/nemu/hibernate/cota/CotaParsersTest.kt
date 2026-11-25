@@ -240,7 +240,7 @@ class CotaParsersTest {
     fun displayLabel_falls_back_without_claiming_a_creation_time() {
         listOf(null, 0L, -1L, Long.MAX_VALUE).forEach { value ->
             assertEquals(
-                "时间未知",
+                "未知",
                 CotaTimestamps.displayLabel(value, ZoneOffset.UTC)
             )
             assertNull(CotaTimestamps.formatModified(value, ZoneOffset.UTC))

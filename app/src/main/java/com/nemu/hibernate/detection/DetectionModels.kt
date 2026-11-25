@@ -127,9 +127,9 @@ data class FreezeState(
         // A hidden package is invisible to PackageManager, so actualKnown is
         // false by design; the applied marker is the positive proof here.
         when {
-            installed -> "未生效"
-            policyApplied -> "已生效"
-            else -> "未知"
+            installed -> "仍可见"
+            policyApplied -> "已隐藏"
+            else -> "不可见（未安装）"
         }
     } else if (!actualKnown) {
         "未知"
@@ -184,6 +184,7 @@ data class FreezeState(
             append("；")
             append(describeSuspendActual(enabled, suspended, stopped, processRunning))
         }
+        mode == FreezeMode.OBSERVE -> "仅观察，未设置冻结策略"
         else -> buildString {
             append(
                 describeSuspendActual(
@@ -208,11 +209,12 @@ data class FreezeState(
         !actualKnown -> "读取失败"
         mode == FreezeMode.COMPONENT && componentDisabled == null -> "组件状态未知"
         mode == FreezeMode.COMPONENT && componentPartial -> "组件部分停用"
-        pending -> "未应用"
-        mismatch() -> "不一致"
+        pending -> "已加入 · 未生效"
+        mismatch() -> "与计划不符"
         mode == FreezeMode.DISABLE -> if (!enabled) "已停用" else "仍启用"
         mode == FreezeMode.COMPONENT ->
             if (componentDisabled == true) "组件已停用" else "组件启用"
+        suspended && !policyApplied -> "他人暂停"
         partiallyApplied() -> "已${suspendWord()} · 存活"
         suspended && processRunning == null -> "已${suspendWord()} · 未知"
         preset == StrategyPreset.PAUSE ->
@@ -247,13 +249,13 @@ data class CotaState(
                 files.isEmpty() && nestedFiles == 0 ->
                     "未检测到参数文件（子目录 ${directories.size} 个）"
                 else ->
-                    "根目录 ${files.size} 个文件 · 子目录 ${directories.size} 个 / $nestedFiles 个文件"
+                    "根目录 ${files.size} 个文件 · 子目录 ${directories.size} 个（共 $nestedFiles 个文件）"
             }
         }
-        CotaReadStatus.NO_ROOT -> "无 root，未读取"
+        CotaReadStatus.NO_ROOT -> "无 Root 权限，未读取"
         CotaReadStatus.ERROR ->
             "读取失败${message?.let { "：$it" } ?: ""}"
-        CotaReadStatus.UNKNOWN -> "未检测"
+        CotaReadStatus.UNKNOWN -> "未读取"
     }
 }
 
@@ -282,10 +284,10 @@ data class ThermalState(
     val services: List<ThermalServiceState> = emptyList(),
     val message: String? = null
 ) {
-    val readOnlyNote: String get() = "检测页只读；冻结/策略在冻结/解冻页操作"
+    val readOnlyNote: String get() = "检测页只读；冻结与解冻请在「功能」页操作"
 
     fun describe(): String {
-        if (services.isEmpty()) return message ?: "未检测"
+        if (services.isEmpty()) return message ?: "未读取"
         val installed = services.count { it.installed }
         val enabled = services.count { it.installedAndEnabled() }
         return "已安装 $installed/${services.size}；已启用 $enabled/${services.size}"
@@ -352,13 +354,13 @@ data class BootSafetyState(
         // Report a tripped guard even when the master switch is now off;
         // otherwise the row says “未启用” while the overview says 异常.
         bootloopGuardTripped() ->
-            "守卫触发 · 上次未净关机"
+            "守卫触发 · 上次未正常关机"
         !bootFreezeEnabled -> null
-        skippedThisBoot() -> "手动解冻，已跳过"
+        skippedThisBoot() -> "本次开机已手动解冻，自动冻结已跳过"
         bootCount >= 0 && lastBootFreezeBootCount == bootCount ->
-            "本 boot 已处理"
+            "本次开机已有冻结结果"
         bootCount >= 0 && lastBootFreezeAttemptBootCount == bootCount ->
-            "本 boot 已尝试"
+            "本次开机已尝试冻结"
         else -> null
     }
 
@@ -388,8 +390,8 @@ data class DetectionSnapshot(
 
     fun describeSummary(): String = buildString {
         append(
-            "目录目标 ${freezeStates.size} 项，" +
-                "策略与实际不一致 ${freezeMismatches.size} 项"
+            "应用 ${freezeStates.size} 项，" +
+                "与计划不符 ${freezeMismatches.size} 项"
         )
         append("；COTA：${cota.describe()}")
         append("；温控：${thermal.describe()}")

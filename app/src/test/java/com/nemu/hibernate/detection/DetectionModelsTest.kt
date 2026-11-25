@@ -77,7 +77,7 @@ class DetectionModelsTest {
             .copy(policyApplied = false)
 
         assertFalse(state.mismatch())
-        assertEquals("未应用", state.statusLabel())
+        assertEquals("已加入 · 未生效", state.statusLabel())
         assertEquals("已纳入（未应用）", state.describePolicy())
     }
 
@@ -86,7 +86,7 @@ class DetectionModelsTest {
         val state = freeze(policy = true, suspended = false)
 
         assertTrue(state.mismatch())
-        assertEquals("不一致", state.statusLabel())
+        assertEquals("与计划不符", state.statusLabel())
     }
 
     @Test
@@ -175,7 +175,7 @@ class DetectionModelsTest {
         val state = freeze(policy = true, suspended = false)
 
         assertTrue(state.mismatch())
-        assertEquals("不一致", state.statusLabel())
+        assertEquals("与计划不符", state.statusLabel())
         assertEquals(
             "策略：已纳入；实际：未冻结，已启用，停止标记未设置，进程未知",
             state.describe()
@@ -236,7 +236,7 @@ class DetectionModelsTest {
             .copy(policyApplied = false)
 
         assertTrue(state.mismatch())
-        assertEquals("不一致", state.statusLabel())
+        assertEquals("与计划不符", state.statusLabel())
         assertEquals("未纳入", state.describePolicy())
         assertEquals("已冻结，已启用，停止标记未设置，进程未知", state.describeActual())
     }
@@ -272,7 +272,7 @@ class DetectionModelsTest {
         )
 
         assertTrue(state.mismatch())
-        assertEquals("不一致", state.statusLabel())
+        assertEquals("与计划不符", state.statusLabel())
         assertEquals("策略：已纳入；实际：已启用", state.describe())
     }
 
@@ -363,7 +363,7 @@ class DetectionModelsTest {
 
     @Test
     fun cotaNoRootIsExplicit() {
-        assertEquals("无 root，未读取", CotaState(CotaReadStatus.NO_ROOT).describe())
+        assertEquals("无 Root 权限，未读取", CotaState(CotaReadStatus.NO_ROOT).describe())
         assertFalse(CotaState(CotaReadStatus.NO_ROOT).hasFiles)
     }
 
@@ -383,7 +383,7 @@ class DetectionModelsTest {
         val state = CotaState()
 
         assertEquals(CotaReadStatus.UNKNOWN, state.status)
-        assertEquals("未检测", state.describe())
+        assertEquals("未读取", state.describe())
         assertFalse(state.hasFiles)
     }
 
@@ -433,12 +433,12 @@ class DetectionModelsTest {
         val state = ThermalState(services = listOf(a, b))
 
         assertEquals("已安装 2/2；已启用 1/2", state.describe())
-        assertEquals("检测页只读；冻结/策略在冻结/解冻页操作", state.readOnlyNote)
+        assertEquals("检测页只读；冻结与解冻请在「功能」页操作", state.readOnlyNote)
     }
 
     @Test
     fun emptyThermalStateReportsDetectionGap() {
-        assertEquals("未检测", ThermalState().describe())
+        assertEquals("未读取", ThermalState().describe())
         assertEquals("读取失败", ThermalState(message = "读取失败").describe())
     }
 
@@ -534,7 +534,7 @@ class DetectionModelsTest {
 
         assertTrue(state.skippedThisBoot())
         assertTrue(state.describeGuard().contains("手动解冻"))
-        assertEquals("手动解冻，已跳过", state.guardNote())
+        assertEquals("本次开机已手动解冻，自动冻结已跳过", state.guardNote())
     }
 
     @Test
@@ -585,7 +585,7 @@ class DetectionModelsTest {
         assertFalse(applied.mismatch())
         assertEquals("已冻结 · 未知", applied.statusLabel())
         assertTrue(missing.mismatch())
-        assertEquals("不一致", missing.statusLabel())
+        assertEquals("与计划不符", missing.statusLabel())
     }
 
     // ---- DetectionSnapshot ----
@@ -601,8 +601,8 @@ class DetectionModelsTest {
 
         assertEquals(1, snapshot.freezeMismatches.size)
         assertEquals(1, snapshot.mismatchCount)
-        assertTrue(snapshot.describeSummary().contains("不一致 1 项"))
-        assertTrue(snapshot.describeSummary().contains("COTA：未检测"))
+        assertTrue(snapshot.describeSummary().contains("与计划不符 1 项"))
+        assertTrue(snapshot.describeSummary().contains("COTA：未读取"))
     }
 
     @Test

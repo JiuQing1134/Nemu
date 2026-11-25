@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.sp
  * 外观 token 移植自 FlClash / prism_ui（Apache-2.0，见 THIRD_PARTY_NOTICES.md）：
  * - 颜色：HCT 配色，八色 iOS 系统色板，四种配色风格（鲜明 / 氛围 / 柔和 / 单色）。
  * - 形状：分组卡片 26dp、页面 28dp。
- * - 字体：iOS Dynamic Type 比例（17pt 正文、13pt 辅助、17pt 半粗标题、20/24pt 页标题）。
+ * - 字体：紧凑的 iOS Dynamic Type 比例（14pt 正文、12pt 辅助、14pt 半粗标题、
+ *   20pt 页标题）。旧版 17pt 正文在 360dp 宽的机型上让控件拥挤，且大量
+ *   卡片/标签同时放大；这里整体下调一档，详情页仍可用 16/20pt。
  *
  * 所有颜色由 [colorSchemeFor] 从 NemuColorData.kt 读取。
  */
@@ -37,91 +39,91 @@ private val NemuShapes = Shapes(
 private val NemuTypography = Typography(
     displayLarge = TextStyle(
         fontWeight = FontWeight.Bold,
-        fontSize = 40.sp,
-        lineHeight = 44.sp,
+        fontSize = 34.sp,
+        lineHeight = 38.sp,
         letterSpacing = 0.sp
     ),
     displayMedium = TextStyle(
         fontWeight = FontWeight.Bold,
-        fontSize = 34.sp,
-        lineHeight = 41.sp,
+        fontSize = 29.sp,
+        lineHeight = 34.sp,
         letterSpacing = 0.sp
     ),
     displaySmall = TextStyle(
         fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
+        fontSize = 24.sp,
+        lineHeight = 29.sp,
         letterSpacing = 0.sp
     ),
     headlineLarge = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
         letterSpacing = 0.sp
     ),
     headlineMedium = TextStyle(
         fontWeight = FontWeight.Bold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontSize = 18.sp,
+        lineHeight = 23.sp,
         letterSpacing = 0.sp
     ),
     headlineSmall = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 20.sp,
-        lineHeight = 25.sp,
+        fontSize = 16.sp,
+        lineHeight = 21.sp,
         letterSpacing = 0.sp
     ),
     titleLarge = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 22.sp,
+        fontSize = 16.sp,
+        lineHeight = 21.sp,
         letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 22.sp,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp
     ),
     titleSmall = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 15.sp,
-        lineHeight = 20.sp,
+        fontSize = 14.sp,
+        lineHeight = 19.sp,
         letterSpacing = 0.sp
     ),
     bodyLarge = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 17.sp,
-        lineHeight = 22.sp,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp
     ),
     bodyMedium = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 20.sp,
+        fontSize = 14.sp,
+        lineHeight = 19.sp,
         letterSpacing = 0.sp
     ),
     bodySmall = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
         letterSpacing = 0.sp
     ),
     labelLarge = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 15.sp,
-        lineHeight = 20.sp,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
         letterSpacing = 0.sp
     ),
     labelMedium = TextStyle(
         fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp
     ),
     labelSmall = TextStyle(
         fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
+        fontSize = 10.sp,
         lineHeight = 13.sp,
         letterSpacing = 0.sp
     )

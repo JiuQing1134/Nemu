@@ -52,7 +52,17 @@ object BootFreezeScheduler {
     private val scheduleMutex = Mutex()
 
     suspend fun ensureScheduled(context: Context) {
-        scheduleMutex.withLock { ensureScheduledLocked(context) }
+        // WorkManager/prefs can throw during direct boot or OEM background
+        // restriction. Scheduling is best-effort: never let it take down the
+        // app process from a fire-and-forget coroutine.
+        runCatching {
+            scheduleMutex.withLock { ensureScheduledLocked(context) }
+        }.onFailure {
+            ActionLog.warn(
+                "开机冻结排程失败：" +
+                    (it.message ?: it.javaClass.simpleName)
+            )
+        }
     }
 
     private suspend fun ensureScheduledLocked(context: Context) {

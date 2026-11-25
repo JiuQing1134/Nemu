@@ -27,7 +27,7 @@ class CotaCopyTest {
 
     @Test
     fun pathCopiedToastIsShortAndDoesNotContainThePath() {
-        assertEquals("地址已复制", CotaCopy.PATH_COPIED)
+        assertEquals("路径已复制", CotaCopy.PATH_COPIED)
         assertTrue(CotaCopy.PATH_COPIED.length <= 8)
     }
 }

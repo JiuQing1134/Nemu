@@ -1,6 +1,7 @@
 # 两个项目的地址与产物
 
-> 更新：2026-11-25（交互批次 + P1/P2 审计修复 / App 重新构建）  
+> 更新：2026-11-25（功能页 + 移除引导 + 文案精简 + 紧凑字号 + SafetyService 闪退修复 + 深度卸载状态清理）
+>
 > **已验证设备**：HONOR AAP-AN00，MagicOS 10.0.0.102（Android 16，SDK 36），
 > 内核 `6.12.23-android16-5-gcd85666d7884-abogki452537391-4k`，当前槽位 `a`。  
 > 远程仓库：https://github.com/JiuQing1134/Nemu 与 https://github.com/JiuQing1134/Nagi（公开）。
@@ -12,11 +13,14 @@
 - **applicationId**：`com.nemu.dream`
 - **源码命名空间**：`com.nemu.hibernate`
 - **版本**：`1.3.3` / `versionCode 9`
-- **当前 universal release**（2026-11-25，含批量开机计划 / 选择跨筛选保留 /
-  已选×单一清空入口 / 细开关与批量同步 / 解冻页计划留存 / 检测页统一分类 /
+- **当前 universal release**（2026-11-25，含批量开机冻结 / 选择跨筛选保留 /
+  已选×单一清空入口 / 细开关与批量同步 / 首页计划直达 / 添加后自动选中 /
+  再次冻结上次选择 / 深度卸载（备份、保留数据、开机自动恢复/重卸） /
+  筛选外数量提示 / 长按复制包名 / 搜索返回先收键盘 /
+  开机触发可靠性 / 闪退防护与 last-crash / 中文文案统一 / 解冻页计划留存 / 检测页统一分类 /
   拼音多音词搜索 / 计划撤销与结果反馈 / P1/P2 审计修复）：
-  `app/build/outputs/apk/release/app-release.apk` — 24,970,273 字节 — SHA-256
-  `c5a2c911fc08995c155de88ed64d2f9cb151909a4d2bf404516e70d1662873ac`
+  `app/build/outputs/apk/release/app-release.apk` — 25,232,417 字节 — SHA-256
+  `0ae8393c983b611f209ca6f2f86a00072a4f4c41acf910e3f98dcb1f692efe28`
 - **历史四包**（`dist/`，debug/release × arm64-v8a/x86_64）：
   - `Nemu-1.3.3-arm64-v8a-debug.apk` — 34,756,230 字节 — `436565d4ac55a2a7303e2e5b4b7e35ab4da25e4ce72846c9e0bb90a2e336fa81`
   - `Nemu-1.3.3-x86_64-debug.apk` — 34,756,891 字节 — `9b6267e7e1a887dd9a4a39ed0bd7c464ee769bd9b071655242987f12d754b56f`
@@ -26,12 +30,20 @@
     keystore 签名（`CN=Nemu`，证书 SHA-256 `1f35e73171516428dc80cf8e5645efe10f41bde510a4e1cb705409adcebf19a7`），
     备份在 `D:\win_root\nemu-signing-backup\`。
 - **自启动模块**：`D:\win_root\nemu\tools\nemu-boot-autostart\nemu-boot-autostart.zip`
-  - 26,295 字节
-  - SHA-256：`9ce22b583919f8a672e550452ac483976401e5ed8f8cc99c9ea58d445c01557c`
-  - 模块 ID：`nemu_boot_autostart`，v1.18 / versionCode 19，11 个条目（含
-    `boot_guard_runner.sh`）
+  - 37,144 字节
+  - SHA-256：`af5f5c50b34099a0d696f6d80622f54015abefd7b979957c54bf491f1764a924`
+  - 模块 ID：`nemu_boot_autostart`，v1.27 / versionCode 28，14 个条目（含
+    `boot_guard_runner.sh`、`deep_restore.sh`、`deep_rescue.sh`）
+  - v1.21 深度卸载 bridge：service 阶段按 `manifest.tsv` 恢复用户 0 未安装的包，
+    `boot_completed` + 90 秒后只重新卸载本次恢复的包；已安装/版本变化的包跳过；
+    卸载/重卸都带 `-k` 保留数据，恢复后 `pm enable`
+  - v1.21 安全网：`deep_rescue.sh` 在第二次未完成启动时只对 manifest 包修复 ABX
+    `package-restrictions` 的 `inst="false"`，主副本失败不动 manifest；
+    `manifest.last.tsv` 作为 last-good 基线；模块卸载前先 `--restore-only`
   - early PM-ready 阶段恢复全部 Nemu-owned 冻结态；`boot_completed` 后复核；
     快速 `adb reboot` 由 boot_completed 标记防止误触发救援；安装/更新后需重启
+  - v1.19 `BOOT_TRIGGER` 带 `--include-stopped-packages` 并重试 3 次，修复
+    应用被后台清理后开机冻结计划不排程；每次尝试写 `boot_guard/guard.log`
 - **文档**：
   - `D:\win_root\nemu\README.md`
   - `D:\win_root\nemu\PROJECT.md`
